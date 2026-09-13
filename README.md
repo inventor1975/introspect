@@ -62,9 +62,18 @@ match the sink's).
 ## Run
 
 ```bash
-python3 php2zfl/php2zfl.py  path/to/app        # or py2zfl / java2zfl / go2zfl / js2zfl / rb2zfl / cs2zfl
+python3 introspect.py  path/to/project         # every language at once, routed by file extension
+python3 php2zfl/php2zfl.py  path/to/app        # or one language: py2zfl / java2zfl / go2zfl / js2zfl / rb2zfl / cs2zfl
 python3 <lang>2zfl/test_<lang>2zfl.py          # each module's regression gate
 ```
+
+`introspect.py` walks the project, sends each file to the module for its language
+(by extension), and merges the verdicts into one report — **skipping, with a reason,**
+any language whose parser isn't installed (never a silent clean bill), and listing
+files it doesn't cover as out-of-scope, never "safe". Exit status is nonzero when any
+REFUTED is found (handy in CI). Each language is still analysed on its own: flows that
+cross **between** languages (or through a database or queue) are not tracked and stay
+OPEN, never guessed.
 
 ## What's measured, and what isn't (read this before trusting a number)
 
