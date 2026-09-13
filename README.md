@@ -25,21 +25,22 @@ is unverifiable, introspect emits **OPEN**, never a false clearance and never a 
 accusation. Precision — *what it accuses is real* — is the contract's guarantee; recall is
 bounded by what the parser can see.
 
-## Two ways in
+## How it works
 
-- **Static core (free, no API, no tokens).** Seven per-language modules parse source with
-  that language's **own** parser and track taint (`F` clean / `T` attacker-controlled /
-  `Z` unknown) from sources to sinks, across functions and files.
-- **AI-assisted front-end (optional).** A human states a claim or pastes code in natural
-  language; the **LLM only *translates*** it into ZFL (the formal intermediate) — it never
-  judges. A deterministic, measured **core does the judging**. The LLM's output is itself an
-  unverified input (the mark `Z`): truth is never granted on credit, not even to the
-  translator.
+Seven per-language modules parse source with that language's **own** parser and track taint
+(`F` clean / `T` attacker-controlled / `Z` unknown) from sources to sinks, across functions
+and files — no API, no tokens, no network. A single deterministic ZTL core (vendored in
+`ztlcore/`) judges each flow:
 
 ```
-input ──AI translates──► ZFL ──validator──► deterministic core judges ──► verdict
-        (LLM = unverified Z)                 (AI-free, measured)          REFUTED/OPEN/EARNED
+source ──► AST ──► taint (F / T / Z) ──► ZTL core judges ──► REFUTED / OPEN / EARNED
+                                         (AI-free, measured)
 ```
+
+> Prefer to work in natural language? The **AI-assisted studio** — an LLM *translates* your
+> words into ZFL and the same core judges (the translator's output is itself unverified,
+> `Z` — truth is never granted on credit, not even to the translator) — lives in its own
+> repo: **[ztlstudio](https://github.com/inventor1975/ztlstudio)**.
 
 ## Languages
 
@@ -63,7 +64,6 @@ match the sink's).
 ```bash
 python3 php2zfl/php2zfl.py  path/to/app        # or py2zfl / java2zfl / go2zfl / js2zfl / rb2zfl / cs2zfl
 python3 <lang>2zfl/test_<lang>2zfl.py          # each module's regression gate
-python3 ztlstudio.py                           # the AI-translate / core-judge studio → http://localhost:8190
 ```
 
 ## What's measured, and what isn't (read this before trusting a number)
@@ -85,10 +85,11 @@ python3 ztlstudio.py                           # the AI-translate / core-judge s
 
 ## Dependencies
 
-Static core: Python 3. Per-language parser: PHP (php + PHP-Parser), Java (`pip install
-javalang`), Go (`go` toolchain), JS/TS (`npm install @babel/parser`), Ruby (stdlib Ripper),
-C# (.NET SDK; the Roslyn helper builds on first use). The AI front-end reads its API key from
-a local, git-ignored `.<provider>_key` file or environment variable — **no keys are bundled**.
+Python 3 for the engine (stdlib only; the ZTL core is vendored in `ztlcore/`, so a clone is
+self-contained). Per-language parser: PHP (php + PHP-Parser), Java (`pip install javalang`),
+Go (`go` toolchain), JS/TS (`npm install @babel/parser`), Ruby (stdlib Ripper), C# (.NET SDK;
+the Roslyn helper builds on first use). No API keys, no network, no tokens — the static core
+runs entirely offline.
 
 ## Status
 
