@@ -274,7 +274,21 @@ def atomize(files, overlays, autoload, catalog=None, php=None, jobs=None, summar
     # splitting work does not fix work that is quadratic in one place.
     n = jobs if jobs and jobs > 0 else min(8, (os.cpu_count() or 1))
     if n <= 1 or len(files) < 40:
-        return _atomize_batch((cmd, files, env))
+        # ОШИБКА ПРОВЕРЯЕТСЯ И НА ОДИНОЧНОЙ ПАРТИИ. Проверка `_error` стояла
+        # ТОЛЬКО на параллельной ветке ниже, и короткий путь — один файл или
+        # меньше сорока — отдавал `{"files": [], "_error": ...}` как обычный
+        # пустой результат: отчёт печатался пустым, stderr чист, код выхода
+        # НОЛЬ. Неотличимо от честного «прогнали, ничего не нашли», а на деле
+        # парсер не запускался вовсе. Поймано 2026-09-18: я сам принял 0.05 с и
+        # ноль вердиктов за быстрый прогон. Своя же шапка обещает обратное —
+        # «язык, чей парсер не установлен, ПРОПУСКАЕТСЯ С ПРИЧИНОЙ и никогда не
+        # объявляется чистым». Сторож на длинном пути и его отсутствие на
+        # коротком — одна и та же ошибка дважды: `summarise` проверяет всегда,
+        # потому что у него нет короткого пути.
+        one = _atomize_batch((cmd, files, env))
+        if one.get("_error"):
+            sys.exit(one["_error"])
+        return one
     batches = [files[i::n] for i in range(n)]
     with ThreadPool(n) as pool:
         parts = pool.map(_atomize_batch, [(cmd, b, env) for b in batches if b])
