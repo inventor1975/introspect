@@ -190,7 +190,18 @@ def _print(report, show_open=False, quiet=False):
                   f"EARNED {c.get('EARNED',0)}")
         for moddir in sorted(skipped):
             s = skipped[moddir]
-            print(f"  {LABEL[moddir]:<8} {s['files']:>5} files    SKIPPED — needs {s['needs']}")
+            # A skip is NOT always a missing parser: a path bug, a timeout or a crash
+            # lands here too. Printing only the hint turned a real coverage hole into a
+            # wrong diagnosis (2026-09-19: a relative-path ENOENT was reported as
+            # "needs @babel/parser", so installing the parser changed nothing).
+            # Print BOTH — what happened, then what would fix it. Deciding which of the
+            # two to show would mean classifying the exception text, and the six modules
+            # word their failures differently ("missing", "not found", "need Go
+            # toolchain", "No module named ..."), so any such test is wrong for some.
+            msg = f"  {LABEL[moddir]:<8} {s['files']:>5} files    SKIPPED — {s['reason'][:110]}"
+            if s["needs"]:
+                msg += f"\n  {'':<8} {'':>5}                 needs {s['needs']}"
+            print(msg)          # NOT `line` — that name holds the "=" separator below
 
         refuted = [(LABEL[m], f) for m in sorted(langs) for f in langs[m]["findings"]
                    if f["disp"] == "REFUTED"]

@@ -292,7 +292,12 @@ def _ensure_parser():
 
 def parse(path):
     _ensure_parser()
-    out = subprocess.run(["node", JSAST, path], capture_output=True, text=True, timeout=60, cwd=HERE)
+    # node runs with cwd=HERE, so a RELATIVE path would resolve against the tool
+    # directory and fail with ENOENT — which introspect then misreported as a
+    # missing parser. Absolutise here. MEASURED 2026-09-19: 3 TS files of a
+    # scanned project were silently skipped this way.
+    out = subprocess.run(["node", JSAST, os.path.abspath(path)],
+                         capture_output=True, text=True, timeout=60, cwd=HERE)
     if out.stdout.strip():
         return json.loads(out.stdout)
     raise RuntimeError("js2zfl: parser produced no output for %s: %s" % (path, out.stderr.strip()[:200]))
