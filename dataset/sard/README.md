@@ -78,44 +78,65 @@ So on the modelled classes, **no miss survives inspection**: the instrument is n
 silent where this generator plants a flaw it actually plants. That is a statement about
 this synthetic corpus and nothing more.
 
-### False alarms (benchmark says *safe*, ZTL says vulnerable): 1 079 — grouped by mechanism, **not** fully adjudicated
+### False alarms (benchmark says *safe*, ZTL says vulnerable): 1 079 — each one MEASURED
 
-Each row carries the tool's own receipt. Grouped by that receipt:
+No "vulnerable" claim here rests on reasoning. `confirm_alarms.py` runs, for every one
+of the 1 079 files, the file's own input read and sanitiser on a probe of the context's
+bare metacharacters, then reads whether the dangerous character **survives raw to the
+point of the sink**. The sink itself never runs: function sinks
+(`system`, `mysql_query`, `header`, …) are stubbed to no-ops, and the two that are
+language constructs (`eval`, `include`/`require`) are cut away before they execute. The
+column `false_alarm_confirmation` on each row is that measurement.
 
-- **595** — the applied function does not substitute the value for this sink's context,
-  so it reaches the sink unchanged. This bucket is **mixed** and is the honest boundary
-  of this dataset: it contains both genuine mislabels (e.g. `addslashes` or
-  `mysql_real_escape_string` before an OS command — the shell does not read SQL/C
-  escaping) **and** ZTL's own conservatism (e.g. stripping the quote for a
-  single-quoted SQL string does neutralize it, but ZTL's catalogue does not credit that
-  removal for the sql context). Separating the two per file is case work **not done
-  here**.
-- **358** — a sanitizer for a *different* context than the sink (an HTML escaper before
-  a SQL/shell/file sink); SARD labelled the file safe because *some* sanitizer ran.
-- **112** — the value is escaped but lands in an HTML attribute-name or event-handler
-  context, which ZTL refuses by policy (the browser decodes entities before the script
-  parser runs). A position held on purpose, listed so no one counts it as an accident.
-- **14** — other; read the per-row receipt.
+  | | measured verdict | count | reading |
+  |---|---|--:|---|
+  | **high confidence** | `not_neutralised` | **574** | the metacharacter reaches the sink; **the benchmark's "safe" is wrong** |
+  | **high confidence** | `neutralised`     | **323** | the guard escapes/removes the character; **ZTL's alarm is conservative — our false positive, not a vulnerability** |
+  | context-dependent    | either            | **182** | HTML attribute / event-handler context; **held, claimed neither way** |
 
-Of the false alarms, **42** are files whose source applies `escapeshellarg` to the
-variable `$tained` — a typo for `$tainted` — so the guard protects nothing and the
-value reaches `system()` unescaped. There the benchmark's "safe" is wrong.
+- The **574 confirmed mislabels** are: SARD's `safe/` command-injection files whose
+  "sanitiser" (`addslashes`, `htmlspecialchars`, `mysql_real_escape_string`, `preg_replace`,
+  magic-quotes) does not touch shell metacharacters, so `;` reaches `system()` (266);
+  file-inclusion files where `/` and `..` reach `include()` (238); and XSS-in-`<script>`
+  files where an HTML-text escaper does not neutralise a JavaScript-string context (70).
+  Included among them are **42** files whose source applies `escapeshellarg` to the
+  variable `$tained` — a typo for `$tainted` — so the guard protects nothing.
+- The **323 our-false-positives** are single-quoted SQL and `eval` files where the guard
+  does escape (`\'`) or encode (`&#039;`) or remove the quote. **Caveat, stated:**
+  `addslashes` neutralises this *specific* single-quoted construction under default MySQL,
+  but is not a correct general SQL defence (multibyte and `NO_BACKSLASH_ESCAPES` edge
+  cases); ZTL's refusal to credit it is defensible even though, for these exact files, the
+  quote does not break out. `mysql_real_escape_string` (removed in PHP 8) is modelled by
+  `addslashes`, and the removed `FILTER_SANITIZE_MAGIC_QUOTES` by `FILTER_SANITIZE_ADD_SLASHES`
+  — both escape the quote identically.
+- The **182 held** are HTML attribute/event-handler contexts, where exploitability turns
+  on the exact quoting and the browser's decoding order; the coarse metacharacter probe is
+  not authoritative there, so the dataset records the measurement but claims nothing.
+
+What is **not** claimed: end-to-end exploitation. "not_neutralised" means the metacharacter
+demonstrably reaches the sink un-neutralised (a mislabel by any static standard), measured
+with the sink stubbed — it is not a fired exploit.
 
 ## Method, stated plainly
 
-Disagreements were adjudicated by **reading each case against established security
-semantics** (what an escaper does and does not neutralize in a given sink context) and
-by mechanical signatures over the source — **not** by executing the files with attack
-payloads. Nothing in producing this dataset was run as a program under attacker input.
+Misses were adjudicated by signatures read in the source. False alarms were **measured**
+(`confirm_alarms.py`): the file's input read and sanitiser were run on a bare-metacharacter
+probe, and the value reaching the sink was inspected. **No sink and no exploit ran** — every
+function sink was stubbed to a no-op and every construct sink (`eval`, `include`/`require`)
+was cut away before execution. So a program was run, but only the guard, never the attack.
 
 ## Contents and licence
 
 - `sard_ztl_verdicts.jsonl` — 31 824 rows; per file: CWE, context, source, sanitizer,
   construction, the SARD **file name** (which encodes the case), the benchmark's label,
-  the ZTL verdict, the named weak link, whether the two agree, and a note on the
-  disagreement.
+  the ZTL verdict, the named weak link, whether the two agree, a note on the disagreement,
+  and for every false alarm the measured `false_alarm_confirmation` and
+  `false_alarm_confidence`.
+- `false_alarm_confirmation.jsonl` — the raw measurement for the 1 079 false alarms: the
+  value that reaches the sink and whether the metacharacter survived.
 - `summary.json` — the per-CWE counts above.
-- `build.py` — regenerates both from the six `CWE_*.json` runs of `bench/sard.py`.
+- `build.py` — regenerates the dataset from the six `CWE_*.json` runs of `bench/sard.py`,
+  joining the confirmation. `confirm_alarms.py` — produces the confirmation (stubbed sinks).
 
 **No source-file contents are included.** The SARD / Stivalet suite's licence is not
 stated at its source, so only the NIST filenames and *our* verdicts travel here. The

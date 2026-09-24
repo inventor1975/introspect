@@ -69,6 +69,15 @@ def file_verdict(rec):
             worst, best, sink = r, {"ON CREDIT": "OPEN"}.get(s["d"], s["d"]), s
     return best, sink
 
+# optional: the measured confirmation of the false alarms (confirm_alarms.py),
+# keyed by file name — so a "vulnerable" verdict carries a measurement, not a claim
+CONF = {}
+_cpath = os.path.join(OUT, "false_alarm_confirmation.jsonl")
+if os.path.exists(_cpath):
+    for line in open(_cpath, encoding="utf-8"):
+        c = json.loads(line)
+        CONF[c["file"]] = c
+
 rows, summary, disagree = [], {}, collections.Counter()
 unclassified = []
 for cwe, ctx in CTX.items():
@@ -92,9 +101,8 @@ for cwe, ctx in CTX.items():
             disagree[("miss", cwe, reason or "UNCLASSIFIED")] += 1
             if reason is None:
                 unclassified.append(rec["file"])
-        elif agree is False and label == "safe":    # a false alarm — carry the tool's own reason
+        elif agree is False and label == "safe":    # a false alarm — the reason and measurement travel on the row
             reason = (sink or {}).get("s")
-            disagree[("false_alarm", cwe, "see receipt")] += 1
         rows.append({
             "suite": "SARD/Stivalet PHP",
             "cwe": cwe, "context": ctx,
@@ -105,6 +113,11 @@ for cwe, ctx in CTX.items():
             "weak_link": (sink or {}).get("s") or (sink or {}).get("t"),
             "agrees_with_benchmark": agree,
             "disagreement_note": reason,
+            # measured only for the false alarms: did the metacharacter reach the sink?
+            "false_alarm_confirmation": (CONF.get(os.path.basename(rec["file"]), {}).get("confirmation")
+                                         if agree is False and label == "safe" else None),
+            "false_alarm_confidence": (CONF.get(os.path.basename(rec["file"]), {}).get("confidence")
+                                       if agree is False and label == "safe" else None),
         })
     summary[cwe] = {"context": ctx, **{f"{a}->{v}": n for (a, v), n in sorted(cnt.items())}}
 
@@ -123,7 +136,17 @@ for (kind, cwe, why), n in sorted(disagree.items()):
         tot_miss += n
         print(f"  {n:5}  {cwe:8} {why}")
 print(f"  total misses: {tot_miss}; UNCLASSIFIED: {len(unclassified)}")
-print("\nFALSE ALARMS (benchmark says safe, ZTL says vulnerable), by mechanism the")
+print("\nFALSE ALARMS, MEASURED (confirm_alarms.py: did the metacharacter reach the sink?):")
+conf = collections.Counter((r["false_alarm_confidence"], r["false_alarm_confirmation"])
+                           for r in rows
+                           if r["agrees_with_benchmark"] is False and r["benchmark_label"] == "safe")
+for (cf, cv), n in sorted((x for x in conf.items() if x[0][0])):
+    print(f"  {n:5}  confidence={cf:17} {cv}")
+print("  high not_neutralised = benchmark mislabel (guard fails, measured);")
+print("  high neutralised     = ZTL conservatism (our false positive, measured);")
+print("  context-dependent    = HTML attribute/event; held, not claimed either way.")
+
+print("\nFALSE ALARMS by mechanism the")
 print("tool named in its own receipt — no exploitability is asserted beyond it:")
 # bucket by the receipt's own wording, so the split is reproducible from the data
 def fa_bucket(reason):
