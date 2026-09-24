@@ -1,0 +1,55 @@
+{
+ "CWE_89": {
+  "context": "sql",
+  "safe->EARNED": 7680,
+  "safe->OPEN": 750,
+  "safe->REFUTED": 210,
+  "unsafe->OPEN": 555,
+  "unsafe->REFUTED": 357
+ },
+ "CWE_78": {
+  "context": "shell",
+  "safe->EARNED": 1200,
+  "safe->OPEN": 406,
+  "safe->REFUTED": 266,
+  "unsafe->EARNED": 16,
+  "unsafe->OPEN": 384,
+  "unsafe->REFUTED": 224
+ },
+ "CWE_95": {
+  "context": "code",
+  "safe->EARNED": 420,
+  "safe->OPEN": 763,
+  "safe->REFUTED": 113,
+  "unsafe->EARNED": 4,
+  "unsafe->OPEN": 213,
+  "unsafe->REFUTED": 119
+ },
+ "CWE_98": {
+  "context": "file",
+  "safe->EARNED": 1740,
+  "safe->NONE": 180,
+  "safe->OPEN": 434,
+  "safe->REFUTED": 238,
+  "unsafe->EARNED": 32,
+  "unsafe->OPEN": 402,
+  "unsafe->REFUTED": 238
+ },
+ "CWE_79": {
+  "context": "html",
+  "safe->EARNED": 4768,
+  "safe->OPEN": 708,
+  "safe->REFUTED": 252,
+  "unsafe->EARNED": 1184,
+  "unsafe->OPEN": 2034,
+  "unsafe->REFUTED": 1134
+ },
+ "CWE_601": {
+  "context": "header",
+  "safe->EARNED": 2080,
+  "safe->OPEN": 128,
+  "unsafe->EARNED": 352,
+  "unsafe->OPEN": 1344,
+  "unsafe->REFUTED": 896
+ }
+}
