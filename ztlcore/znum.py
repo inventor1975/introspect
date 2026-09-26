@@ -2,8 +2,11 @@
 """
 Expedition E37: znum — the numeric floor of ZTL (probe).
 
-Design: ZNUM-DESIGN-draft.md (stage 1, curator-accepted forks F1-F3):
-  F1  occurrences read DECORRELATED, as in the propositional lift (m-m != 0);
+Design: ZNUM-DESIGN-draft.md (stage 1, curator-accepted forks F1-F3), with F1
+superseded by the curator's word in two steps:
+  F1  a NAME is ONE NUMBER across the whole claim: m - m = 0 and m == m
+      (2026-08-11 within a term; 2026-09-24 across a comparison). Occurrences
+      read independently only for a `sample` — separate acts of measurement;
   F2  a bare number is a number ON CREDIT: [x,x] with unearned bounds;
   F3  the two credit axes stay SEPARATE and both are reported:
         interval axis   — is the verdict forced by the current intervals?
@@ -43,8 +46,10 @@ EARNED, CREDIT = "earned", "credit"
 #     Z   readings exist and they disagree
 #     E   THERE ARE NO READINGS AT ALL — the set is empty
 # E was raised as a Python exception until 2026-08-12, which put it OUTSIDE
-# the logic: a breakage of the implementation rather than a value of the
-# system. It is not. It is the fourth corner, and the corpus had already
+# the logic: a breakage of the implementation. It is not a breakage — and it
+# is not a value either (settled 2026-08-19; the curator, 2026-09-24:
+# «внутренняя метка, стоп-машина»): E enters no connective, it is the judge's
+# STOP, nothing to judge here. It is the fourth corner, and the corpus had already
 # stumbled over it twice — as the two ValueErrors below, and as the vacuity
 # trap measured in zprove.py, where "all readings are true" comes for free
 # when there are no readings to check. Emptiness must be SEPARATED, not
@@ -190,15 +195,90 @@ def _iv_sub(a, b): return (a[0] - b[1], a[1] - b[0])
 
 
 def _iv_mul(a, b):
-    ps = [x * y for x in a for y in b]
+    # 0 TIMES AN INFINITE END IS 0: the ends are limits, never attained, and 0
+    # times any real is 0 (IEEE 1788 takes the same convention for bounds).
+    # Python's 0 * inf is nan, and min/max over a list holding nan depend on
+    # its order: MEASURED 2026-09-24, [-inf,0]·[0,1] came out (nan, nan), so
+    # a*b <= 0 was Z where it is T, and [0,0]·[-inf,inf] was (nan, nan). No
+    # verdict was ever false (nan made every comparison Z), but forced ones
+    # were lost.
+    ps = [Fraction(0) if (x == 0 or y == 0) else x * y for x in a for y in b]
     return (min(ps), max(ps))
 
 
 def _iv_div(a, b):
     if b[0] <= 0 <= b[1]:
         return None                       # divisor may be 0: undefined (§25 echo)
-    inv = (1 / b[1], 1 / b[0])
+    # 1/±inf is an EXACT zero, not the float 0.0. A finite float passed for
+    # an infinity downstream — `fmt` printed it as -∞ and `_on_lattice` put
+    # it off every lattice — and the live service refuted `k == 0/d` for an
+    # int k that can be 0: a false verdict, found 2026-09-24 in the audit.
+    inv = (Fraction(0) if b[1] in (INF, -INF) else 1 / b[1],
+           Fraction(0) if b[0] in (INF, -INF) else 1 / b[0])
     return _iv_mul(a, inv)
+
+
+# SQRT_DIGITS — ОБЪЯВЛЕННАЯ точность зажима, а не молчаливая. Потолок стоит
+# по той же причине, что и у decimal(k) в zfl: `decimal5000000` однажды дошёл
+# до 10**k и повесил службу. Точность, которую никто не объявил и никто не
+# ограничил, — это решение, спрятанное внутри прибора.
+SQRT_DIGITS = 12
+SQRT_DIGITS_CAP = 30
+
+
+def _rat_sqrt(x, k=None):
+    """Рациональный ЗАЖИМ корня: (lo, hi), lo <= sqrt(x) <= hi.
+
+    Не приближение, а доказанная вилка. Корень из рационального почти всегда
+    иррационален и точкой на этой решётке не представим — но представим
+    зажатым, и зажим честнее округления: он ГОВОРИТ, чего не знает.
+
+    Когда корень точен (4, 9/4), возвращается точка: вилка шириной ноль —
+    это не особый случай, а тот же зажим, сошедшийся.
+    """
+    k = SQRT_DIGITS if k is None else min(int(k), SQRT_DIGITS_CAP)
+    if x < 0:
+        return None
+    if x == 0:
+        return (Fraction(0), Fraction(0))
+    p, q = x.numerator, x.denominator
+    rp, rq = math.isqrt(p), math.isqrt(q)
+    if rp * rp == p and rq * rq == q:          # корень точен — вилка сходится
+        e = Fraction(rp, rq)
+        return (e, e)
+    s = 10 ** k
+    n2 = p * s * s
+    lo = Fraction(math.isqrt(n2 // q), s)      # isqrt(floor(x s^2)) <= s*sqrt(x)
+    hi = Fraction(math.isqrt((n2 + q - 1) // q) + 1, s)   # > s*sqrt(x)
+    return (lo, hi)
+
+
+def _iv_sqrt(a, k=None):
+    """Корень над интервалом. Три исхода, и они разные:
+
+        весь интервал < 0   -> НЕТ ЧТЕНИЙ вовсе (четвёртый угол, E)
+        интервал задевает 0 -> None: часть чтений не определена, это МЕТКА,
+                               а не вердикт — ровно как деление на возможный ноль
+        интервал >= 0       -> зажим [sqrt(lo), sqrt(hi)]
+    """
+    if a[1] < 0:
+        raise _NoReadings("sqrt of a strictly negative quantity")
+    if a[0] < 0:
+        return None
+    lo, hi = _rat_sqrt(a[0], k), _rat_sqrt(a[1], k)
+    return (lo[0], hi[1])
+
+
+def _unit_sqrt(u):
+    """Единица под корнем: степени делятся пополам. Нечётная степень —
+    ОТКАЗ, а не приближение: sqrt(m3) в целых степенях не выражается, и
+    сказать об этом честнее, чем выдать m1.5."""
+    m = _unit_map(u)
+    if not m:
+        return None
+    if any(e % 2 for e in m.values()):
+        raise _NoReadings(f"cannot take the root of '{u}': odd exponent")
+    return _unit_str({k: e // 2 for k, e in m.items() if e})
 
 
 def _unit_map(u):
@@ -304,13 +384,26 @@ def _linear(expr, quantities, counter, seen=None):
         return Fraction(0), {key: (Fraction(1), expr)}, q.get("unit"), \
             _step(q.get("discrete"))
     op, *args = expr
+    if op == "sqrt":
+        # THE ROOT OF A KNOWN NUMBER is a constant when it is exact: sqrt(disc)
+        # with disc pinned at 1 is 1 (MEASURED 2026-09-24: a model's table
+        # computing the discriminant stopped at OPEN, sqrtD unread). A root
+        # the rational floor cannot hold exactly is not a constant of it.
+        c1, t1, u1, _ = _linear(args[0], quantities, counter, seen)
+        r = _rat_sqrt(c1) if not t1 and c1 >= 0 else None
+        if r is None or r[0] != r[1]:
+            raise _NotLinear()
+        return r[0], {}, _unit_sqrt(u1), None
     if op == "sum":
         c, terms, unit, step = Fraction(0), {}, None, Fraction(1)
         for a in args[0]:
             c2, t2, u2, s2 = _linear(a, quantities, counter, seen)
             unit = _unify_units(unit, u2, "add")
-            step = s2 if step is None or s2 is None else (
-                s2 if s2 == step else None)
+            # A SUM IS ON A LATTICE ONLY IF EVERY TERM IS ON IT (2026-09-26, the cloud
+            # red team, PR #1). This line used to take the NEXT term's step once one
+            # term had none: sum(x, y) with x continuous, y int read as 'an integer',
+            # and sum(x, y) == 1/2 was REFUTED though x = 1/2, y = 0 makes it true.
+            step = step if (step is not None and s2 == step) else None
             c += c2
             for k, (coef, nm) in t2.items():
                 old = terms.get(k, (Fraction(0), nm))
@@ -364,11 +457,939 @@ def _ev_linear(expr, quantities):
     for _, (coef, name) in terms.items():
         q = quantities[name]
         a, b = q["lo"], q["hi"]
+        if coef == 0 and not (a == b and isinstance(a, float)):
+            # A name that cancelled (m - m) contributes exactly 0 for every
+            # FINITE reading, however wide the bounds; 0 * inf would be nan
+            # (2026-09-24). A quantity pinned AT an infinity has no finite
+            # reading, inf - inf is undefined, and it keeps the old path.
+            continue
         ends = sorted((coef * a, coef * b), key=lambda x: (x == -INF and -1)
                       or (x == INF and 1) or 0) if isinstance(a, float) \
             or isinstance(b, float) else sorted((coef * a, coef * b))
         lo, hi = lo + ends[0], hi + ends[1]
     return (lo, hi), ped, used, step, unit
+
+
+# ---------------------------------- the quadratic fragment, read coherently
+def _poly_add(t1, t2, sign):
+    terms = dict(t1)
+    for k, (p, q, nm) in t2.items():
+        op_, oq, _ = terms.get(k, (Fraction(0), Fraction(0), nm))
+        terms[k] = (op_ + sign * p, oq + sign * q, nm)
+    return terms
+
+
+def _poly_scale(t, k):
+    return {kk: (p * k, q * k, nm) for kk, (p, q, nm) in t.items()}
+
+
+def _poly(expr, quantities, counter, seen=None):
+    """Read the expression as  c + Σ (p·x + q·x²)  over KEYS, or give up.
+
+    The linear reading one degree up (the curator's X*X-2X+5=0, 2026-09-24).
+    A name that multiplies ITSELF is still one number, so x*x - 2*x + 5 is one
+    parabola in x, and its range over x's box is exact: the two ends and, when
+    it lies inside, the vertex. Different names never multiply here: x*y is
+    not separable, while a SUM of separate parabolas ranges over exactly the
+    sum of their ranges, each name varying alone. A `sample` gets a key per
+    occurrence, so s*s is two keys and gives up, as it must: two acts of
+    measurement are two numbers. Anything else raises, and the caller keeps
+    the separate interval arithmetic. No lattice step is carried: the
+    lattice-miss rule reads the sides separately, as before."""
+    if isinstance(expr, (int, float, Fraction)):
+        return num(expr), {}, None, None
+    if isinstance(expr, str):
+        q = quantities[expr]
+        if q.get("no_readings"):
+            raise _NoReadings(f"{expr}: {q['no_readings']}")
+        if seen is not None:
+            seen.add(expr)
+        counter[0] += 1
+        if q["lo"] == q["hi"] and not isinstance(q["lo"], float):
+            return q["lo"], {}, q.get("unit"), None
+        key = (expr, counter[0]) if q.get("sample") else expr
+        return (Fraction(0), {key: (Fraction(1), Fraction(0), expr)},
+                q.get("unit"), None)
+    op, *args = expr
+    if op == "sqrt":                     # as in `_linear`: exact roots of constants only
+        c1, t1, u1, _ = _poly(args[0], quantities, counter, seen)
+        r = _rat_sqrt(c1) if not t1 and c1 >= 0 else None
+        if r is None or r[0] != r[1]:
+            raise _NotLinear()
+        return r[0], {}, _unit_sqrt(u1), None
+    if op == "sum":
+        c, terms, unit = Fraction(0), {}, None
+        for a in args[0]:
+            c2, t2, u2, _ = _poly(a, quantities, counter, seen)
+            unit = _unify_units(unit, u2, "add")
+            c, terms = c + c2, _poly_add(terms, t2, 1)
+        return c, terms, unit, None
+    if op in ("add", "sub"):
+        c1, t1, u1, _ = _poly(args[0], quantities, counter, seen)
+        c2, t2, u2, _ = _poly(args[1], quantities, counter, seen)
+        unit = _unify_units(u1, u2, "add")
+        sign = 1 if op == "add" else -1
+        return c1 + sign * c2, _poly_add(t1, t2, sign), unit, None
+    if op in ("mul", "div"):
+        c1, t1, u1, _ = _poly(args[0], quantities, counter, seen)
+        c2, t2, u2, _ = _poly(args[1], quantities, counter, seen)
+        if op == "div":
+            if t2 or c2 == 0:
+                raise _NotLinear()
+            return (c1 / c2, _poly_scale(t1, 1 / c2),
+                    _unit_combine(u1, u2, -1), None)
+        unit = _unit_combine(u1, u2, +1)
+        if not t2:
+            return c1 * c2, _poly_scale(t1, c2), unit, None
+        if not t1:
+            return c1 * c2, _poly_scale(t2, c1), unit, None
+        if len(t1) == 1 and len(t2) == 1 and t1.keys() == t2.keys():
+            (k, (p1, q1, nm)), = t1.items()
+            (_, (p2, q2, _)), = t2.items()
+            if q1 == 0 and q2 == 0:          # (c1 + p1·x)(c2 + p2·x)
+                return (c1 * c2, {k: (c1 * p2 + c2 * p1, p1 * p2, nm)},
+                        unit, None)
+        raise _NotLinear()
+    raise _NotLinear()
+
+
+def _at(p, q, x):
+    """p·x + q·x² at a point; at an infinite end, the leading term decides."""
+    if x == INF or x == -INF:
+        if q != 0:
+            return INF if q > 0 else -INF
+        return INF if (p > 0) == (x > 0) else -INF
+    return p * x + q * x * x
+
+
+def _parabola_range(p, q, a, b):
+    """The exact range of p·x + q·x² over x in [a, b], ends possibly infinite:
+    the two ends and, if it lies strictly inside, the vertex -p/2q."""
+    cands = [_at(p, q, a), _at(p, q, b)]
+    if q != 0:
+        v = -p / (2 * q)
+        if a < v < b:
+            cands.append(_at(p, q, v))
+    return min(cands), max(cands)
+
+
+def _ev_poly(expr, quantities):
+    """(interval, pedigree, used, step, unit) via the quadratic reading, or
+    None outside it. Asked only where the linear reading gave up."""
+    seen = set()
+    try:
+        c, terms, unit, _ = _poly(expr, quantities, [0], seen)
+    except (_NotLinear, KeyError):
+        return None
+    lo = hi = c
+    for _, (p, q, name) in terms.items():
+        a, b = quantities[name]["lo"], quantities[name]["hi"]
+        if a == b and isinstance(a, float):
+            return None          # pinned AT an infinity: no finite reading
+        if p == 0 and q == 0:
+            continue             # cancelled: 0 for every finite reading
+        r = _parabola_range(p, q, a, b)
+        lo, hi = lo + r[0], hi + r[1]
+    ped = {n for n in seen if quantities[n]["prov"] == CREDIT}
+    return (lo, hi), ped, set(seen), None, unit
+
+
+# ------------------------------------------- exact quadratic irrationals
+class QSqrt:
+    """p + q·√d EXACTLY: p, q rational, d a positive integer that is not a
+    square. The roots of a parabola with a non-square discriminant live here,
+    (−b ± √D)/2a, and so does everything the claim computes from them and from
+    rational constants: + − × ÷ stay inside, and the SIGN is decided without
+    approximation (compare p² with q²d). MEASURED 2026-09-24: x*x == 2 with x
+    solved came back OPEN, the root held only as a 12-digit clamp."""
+    __slots__ = ("p", "q", "d")
+
+    def __init__(self, p, q, d):
+        self.p, self.q, self.d = Fraction(p), Fraction(q), int(d)
+
+    def _pair(self, o):
+        if isinstance(o, QSqrt):
+            if o.q != 0 and self.q != 0 and o.d != self.d:
+                raise _NotLinear()          # two different radicands: give up
+            return o if o.q != 0 else QSqrt(o.p, 0, self.d)
+        return QSqrt(o, 0, self.d)
+
+    def __add__(self, o):
+        o = self._pair(o)
+        d = self.d if self.q != 0 else o.d
+        return QSqrt(self.p + o.p, self.q + o.q, d)
+
+    __radd__ = __add__
+
+    def __neg__(self):
+        return QSqrt(-self.p, -self.q, self.d)
+
+    def __sub__(self, o):
+        return self + (-self._pair(o))
+
+    def __rsub__(self, o):
+        return self._pair(o) - self
+
+    def __mul__(self, o):
+        o = self._pair(o)
+        d = self.d if self.q != 0 else o.d
+        return QSqrt(self.p * o.p + self.q * o.q * d, self.p * o.q + self.q * o.p, d)
+
+    __rmul__ = __mul__
+
+    def inverse(self):
+        n = self.p * self.p - self.q * self.q * self.d    # never 0: d is not a square
+        if n == 0:
+            raise _NotLinear()
+        return QSqrt(self.p / n, -self.q / n, self.d)
+
+    def __truediv__(self, o):
+        o = self._pair(o)
+        return self * o.inverse()
+
+    def __rtruediv__(self, o):
+        return self._pair(o) * self.inverse()
+
+    def sign(self):
+        p, q, d = self.p, self.q, self.d
+        if q == 0:
+            return (p > 0) - (p < 0)
+        if p == 0 or (p > 0) == (q > 0):
+            return 1 if (q > 0 if p == 0 else p > 0) else -1
+        # opposite signs: the larger of |p| and |q|√d wins
+        big = p * p - q * q * d
+        return ((p > 0) if big > 0 else (q > 0)) * 2 - 1
+
+    def approx(self):
+        return float(self.p) + float(self.q) * math.sqrt(self.d)
+
+    def __str__(self):
+        def f(x):
+            x = abs(x)
+            return str(x.numerator) if x.denominator == 1 else f"{x.numerator}/{x.denominator}"
+        if self.q == 0:
+            return ("-" if self.p < 0 else "") + f(self.p)
+        root = f"√{self.d}" if abs(self.q) == 1 else f"{f(self.q)}·√{self.d}"
+        if self.p == 0:
+            return ("-" if self.q < 0 else "") + root
+        return f"{'-' if self.p < 0 else ''}{f(self.p)}{'-' if self.q < 0 else '+'}{root}"
+
+    def enclose(self):
+        """Rational bounds lo <= value <= hi, from the square root's clamp."""
+        s_lo, s_hi = _rat_sqrt(Fraction(self.d))
+        a, b = self.p + self.q * s_lo, self.p + self.q * s_hi
+        return (min(a, b), max(a, b))
+
+
+def qsqrt_of(r):
+    """√r for a positive rational r as an exact value: a Fraction when r is a
+    rational square, else a QSqrt with small square factors taken out."""
+    r = Fraction(r)
+    n = r.numerator * r.denominator          # √(a/b) = √(a·b)/b
+    rn, sq = math.isqrt(n), Fraction(1, r.denominator)
+    if rn * rn == n:
+        return Fraction(rn) * sq
+    k = 2
+    while k * k <= n and k <= 1000:
+        while n % (k * k) == 0:
+            n //= k * k
+            sq *= k
+        k += 1
+    return QSqrt(0, sq, n)
+
+
+def _ev_exact(expr, quantities):
+    """The expression's exact value where every name it reads is pinned or
+    carries an `exact` value (a solved root): a Fraction or a QSqrt; raises
+    `_NotLinear` otherwise."""
+    if isinstance(expr, (int, float, Fraction)):
+        return num(expr)
+    if isinstance(expr, str):
+        q = quantities[expr]
+        if q.get("exact") is not None:
+            return q["exact"]
+        if q["lo"] == q["hi"] and not isinstance(q["lo"], float):
+            return q["lo"]
+        raise _NotLinear()
+    op, *args = expr
+    if op == "sqrt":
+        v = _ev_exact(args[0], quantities)
+        if isinstance(v, QSqrt) or v < 0:
+            raise _NotLinear()
+        return qsqrt_of(v) if v > 0 else Fraction(0)
+    if op == "sum":
+        out = Fraction(0)
+        for a in args[0]:
+            out = _ev_exact(a, quantities) + out
+        return out
+    a, b = _ev_exact(args[0], quantities), _ev_exact(args[1], quantities)
+    if op == "add":
+        return a + b
+    if op == "sub":
+        return a - b
+    if op == "mul":
+        return a * b
+    if op == "div":
+        if (b.sign() if isinstance(b, QSqrt) else (b > 0) - (b < 0)) == 0:
+            raise _NotLinear()
+        return a / b
+    raise _NotLinear()
+
+
+# ---------------------------------- one name to any degree: Sturm and Horner
+UPOLY_MAX_DEGREE = 8
+ROOT_WIDTH = Fraction(1, 10 ** 12)      # the clamp width of an isolated root
+
+
+def _ptrim(a):
+    a = list(a)
+    while len(a) > 1 and a[-1] == 0:
+        a.pop()
+    return a
+
+
+def _padd(a, b, sign=1):
+    n = max(len(a), len(b))
+    return _ptrim([(a[i] if i < len(a) else 0) + sign * (b[i] if i < len(b) else 0)
+                   for i in range(n)])
+
+
+def _pmul(a, b):
+    out = [Fraction(0)] * (len(a) + len(b) - 1)
+    for i, x in enumerate(a):
+        for j, y in enumerate(b):
+            out[i + j] += x * y
+    return _ptrim(out)
+
+
+def _peval(a, x):
+    v = Fraction(0)
+    for c in reversed(a):
+        v = v * x + c
+    return v
+
+
+def _pderiv(a):
+    return _ptrim([i * a[i] for i in range(1, len(a))]) or [Fraction(0)]
+
+
+def _pdivmod(a, b):
+    a, b = _ptrim(a), _ptrim(b)
+    q = [Fraction(0)] * max(1, len(a) - len(b) + 1)
+    r = list(a)
+    while len(r) >= len(b) and any(r):
+        k = len(r) - len(b)
+        f = r[-1] / b[-1]
+        q[k] = f
+        for i, c in enumerate(b):
+            r[i + k] -= f * c
+        r = _ptrim(r[:-1]) if len(r) > 1 else [Fraction(0)]
+        if len(r) < len(b):
+            break
+    return _ptrim(q), _ptrim(r)
+
+
+def _pgcd(a, b):
+    while any(_ptrim(b)):
+        a, b = b, _pdivmod(a, b)[1]
+    a = _ptrim(a)
+    return [c / a[-1] for c in a]
+
+
+def _sturm(a):
+    """The Sturm sequence of the square-free part of `a`."""
+    g = _pgcd(a, _pderiv(a))
+    sq = _pdivmod(a, g)[0] if len(g) > 1 else _ptrim(a)
+    seq = [sq, _pderiv(sq)]
+    while len(seq[-1]) > 1 or seq[-1][0] != 0:
+        r = _pdivmod(seq[-2], seq[-1])[1]
+        if not any(r):
+            break
+        seq.append([-c for c in r])
+    return seq
+
+
+def _changes(seq, x):
+    signs = [(v > 0) - (v < 0) for v in (_peval(p, x) for p in seq)]
+    signs = [t for t in signs if t != 0]
+    return sum(1 for u, v in zip(signs, signs[1:]) if u != v)
+
+
+def _cauchy(a):
+    a = _ptrim(a)
+    return 1 + max((abs(c / a[-1]) for c in a[:-1]), default=Fraction(0))
+
+
+def _simplest_between(l, h):
+    """The fraction with the smallest denominator in [l, h] (Stern–Brocot).
+    A rational root of a polynomial with a small leading coefficient has a
+    small denominator, so in its clamp it is this one — and it is TESTED, not
+    assumed: the polynomial must vanish on it exactly."""
+    if l <= 0 <= h:
+        return Fraction(0)
+    if h < 0:
+        return -_simplest_between(-h, -l)
+    fl = math.floor(l)
+    if fl == l or math.ceil(l) <= h:
+        return Fraction(math.ceil(l))
+    # l and h share an integer part: recurse on the reciprocals of the fractional parts
+    return fl + 1 / _simplest_between(1 / (h - fl), 1 / (l - fl))
+
+
+def _real_roots(a, lo=None, hi=None):
+    """The distinct real roots of `a` in [lo, hi] (the Cauchy bound if not
+    given), each as (l, h) with l <= root <= h: an exact rational root as
+    (r, r), an irrational one clamped to ROOT_WIDTH. Exact rational arithmetic
+    throughout; nothing is guessed."""
+    a = _ptrim(a)
+    if len(a) < 2:
+        return []
+    b = _cauchy(a)
+    lo = -b if lo is None or lo == -INF else max(Fraction(lo), -b)
+    hi = b if hi is None or hi == INF else min(Fraction(hi), b)
+    if lo > hi:
+        return []
+    seq = _sturm(a)
+    sq = seq[0]
+    out = []
+
+    def count(l, h):                     # roots in (l, h]
+        return _changes(seq, l) - _changes(seq, h)
+
+    def solve(l, h):                      # roots in (l, h], l not a root
+        n = count(l, h)
+        if n == 0:
+            return
+        if n == 1 and h - l <= ROOT_WIDTH:
+            if _peval(sq, h) == 0:
+                out.append((h, h))
+                return
+            r = _simplest_between(l, h)
+            out.append((r, r) if l < r <= h and _peval(sq, r) == 0 else (l, h))
+            return
+        m = (l + h) / 2
+        if _peval(sq, m) == 0:
+            # THE ROOTS JUST LEFT OF A ROOT MIDPOINT (2026-09-26, the cloud red team,
+            # PR #1). This used to search (l, m - ROOT_WIDTH/4] and so never looked in
+            # (m - ROOT_WIDTH/4, m): a critical point 2e-13 left of m was lost, the
+            # maximum under-read, and a quartic claim judged T that is false there.
+            # Now step left from m by halving until (m - d, m] holds m alone; roots
+            # are isolated, so this ends, and no fixed gap is skipped.
+            if count(l, m) > 1:
+                d = (m - l) / 2
+                while count(m - d, m) > 1:
+                    d /= 2
+                solve(l, m - d)
+            out.append((m, m))
+            solve(m, h)
+            return
+        solve(l, m)
+        solve(m, h)
+
+    if _peval(sq, lo) == 0:
+        out.append((lo, lo))
+    solve(lo, hi)
+    return sorted(set(out))
+
+
+def _peval_iv(a, box):
+    """Bounds of the polynomial over [l, h] by interval Horner — sound, and
+    tight on the narrow clamps it is used on."""
+    lo = hi = Fraction(0)
+    for c in reversed(a):
+        lo, hi = _iv_mul((lo, hi), box)
+        lo, hi = lo + c, hi + c
+    return lo, hi
+
+
+def _one_name(n1, n2):
+    if n1 is not None and n2 is not None and n1 != n2:
+        raise _NotLinear()
+    return n1 if n1 is not None else n2
+
+
+def _upoly(expr, quantities, seen=None):
+    """(coefficients from degree 0 up, name): the expression as a polynomial in
+    ONE non-sample name, every other name pinned, unit-free; or `_NotLinear`.
+    The parabola reading stops at degree 2; this one goes to UPOLY_MAX_DEGREE."""
+    if isinstance(expr, (int, float, Fraction)):
+        return [num(expr)], None
+    if isinstance(expr, str):
+        q = quantities[expr]
+        if q.get("no_readings"):
+            raise _NoReadings(f"{expr}: {q['no_readings']}")
+        if seen is not None:
+            seen.add(expr)
+        if q.get("unit"):
+            raise _NotLinear()
+        if q["lo"] == q["hi"] and not isinstance(q["lo"], float):
+            return [q["lo"]], None
+        if q.get("sample"):
+            raise _NotLinear()
+        return [Fraction(0), Fraction(1)], expr
+    op, *args = expr
+    if op == "sqrt":
+        a, n = _upoly(args[0], quantities, seen)
+        r = _rat_sqrt(a[0]) if n is None and len(_ptrim(a)) == 1 and a[0] >= 0 else None
+        if r is None or r[0] != r[1]:
+            raise _NotLinear()
+        return [r[0]], None
+    if op == "sum":
+        acc, name = [Fraction(0)], None
+        for x in args[0]:
+            a, n = _upoly(x, quantities, seen)
+            name = _one_name(name, n)
+            acc = _padd(acc, a)
+        return acc, name
+    a, n1 = _upoly(args[0], quantities, seen)
+    b, n2 = _upoly(args[1], quantities, seen)
+    name = _one_name(n1, n2)
+    if op == "add":
+        return _padd(a, b), name
+    if op == "sub":
+        return _padd(a, b, -1), name
+    if op == "mul":
+        out = _pmul(a, b)
+        if len(out) - 1 > UPOLY_MAX_DEGREE:
+            raise _NotLinear()
+        return out, name
+    if op == "div":
+        b = _ptrim(b)
+        if len(b) != 1 or b[0] == 0:
+            raise _NotLinear()
+        return [c / b[0] for c in a], name
+    raise _NotLinear()
+
+
+def _ev_upoly(expr, quantities):
+    """(interval, pedigree, used, step, unit): the range of a polynomial of
+    degree >= 3 in one name over its box — the ends (or the leading term's
+    limit at an infinite end) and every critical point, a root of the
+    derivative isolated by Sturm; an irrational one is bounded by interval
+    Horner over its clamp. Sound, and tight to the clamp. None outside."""
+    seen = set()
+    try:
+        coeffs, name = _upoly(expr, quantities, seen)
+    except (_NotLinear, KeyError):
+        return None
+    coeffs = _ptrim(coeffs)
+    if name is None or len(coeffs) <= 3:
+        return None
+    q = quantities[name]
+    lo, hi = q["lo"], q["hi"]
+    if lo == hi and isinstance(lo, float):
+        return None
+    deg, lead = len(coeffs) - 1, coeffs[-1]
+
+    def at(x):
+        if x == INF:
+            return INF if lead > 0 else -INF
+        if x == -INF:
+            up = (lead > 0) == (deg % 2 == 0)
+            return INF if up else -INF
+        return _peval(coeffs, x)
+
+    lows, highs = [at(lo), at(hi)], [at(lo), at(hi)]
+    for l, h in _real_roots(_pderiv(coeffs), lo, hi):
+        if l == h:
+            v = _peval(coeffs, l)
+            lows.append(v)
+            highs.append(v)
+        else:
+            a, b = _peval_iv(coeffs, (l, h))
+            lows.append(a)
+            highs.append(b)
+    ped = {n for n in seen if quantities[n]["prov"] == CREDIT}
+    return (min(lows), max(highs)), ped, set(seen), None, None
+
+
+# ------------------------------ the multilinear fragment, read at the corners
+MLIN_MAX_KEYS = 10       # 2**10 corners; the studio caps a formula at 10 atoms anyway
+
+
+def _mlin(expr, quantities, counter, keys, seen=None):
+    """Read the expression as  Σ k·(a product of distinct keys) — MULTILINEAR,
+    every key at most to the first power — or give up (`_NotLinear`).
+
+    Where names multiply each other (x*y - x), neither the linear nor the
+    parabola reading applies, and the separate interval arithmetic reads x
+    twice: x*y - x over x in [0,1], y in [0,2] came out [-1, 2], where it is
+    x·(y - 1), in [-1, 1]. A multilinear polynomial is linear in each key with
+    the others fixed, so over a box its extremes sit at the CORNERS, and the
+    range is exact from them. A `sample` gets a key per occurrence, so s*s is
+    two keys — exactly its old decorrelated reading. `keys` maps each key to
+    its name, for the bounds."""
+    if isinstance(expr, (int, float, Fraction)):
+        return {frozenset(): num(expr)}, None
+    if isinstance(expr, str):
+        q = quantities[expr]
+        if q.get("no_readings"):
+            raise _NoReadings(f"{expr}: {q['no_readings']}")
+        if seen is not None:
+            seen.add(expr)
+        counter[0] += 1
+        if q["lo"] == q["hi"] and not isinstance(q["lo"], float):
+            return {frozenset(): q["lo"]}, q.get("unit")
+        key = (expr, counter[0]) if q.get("sample") else expr
+        keys[key] = expr
+        return {frozenset([key]): Fraction(1)}, q.get("unit")
+    op, *args = expr
+    if op == "sqrt":
+        t1, u1 = _mlin(args[0], quantities, counter, keys, seen)
+        c1 = t1.get(frozenset(), Fraction(0))
+        r = _rat_sqrt(c1) if set(t1) <= {frozenset()} and c1 >= 0 else None
+        if r is None or r[0] != r[1]:
+            raise _NotLinear()
+        return {frozenset(): r[0]}, _unit_sqrt(u1)
+    if op == "sum":
+        out, unit = {}, None
+        for a in args[0]:
+            t, u = _mlin(a, quantities, counter, keys, seen)
+            unit = _unify_units(unit, u, "add")
+            for m, k in t.items():
+                out[m] = out.get(m, Fraction(0)) + k
+        return out, unit
+    if op in ("add", "sub"):
+        t1, u1 = _mlin(args[0], quantities, counter, keys, seen)
+        t2, u2 = _mlin(args[1], quantities, counter, keys, seen)
+        unit = _unify_units(u1, u2, "add")
+        sign = 1 if op == "add" else -1
+        out = dict(t1)
+        for m, k in t2.items():
+            out[m] = out.get(m, Fraction(0)) + sign * k
+        return out, unit
+    if op in ("mul", "div"):
+        t1, u1 = _mlin(args[0], quantities, counter, keys, seen)
+        t2, u2 = _mlin(args[1], quantities, counter, keys, seen)
+        if op == "div":
+            c2 = t2.get(frozenset(), Fraction(0))
+            if set(t2) != {frozenset()} or c2 == 0:
+                raise _NotLinear()
+            return ({m: k / c2 for m, k in t1.items()},
+                    _unit_combine(u1, u2, -1))
+        out = {}
+        for m1, k1 in t1.items():
+            for m2, k2 in t2.items():
+                if m1 & m2:
+                    raise _NotLinear()      # a key squared: not multilinear
+                m = m1 | m2
+                out[m] = out.get(m, Fraction(0)) + k1 * k2
+        return out, _unit_combine(u1, u2, +1)
+    raise _NotLinear()
+
+
+def _ev_mlin(expr, quantities):
+    """(interval, pedigree, used, step, unit) from the corners, or None: when
+    the expression is not multilinear, has more than MLIN_MAX_KEYS keys, or a
+    key with an infinite end (a corner at infinity makes ∞ - ∞; that box keeps
+    the separate reading, wide and sound)."""
+    seen, keys = set(), {}
+    try:
+        terms, unit = _mlin(expr, quantities, [0], keys, seen)
+    except (_NotLinear, KeyError):
+        return None
+    live = sorted({k for m, c in terms.items() if c != 0 for k in m}, key=repr)
+    if len(live) > MLIN_MAX_KEYS:
+        return None
+    bounds = []
+    for k in live:
+        q = quantities[keys[k]]
+        if isinstance(q["lo"], float) or isinstance(q["hi"], float):
+            return None
+        bounds.append((q["lo"], q["hi"]))
+    lo = hi = None
+    for corner in itertools.product(*bounds):
+        at = dict(zip(live, corner))
+        v = Fraction(0)
+        for m, c in terms.items():
+            if c == 0:
+                continue
+            t = c
+            for k in m:
+                t *= at[k]
+            v += t
+        lo = v if lo is None or v < lo else lo
+        hi = v if hi is None or v > hi else hi
+    if lo is None:
+        lo = hi = Fraction(0)
+    ped = {n for n in seen if quantities[n]["prov"] == CREDIT}
+    return (lo, hi), ped, set(seen), None, unit
+
+
+# ------------------------------------------- the integer lattice, read exactly
+# WHY (2026-09-25, a dataset of bounded-integer claims with enumerated gold,
+# ztl-private/datasets/bounded-int-claims): on 69 696 claims with bounds up to
+# ±1000 the judge said OPEN on 1 364 that the integers decide — never a wrong
+# verdict, but `x == 1 - x` and `x <= x * x` on [0, 1000] stayed open, because
+# the bounds were read as a CONTINUOUS box: 1/2 solves the first, and x*x dips
+# under x between 0 and 1. With int-typed quantities there is no 1/2 to read.
+# Forecast frozen first: inventory/probes/FORECAST-INTEGER-REFINE-2026-09-25.md.
+#
+# This runs ONLY where compare would say Z, and decides ONLY by exact integer
+# arithmetic over the whole box — never by listing its points, so ±10^9 costs
+# what ±1 does. Three shapes; anything else keeps Z:
+#   (1) one free name, degree <= 2;
+#   (2) two free names, one of them only linear with a constant coefficient;
+#   (3) two free names, bilinear, under ==;
+#   (4) two free names coupled at degree 2 — through the edges of the box.
+
+def _ipoly(expr, quantities):
+    """Exact polynomial {((name, power), ...): Fraction} of an expression over
+    int-typed, finite, non-sample names (pinned ones become constants) — or
+    raise _NotLinear. Only +, -, *, sum and numbers."""
+    if isinstance(expr, (int, float, Fraction)):
+        v = num(expr)
+        if isinstance(v, float):
+            raise _NotLinear()
+        return {(): v} if v else {}
+    if isinstance(expr, str):
+        q = quantities[expr]
+        if q.get("no_readings") or q.get("sample") or _step(q.get("discrete")) != 1:
+            raise _NotLinear()
+        lo, hi = q["lo"], q["hi"]
+        if isinstance(lo, float) or isinstance(hi, float):
+            raise _NotLinear()
+        if lo == hi:
+            return {(): Fraction(lo)} if lo else {}
+        return {((expr, 1),): Fraction(1)}
+    op, *args = expr
+    if op == "sum":
+        out = {}
+        for a in args[0]:
+            for m, c in _ipoly(a, quantities).items():
+                out[m] = out.get(m, 0) + c
+        return {m: c for m, c in out.items() if c}
+    if op in ("add", "sub"):
+        a, b = _ipoly(args[0], quantities), _ipoly(args[1], quantities)
+        sg = 1 if op == "add" else -1
+        out = dict(a)
+        for m, c in b.items():
+            out[m] = out.get(m, 0) + sg * c
+        return {m: c for m, c in out.items() if c}
+    if op == "mul":
+        a, b = _ipoly(args[0], quantities), _ipoly(args[1], quantities)
+        out = {}
+        for m1, c1 in a.items():
+            for m2, c2 in b.items():
+                pw = {}
+                for n, k in m1 + m2:
+                    pw[n] = pw.get(n, 0) + k
+                m = tuple(sorted(pw.items()))
+                out[m] = out.get(m, 0) + c1 * c2
+        return {m: c for m, c in out.items() if c}
+    raise _NotLinear()
+
+
+def _cdiv(a, b):
+    return -((-a) // b)
+
+
+def _q_at(a, b, c, m):
+    return a * m * m + b * m + c
+
+
+def _q_extremes(a, b, c, lo, hi):
+    """Integer min and max of a*m^2 + b*m + c over the integers of [lo, hi]:
+    they lie at the ends or at the integers next to the vertex."""
+    cand = {lo, hi}
+    if a:
+        for v in ((-b) // (2 * a), _cdiv(-b, 2 * a)):
+            if lo <= v <= hi:
+                cand.add(v)
+    vals = [_q_at(a, b, c, m) for m in cand]
+    return min(vals), max(vals)
+
+
+def _q_le_interval(a, b, c, U):
+    """{integer m : a*m^2 + b*m + c <= U} for a > 0 — one integer interval
+    (lo, hi), or None when empty. Found by isqrt, then made exact by testing
+    the neighbours (the isqrt estimate is off by at most one step)."""
+    D = b * b - 4 * a * (c - U)
+    if D < 0:
+        return None
+    s = math.isqrt(D)
+    m_lo, m_hi = _cdiv(-b - s, 2 * a), (-b + s) // (2 * a)
+    while _q_at(a, b, c, m_lo - 1) <= U:
+        m_lo -= 1
+    while m_lo <= m_hi and _q_at(a, b, c, m_lo) > U:
+        m_lo += 1
+    while _q_at(a, b, c, m_hi + 1) <= U:
+        m_hi += 1
+    while m_hi >= m_lo and _q_at(a, b, c, m_hi) > U:
+        m_hi -= 1
+    return (m_lo, m_hi) if m_lo <= m_hi else None
+
+
+def _q_hits(a, b, c, L, U, lo, hi):
+    """Is there an integer m in [lo, hi] with L <= a*m^2 + b*m + c <= U?"""
+    if lo > hi or L > U:
+        return False
+    if a == 0:
+        if b == 0:
+            return L <= c <= U
+        if b < 0:
+            a, b, c, L, U = 0, -b, -c, -U, -L
+        return max(lo, _cdiv(L - c, b)) <= min(hi, (U - c) // b)
+    if a < 0:
+        a, b, c, L, U = -a, -b, -c, -U, -L
+    top = _q_le_interval(a, b, c, U)            # value <= U
+    if top is None:
+        return False
+    t_lo, t_hi = max(lo, top[0]), min(hi, top[1])
+    if t_lo > t_hi:
+        return False
+    low = _q_le_interval(a, b, c, L - 1)        # value <= L - 1: the part to cut
+    if low is None:
+        return True
+    return t_lo < low[0] or t_hi > low[1]
+
+
+def _q_roots(a, b, c, lo, hi):
+    """Integer roots of a*m^2 + b*m + c in [lo, hi] (not identically zero)."""
+    if a == 0:
+        if b == 0:
+            return set()
+        return {-c // b} if (-c) % b == 0 and lo <= -c // b <= hi else set()
+    D = b * b - 4 * a * c
+    if D < 0:
+        return set()
+    s = math.isqrt(D)
+    if s * s != D:
+        return set()
+    return {(-b + sg * s) // (2 * a) for sg in (1, -1)
+            if (-b + sg * s) % (2 * a) == 0 and lo <= (-b + sg * s) // (2 * a) <= hi}
+
+
+def _divisors(n):
+    n, out, d = abs(n), set(), 1
+    while d * d <= n:
+        if n % d == 0:
+            out |= {d, n // d}
+        d += 1
+    return out
+
+
+def _int_refine(kind, e1, e2, quantities):
+    """'T' / 'F' decided over the integer box, or None (keep Z). See above."""
+    try:
+        p = _ipoly(("sub", e1, e2), quantities)
+    except (_NotLinear, KeyError):
+        return None
+    den = 1
+    for c in p.values():
+        den = den * c.denominator // math.gcd(den, c.denominator)
+    p = {m: int(c * den) for m, c in p.items()}          # same sign, integer
+    free = sorted({n for m in p for n, _ in m})
+    box = {n: (int(quantities[n]["lo"]), int(quantities[n]["hi"])) for n in free}
+    if any(k > 2 for m in p for _, k in m) or len(free) > 2 or not free:
+        return None
+    cf = lambda *pw: p.get(tuple(sorted((n, k) for n, k in pw if k)), 0)
+    if len(free) == 1:                                   # (1)
+        x = free[0]; lo, hi = box[x]
+        a, b, c = cf((x, 2)), cf((x, 1)), cf()
+        if kind == "eq":
+            if a == b == 0:
+                return "T" if c == 0 else "F"
+            r = _q_roots(a, b, c, lo, hi)
+            return "F" if not r else ("T" if len(r) == hi - lo + 1 else None)
+        mn, mx = _q_extremes(a, b, c, lo, hi)
+        if kind == "le":
+            return "T" if mx <= 0 else ("F" if mn > 0 else None)
+        return "T" if mx < 0 else ("F" if mn >= 0 else None)
+    x, y = free
+    if any(sum(k for _, k in m) > 2 for m in p):
+        # TOTAL degree, not each name's: x*x*y is degree 3. MEASURED 2026-09-25:
+        # the first version of (4) checked powers per name only, read x*x*y as
+        # absent, and returned F where the truth was open — a WRONG verdict,
+        # caught by this stand's brute-force check before anything shipped.
+        return None
+    # (4) the COUPLED tail (2026-09-25, «не люблю хвосты»): f = a x^2 + e xy +
+    # b y^2 + d x + g y + c. Where f is convex or linear in y (b >= 0) its max
+    # over the box lies on the edges y = ylo, y = yhi; else where convex in x
+    # (a >= 0) on x = xlo, x = xhi; where e = 0 it splits into two one-name
+    # maxima. The min mirrors it. Each edge is a one-name quadratic, exact.
+    a2, e2, b2 = cf((x, 2)), cf((x, 1), (y, 1)), cf((y, 2))
+    d1, g1, c0 = cf((x, 1)), cf((y, 1)), cf()
+    (xlo, xhi), (ylo, yhi) = box[x], box[y]
+    on_y = lambda y0: (a2, e2 * y0 + d1, b2 * y0 * y0 + g1 * y0 + c0, xlo, xhi)
+    on_x = lambda x0: (b2, e2 * x0 + g1, a2 * x0 * x0 + d1 * x0 + c0, ylo, yhi)
+
+    def _edge(want, pick):                   # want 1 = max, 0 = min
+        sgn = 1 if want else -1
+        if sgn * b2 >= 0:
+            return pick(_q_extremes(*on_y(y0))[want] for y0 in (ylo, yhi))
+        if sgn * a2 >= 0:
+            return pick(_q_extremes(*on_x(x0))[want] for x0 in (xlo, xhi))
+        if e2 == 0:
+            return (_q_extremes(a2, d1, 0, xlo, xhi)[want]
+                    + _q_extremes(b2, g1, 0, ylo, yhi)[want] + c0)
+        return None
+    mx, mn = _edge(1, max), _edge(0, min)
+    if kind == "le":
+        if mx is not None and mx <= 0:
+            return "T"
+        if mn is not None and mn > 0:
+            return "F"
+    elif kind == "lt":
+        if mx is not None and mx < 0:
+            return "T"
+        if mn is not None and mn >= 0:
+            return "F"
+    elif (mn is not None and mn > 0) or (mx is not None and mx < 0):
+        return "F"
+    elif mn == 0 and mx == 0:
+        return "T"
+    for u, v in ((x, y), (y, x)):                        # (2): v only linear
+        if any(n == v and (k != 1 or len(m) > 1) for m in p for n, k in m):
+            continue
+        k = cf((v, 1))
+        a, b, c = cf((u, 2)), cf((u, 1)), cf()
+        if any(len(m) > 1 or (m and m[0][0] not in (u, v)) for m in p):
+            continue
+        (ulo, uhi), (vlo, vhi) = box[u], box[v]
+        if kind in ("le", "lt"):
+            mn, mx = _q_extremes(a, b, c, ulo, uhi)
+            ky = sorted((k * vlo, k * vhi))
+            mn, mx = mn + ky[0], mx + ky[1]
+            if kind == "le":
+                return "T" if mx <= 0 else ("F" if mn > 0 else None)
+            return "T" if mx < 0 else ("F" if mn >= 0 else None)
+        K = abs(k)
+        if K > 10 ** 4:                                  # the same load ceiling:
+            return None                                  # at most 10^4 residues
+        L, U = sorted((-k * vlo, -k * vhi))              # h(u) = -k*v in [L, U]
+        for r in range(K):
+            if _q_at(a, b, c, r) % K:
+                continue
+            # u = r + K*m: h is a quadratic in m
+            A, B, C = a * K * K, (2 * a * r + b) * K, _q_at(a, b, c, r)
+            if _q_hits(A, B, C, L, U, _cdiv(ulo - r, K), (uhi - r) // K):
+                return None                              # a solution exists
+        return "F"
+    if kind != "eq" or any(k > 1 for m in p for _, k in m):
+        return None
+    a, b, c, d = cf((x, 1), (y, 1)), cf((x, 1)), cf((y, 1)), cf()   # (3)
+    if not a:
+        return None
+    (xlo, xhi), (ylo, yhi) = box[x], box[y]
+    N = b * c - a * d                                    # (a x + c)(a y + b) = N
+    if N == 0:
+        hit = ((-c) % a == 0 and xlo <= -c // a <= xhi) or \
+              ((-b) % a == 0 and ylo <= -b // a <= yhi)
+        return None if hit else "F"
+    if abs(N) > 10 ** 10:
+        # LOAD CEILING (the curator, 2026-09-25: «перебор не приемлем, так как
+        # нагрузка»). The divisors of N are found by trial division up to
+        # sqrt|N|; MEASURED: |N| ~ 10^12 (a prime) cost 40 ms on one request —
+        # too much for a public judge. 10^10 caps it near 4 ms; beyond, Z.
+        return None
+    for dv in _divisors(N):
+        for u in (dv, -dv):
+            w = N // u
+            if (u - c) % a == 0 and (w - b) % a == 0 \
+                    and xlo <= (u - c) // a <= xhi and ylo <= (w - b) // a <= yhi:
+                return None
+    return "F"
 
 
 def _ev(expr, quantities):
@@ -399,10 +1420,21 @@ def _ev(expr, quantities):
             unit = _unify_units(unit, un, "add")
             if r is None:
                 return None, ped | p, used | u, None, unit
-            step = st if step is None or st is None else (
-                st if st == step else None)
+            # A SUM IS ON A LATTICE ONLY IF EVERY TERM IS ON IT (2026-09-26, the cloud
+            # red team, PR #1). This line used to take the NEXT term's step once one
+            # term had none: sum(x, y) with x continuous, y int read as 'an integer',
+            # and sum(x, y) == 1/2 was REFUTED though x = 1/2, y = 0 makes it true.
+            step = step if (step is not None and st == step) else None
             iv, ped, used = _iv_add(iv, r), ped | p, used | u
         return iv, ped, used, step, unit
+    if op == "sqrt":                       # УНАРНАЯ — до распаковки двух
+        ra, pa, ua, sa, una = _ev(args[0], quantities)
+        unit = _unit_sqrt(una)             # бросит _NoReadings на нечётной
+        if ra is None:
+            return None, pa, ua, None, unit
+        # Решётка НЕ наследуется: корень из целого целым не бывает вообще.
+        # Это то же консервативное огрубление, что и на делении.
+        return _iv_sqrt(ra), pa, ua, None, unit
     ra, pa, ua, sa, una = _ev(args[0], quantities)
     rb, pb, ub, sb, unb = _ev(args[1], quantities)
     ped, used = pa | pb, ua | ub
@@ -454,27 +1486,96 @@ def compare(kind, e1, e2, quantities):
     except _NoReadings as why:
         touched = {n for n in names_in(e1) | names_in(e2) if n in quantities}
         # THE FOURTH CORNER: no admissible reading, so there is nothing to
-        # quantify over and no verdict to give. E is returned as a value,
-        # with the reason attached — the judge stops on this atom and on
+        # quantify over and no verdict to give. E is returned with the reason
+        # attached — not a value but the judge's STOP on this atom, and on
         # nothing else.
         return E, set(), touched, str(why)
     ped, used = p1 | p2, u1 | u2
+    if kind not in ("le", "lt", "eq"):
+        raise ValueError(kind)
+    if any(quantities[n].get("exact") is not None for n in used if n in quantities):
+        # AN EXACT ROOT IS READ EXACTLY: where every name the atom reads is
+        # pinned or a solved root p + q√d, the difference of the sides is an
+        # exact number and its sign decides the atom (see QSqrt).
+        try:
+            dv = _ev_exact(("sub", e1, e2), quantities)
+            sg = dv.sign() if isinstance(dv, QSqrt) else (dv > 0) - (dv < 0)
+            if kind == "le":
+                return ("T" if sg <= 0 else "F"), ped, used, None
+            if kind == "lt":
+                return ("T" if sg < 0 else "F"), ped, used, None
+            return ("T" if sg == 0 else "F"), ped, used, None
+        except (_NotLinear, ZeroDivisionError, KeyError):
+            pass                            # something is still a box: as before
     if r1 is None or r2 is None:
         return "Z", ped, used, None       # undefined subterm: mark, not verdict
-    if kind == "le":
+    # A NAME IS ONE NUMBER ACROSS THE WHOLE CLAIM (the curator's word,
+    # 2026-09-24, in two steps): (1) for numbers m - m = 0, and m - m != 0
+    # only for a `sample`, where each occurrence is a separate act of
+    # measurement; (2) `==` over numbers is arithmetic, so `m == m` is true.
+    # The ZTL table (Z <-> Z = F) belongs to the logical connective, not to
+    # numbers: «в логике не бывает m==m, а бывает m nxor m». The judge used
+    # to bound each side SEPARATELY, so a name on both sides lost its
+    # identity (`m == m` Z while `m - m == 0` T), and the solver, which reads
+    # the difference of the sides, disagreed with the judge. On the linear
+    # fragment the difference is now read in ONE pass, each name counted
+    # once (a `sample` still gets a key per occurrence): exact, hence sound,
+    # and it never overturns a verdict the separate bounds gave. Outside the
+    # fragment the separate bounds run unchanged — wider, and honest.
+    try:
+        joint = _ev_linear(("sub", e1, e2), quantities)
+    except _NoReadings:
+        joint = None
+    if joint is None:
+        # ONE DEGREE UP (2026-09-24, the curator's X*X-2X+5=0): where the
+        # difference is a sum of parabolas, one per name, its range is read
+        # exactly. MEASURED before this: x*x - 2*x + 5 == 0 over the reals,
+        # and even (x-1)*(x-1) + 4 == 0, came back OPEN, x in x*x being read
+        # as two independent numbers; the truth is REFUTED, (x-1)² + 4 >= 4.
+        try:
+            joint = _ev_poly(("sub", e1, e2), quantities)
+        except _NoReadings:
+            joint = None
+    if joint is None:
+        # ... and where names multiply each other, at the corners (`_mlin`)
+        try:
+            joint = _ev_mlin(("sub", e1, e2), quantities)
+        except _NoReadings:
+            joint = None
+    if joint is None:
+        # ... and one name to a higher degree, by its critical points (`_upoly`)
+        try:
+            joint = _ev_upoly(("sub", e1, e2), quantities)
+        except _NoReadings:
+            joint = None
+    if joint is not None and (joint[0][0] != joint[0][0] or joint[0][1] != joint[0][1]):
+        # nan: a quantity pinned AT +inf met an unbounded one (inf + -inf).
+        # Found by the full regression, dilemmas/omnipotence.py: the stone
+        # against an unlimited capacity came back OPEN instead of REFUTED.
+        # The difference is undefined there; the separate bounds still decide.
+        joint = None
+    if joint is not None:
+        d = joint[0]
+        if kind == "le":
+            v = "T" if d[1] <= 0 else ("F" if d[0] > 0 else "Z")
+        elif kind == "lt":
+            v = "T" if d[1] < 0 else ("F" if d[0] >= 0 else "Z")
+        else:
+            v = "T" if d == (0, 0) else ("F" if d[0] > 0 or d[1] < 0 else "Z")
+    elif kind == "le":
         v = "T" if r1[1] <= r2[0] else ("F" if r1[0] > r2[1] else "Z")
     elif kind == "lt":
         v = "T" if r1[1] < r2[0] else ("F" if r1[0] >= r2[1] else "Z")
-    elif kind == "eq":                     # equality within exactness (§13:
+    else:                                  # equality within exactness (§13:
         d = _iv_sub(r1, r2)                # only forced equality is earned)
         v = "T" if d == (0, 0) else ("F" if d[0] > 0 or d[1] < 0 else "Z")
-        if v == "Z":                       # lattice miss: an int-typed side
-            for sa, rb in ((s1, r2), (s2, r1)):   # can never equal a point
-                if sa is not None and rb[0] == rb[1] \
-                        and not _on_lattice(rb[0], sa):
-                    v = "F"                # off the lattice: forced false
-    else:
-        raise ValueError(kind)
+    if kind == "eq" and v == "Z":          # lattice miss: an int-typed side
+        for sa, rb in ((s1, r2), (s2, r1)):   # can never equal a point
+            if sa is not None and rb[0] == rb[1] \
+                    and not _on_lattice(rb[0], sa):
+                v = "F"                    # off the lattice: forced false
+    if v == "Z":                           # the integers may still decide it
+        v = _int_refine(kind, e1, e2, quantities) or v
     return v, ped, used, None
 
 
@@ -768,7 +1869,7 @@ def sec6_the_fourth_corner():
           f"cure {r['next_check']}")
     print("   Two things this fixes. First, E was a Python exception until")
     print("   2026-08-12 — an accident of the implementation sitting")
-    print("   OUTSIDE the logic; now it is a value the floor computes, so")
+    print("   OUTSIDE the logic; now the floor computes it as a STOP, so")
     print("   one broken claim halts itself and not the sheet. Second, the")
     print("   empty set is exactly where 'all readings are true' comes for")
     print("   free — the vacuity trap measured in zprove.py. Separating E")

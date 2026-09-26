@@ -56,10 +56,22 @@ _OP_NAME = {"∧": "∧", "&": "∧", "∨": "∨", "|": "∨", "→": "→", "-
 def _tokens(s):
     out, i = [], 0
     two = {"->"}
+    # `<->` — ТРЕТЬЕ НАПИСАНИЕ уже существующего оператора, не новый оператор.
+    # Добавлено 2026-09-21 по слову куратора. Почему понадобилось: справка
+    # студии и `zfl.validate` считали `<->` законным, а сюда он не доходил —
+    # `<` не входит ни в двухсимвольные токены, ни в односимвольные, и разбор
+    # падал с «stray character '<'». Документ проходил проверку ФОРМЫ и умирал
+    # на ВЕРДИКТЕ: для пользователя худший вид отказа — форма зелёная, ответа
+    # нет. Семантика не меняется ни на клетку: `=` и `↔` уже дают xnor, это
+    # просто третий способ написать то же самое. Проверять ДЛИННЫЙ токен надо
+    # ПЕРВЫМ, иначе `<-` откусится раньше и снова получится мусор.
+    three = {"<->"}
     while i < len(s):
         c = s[i]
         if c.isspace():
             i += 1
+        elif s[i:i + 3] in three:
+            out.append("↔"); i += 3
         elif s[i:i + 2] in two:
             out.append(s[i:i + 2]); i += 2
         elif c in "()~&|^=∧∨¬→⊕↔":
@@ -141,11 +153,29 @@ def _show(phi):
     return f"({_show(phi[1])} {sign} {_show(phi[2])})"
 
 
+MARKS = VALUES + (E,)
+
+
+def _read_mark(atom, v):
+    """One mark, read or refused. Case does not matter (the file loader has
+    always read `t` as T); anything that is not T, F, Z or E is refused, not
+    read. MEASURED 2026-09-24: `{"q": "maybe"}` and `{"q": "t"}` reached the
+    connectives as they were and made `p & q` REFUTED; `M`, zverify's mark,
+    happened to act as Z."""
+    v2 = v.strip().upper() if isinstance(v, str) else v
+    if v2 not in MARKS:
+        hint = (" — 'M' is zverify's mark; here the unverified mark is Z"
+                if v2 == "M" else "")
+        raise ValueError(f"unknown mark {v!r} for {atom!r}: a mark is T, F, "
+                         f"Z or E{hint}")
+    return v2
+
+
 def _full(phi, marking):
     """Every atom gets a value; anything unspecified is Z (default deny of
-    trust — never on credit)."""
+    trust — never on credit). A mark given is checked (`_read_mark`)."""
     m = {a: Z for a in _atoms(phi)}
-    m.update({k: v for k, v in (marking or {}).items()})
+    m.update({k: _read_mark(k, v) for k, v in (marking or {}).items()})
     return m
 
 
@@ -276,11 +306,19 @@ def _lazy(phi, m):
     raise ValueError(op)
 
 
-def _happened(phi, m):
-    """What the kernel did with one claim, as a dict."""
+def _happened(phi, m, budget=None):
+    """What the kernel did with one claim, as a dict.
+
+    `budget` идёт СЮДА, а не в `zverify.grade` через голову судьи, и это не
+    вкусовщина. `grade` говорит на диалекте меток, где метка — это 'M', а
+    здесь она 'Z'; перевод делает `_grade_marking`. Зовущий напрямую его
+    пропускает, меток не остаётся, множество уточнений вырождается в точку
+    и ВСЯКИЙ разряд читается `hereditary`. Промерено 21.09 на живом обзоре:
+    разметка из 13 меток дала `hereditary` вместо `until-verification`.
+    Поэтому бюджет добавлен во ВХОД, чтобы обходить вход не приходилось."""
     k = _kernel(m)
     v = ev(phi, k)
-    g = grade(phi, _grade_marking(m))
+    g = grade(phi, _grade_marking(m), budget)
     unver = sorted(a for a in _atoms(phi) if m.get(a, Z) == Z)
     gone = sorted(a for a in _atoms(phi) if m.get(a) == E)
     lv, lab = _lazy(phi, k)
@@ -298,11 +336,15 @@ def _happened(phi, m):
             "pending": sorted(lab) if lv == Z else []}
 
 
-def check(text, marking=None):
+def check(text, marking=None, budget=None):
     """Formalize one formula, pass it through the kernel, report what
-    happened."""
+    happened.
+
+    `budget` — потолок на перебор в ГАРАНТИИ; None оставляет прежнее
+    поведение слово в слово. Вердикт линеен и отдаётся всегда, см.
+    `zverify.grade`."""
     phi = formalize(text)
-    return _happened(phi, _full(phi, marking))
+    return _happened(phi, _full(phi, marking), budget)
 
 
 def join(text_a, text_b, operator, marking=None):
@@ -475,7 +517,7 @@ def _no_subject(gone):
             "answer in either direction")
 
 
-def judge(text, marking=None):
+def judge(text, marking=None, budget=None):
     """Triage a claim by its WARRANT, not merely its truth. The verdict alone
     cannot tell 'earned' from 'true-on-credit', nor 'refuted' from 'not yet
     established' — the warranty GRADE does, and it names the weak link.
@@ -500,7 +542,7 @@ def judge(text, marking=None):
 
     This is the sort a plain truth-check and a proof kernel do NOT give: which
     conclusions ride on something unchecked, and exactly which link that is."""
-    r = check(text, marking)
+    r = check(text, marking, budget)
     v, g, unv, gone = (r["verdict"], r["grade"],
                        r["unverified"], r["absent"])
     if g == "hereditary":
@@ -581,8 +623,9 @@ def load_claims(path):
         for tok in (parts[2].split() if len(parts) >= 3 else []):
             if "=" in tok:
                 k, v = tok.split("=", 1)
-                if v.upper() in VALUES:
-                    marking[k] = v.upper()
+                # an unknown mark was dropped here in silence, and the atom
+                # went on as Z; now the line says what it cannot read
+                marking[k] = _read_mark(k, v)
         claims.append((parts[0], parts[1], marking))
     return claims
 

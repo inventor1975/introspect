@@ -11,7 +11,7 @@ core (ztljudge) judge the formula. Diagnostics merge both floors:
                 fourth corner of the reading-set construction: no admissible
                 reading exists, so there is nothing to quantify over and no
                 verdict to give (a type with no lattice point, units that do
-                not unify). It is a VALUE of the floor, not an exception:
+                not unify). It is the judge's STOP — not a value, not an exception:
                 the atom halts, the rest of the sheet is judged. Otherwise:
                 core disposition,
                 then capped by the numeric provenance axis: NO forced
@@ -148,9 +148,19 @@ def parse_quantities(text):
     return quantities, marks
 
 
+def _closes_last(s, i):
+    """Does the parenthesis at s[i] close at the very end of s?"""
+    depth = 0
+    for j in range(i, len(s)):
+        depth += {"(": 1, ")": -1}.get(s[j], 0)
+        if depth == 0:
+            return j == len(s) - 1
+    return False
+
+
 def _parse_arith(s, quantities):
     """A tiny arithmetic reader for one comparison side: numbers,
-    quantities, + - *, and sum(...). Returns a znum expression."""
+    quantities, + - * /, sum(...) and sqrt(...). Returns a znum expression."""
     s = s.strip()
     m = re.match(r"^sum\((?P<args>[^)]*)\)$", s)
     if m:
@@ -161,13 +171,26 @@ def _parse_arith(s, quantities):
         depth = 0
         for i in range(len(s) - 1, 0, -1):      # rightmost, outside parens
             c = s[i]
-            if c == ")":
+            # brackets group too: `[-1,1]` is ONE interval literal and its
+            # minus is a sign, not a subtraction. Counting only `(` `)` split
+            # it at that minus, so ZFL refused every interval with a negative
+            # bound (E_UNREADABLE on "[-1,1]"; found 2026-09-24 in the audit).
+            if c in ")]":
                 depth += 1
-            elif c == "(":
+            elif c in "([":
                 depth -= 1
             elif c in level and depth == 0:
                 return (_TAG[c], _parse_arith(s[:i], quantities),
                         _parse_arith(s[i + 1:], quantities))
+    # SQUARE ROOT, AS A CALL: `sqrt(expr)`. znum has evaluated ("sqrt", e)
+    # since e4cab4e (2026-09-21), but no reader produced that node, so the
+    # root was reachable from Python only: `sqrt(a) > 1.41` died here as
+    # "malformed arithmetic" and in ZFL as a row nobody declared (found
+    # 2026-09-24, on the curator's "we added the square root to ZTL").
+    # Checked AFTER the binary split, so `sqrt(a) + sqrt(b)` is two calls,
+    # and only when the parenthesis opened by `sqrt(` is the one that ends.
+    if s.startswith("sqrt(") and s.endswith(")") and _closes_last(s, 4):
+        return ("sqrt", _parse_arith(s[5:-1], quantities))
     if s.startswith("(") and s.endswith(")"):
         return _parse_arith(s[1:-1], quantities)
     # UNARY SIGN. The binary split above starts at index 1, so a leading
@@ -243,9 +266,14 @@ def _trim_parens(s, lo, hi):
     return lo, hi
 
 
-def extract_comparisons(formula, quantities):
+def extract_comparisons(formula, quantities, parse=True):
     """Replace each comparison in the formula with a fresh atom nc<i>;
-    return (core_formula, {atom: (kind, e1, e2)})."""
+    return (core_formula, {atom: (kind, e1, e2, chunk)}).
+
+    `parse=False` finds the comparisons and leaves their sides unread
+    (e1 = e2 = None): the validator asks only WHERE they are, and reading
+    the sides is the recursive part (0.5 s on a 2040-factor claim,
+    measured 2026-09-24), which the run does anyway."""
     # the implication arrow contains '>', which is NOT a comparison:
     # normalize '->' to the core's unicode arrow before extraction
     # (bug found by the curator's question "if 4 > 3 then 5 > 3?")
@@ -267,10 +295,26 @@ def extract_comparisons(formula, quantities):
         # invented claims against predicted verdicts)
         lo, hi = _trim_parens(out, m.start(), m.end())
         chunk = out[lo:hi].strip()
-        sign = _CMP.search(chunk).group(0)
+        found = _CMP.search(chunk)
+        if found is None:
+            # A PARENTHESIS ACROSS A SIDE: `eq0 == (x*x - 2*x + 5 == 0)` nests
+            # a comparison in a comparison, `(p & x) == 3` puts a logical part
+            # inside a side; the trim above then cuts the sign away. Until
+            # 2026-09-24 this died as AttributeError, and "'NoneType' object
+            # has no attribute 'group'" is what the person, and the
+            # translator's repair turn, were told (MEASURED on a live model's
+            # document that day). The refusal is the same; now it says what.
+            raise ValueError(
+                f"cannot read the comparison in {m.group(0).strip()!r}: a side "
+                f"of it is not arithmetic (a comparison inside a comparison, or "
+                f"a logical part inside a side). `==` compares numbers; relate "
+                f"statements with <->, and let each comparison stand on its "
+                f"own: `(x*x - 2*x + 5 == 0) & p`")
+        sign = found.group(0)
         left, right = chunk.split(sign, 1)
         kind, swap = _KINDMAP[sign]
-        e1, e2 = _parse_arith(left, quantities), _parse_arith(right, quantities)
+        e1, e2 = ((_parse_arith(left, quantities), _parse_arith(right, quantities))
+                  if parse else (None, None))
         if swap:
             e1, e2 = e2, e1
         i += 1
@@ -294,7 +338,7 @@ def judge_sheet_claim(formula, quantities, marks):
             # unjudgeable atom is not OPEN, not REFUTED, it is UNJUDGEABLE.
             # The judge stops here and says what to repair; every other
             # claim on the sheet is untouched, which is the whole point of
-            # keeping E a value rather than an exception.
+            # keeping E a stop the judge reports rather than an exception.
             return {"formula": formula, "core_formula": core_formula.strip(),
                     "numeric_atoms": {name: {"comparison": chunk,
                                              "verdict": "E", "why": why,

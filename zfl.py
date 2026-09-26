@@ -456,9 +456,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ztl
 
 from ztljudge import judge, formalize                            # noqa: E402
 from znumjudge import parse_quantities, judge_sheet_claim        # noqa: E402
+from znumjudge import extract_comparisons                       # noqa: E402
 from znumsolve import solve_claim                                # noqa: E402
 import zpassport                                                 # noqa: E402
 import zbook                                                     # noqa: E402
+import zbackward                                                 # noqa: E402
 
 NAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁё_][\w А-Яа-яЁё-]*$")
 
@@ -491,7 +493,7 @@ RESERVED_NAMES = ("T", "F", "Z")
 # месяц появится второй, и разойдётся с первым — как уже было с запретом,
 # который стоял в спеке первого поколения и потерялся при переходе на v2.
 OPERATOR_WORDS = ("not", "and", "or", "imp", "xor", "xnor",
-                  "sum", "min", "max", "abs")
+                  "sum", "min", "max", "abs", "sqrt")
 _SERVICE_WORDS = set(RESERVED_NAMES) | set(OPERATOR_WORDS)
 
 # status -> what the core's two floors each call it
@@ -541,6 +543,16 @@ def coerce(doc):
     return out
 
 
+MAX_ATOMS = 10          # см. комментарий в validate(): стоимость 3**atoms
+MAX_ATOMS_WITH_COMPARISONS = 9   # a comparison costs more than a plain atom: see validate()
+# THE LENGTH OF A FORMULA IS CAPPED TOO — the atom cap bounds the reading, not
+# the READERS, which are quadratic in the length of the text. MEASURED
+# 2026-09-24: a product chain of one name, 39 KB, took 4.6 s; at 4 KB the
+# worst of seven adversarial shapes (products, differences, quotients,
+# nested roots and brackets) takes 0.21 s. A public service pays per request.
+MAX_FORMULA_CHARS = 4096
+
+
 def validate(doc):
     """Machine-readable issues, addressed to a CELL. The repair loop and the
     form's inline errors read the same list — `where` is `row 2 / ground`
@@ -551,6 +563,55 @@ def validate(doc):
     if not rows:
         issues.append(_issue("error", "E_EMPTY", "table",
                              "the table has no rows"))
+    # КАП НА ЧИСЛЕ АТОМОВ В ФОРМУЛАХ — НЕ на числе строк.
+    #
+    # Стоимость разбора растёт как 3**atoms: ПРОМЕРЕНО 2026-09-18 на `zfl.run` —
+    # 8 атомов 0.03 с, 10 атомов 0.27 с, 12 атомов 2.87 с, 14 атомов 29.6 с,
+    # 16 атомов больше минуты. В тело запроса 256 КБ влезают десятки имён, так
+    # что без предела публичная студия отдаёт работника на минуты одним запросом.
+    #
+    # ПОЧЕМУ ПО АТОМАМ, А НЕ ПО СТРОКАМ. Первая версия капа считала строки — и
+    # была бы неверна по существу: значение формулы зависит ТОЛЬКО от атомов,
+    # которые в ней встречаются (`lean/LabelExact.lean`, `merge_left`). Промерено
+    # в тот же час: 60 строк с формулой на 6 имён — 0.002 с, а 12 строк с
+    # формулой на 12 имён — 2.87 с. То есть таблица на сто тысяч строк дешева,
+    # пока каждая формула говорит о немногом; кап по строкам отказал бы ей зря.
+    #
+    # SECURITY-AUDIT.md §40 УТВЕРЖДАЛ, что кап здесь стоит и зовётся E_TOOBIG.
+    # Его не было: слово не встречалось в файле ни разу, 40 имён проходили чисто.
+    # Заявленная защита, которой нет, хуже честно названного отсутствия.
+    #
+    # A COMPARISON IS A READING ATOM TOO (2026-09-26, the cloud red team, F4).
+    # `x <= 1` is one NAME to `names_in` and one ATOM to the completion table,
+    # so `(x <= 1) ^ (x <= 2) ^ ... ^ (x <= 14)` — one name, 150 bytes —
+    # passed this cap and cost seconds. MEASURED, worst over hash seeds:
+    # 10 plain atoms 0.01 s; 9 atoms with comparisons 0.53 s; 10 comparisons
+    # 2.83 s; 8 comparisons + 2 atoms 8.33 s. So atoms are counted as the core
+    # reads them, and with any comparison present the cap is one lower.
+    _used, _cmps = set(), set()
+    # ONLY FORMULAS (2026-09-26): a ground is a formula only on a `defined` row;
+    # elsewhere it names a witness (`san-guard-filter_var-FILTER_VALIDATE_FLOAT-L48`)
+    # and the core never reads it. Counting its words as atoms refused 1 080 of
+    # introspect's 31 824 SARD documents (11 "atoms", none of them read).
+    for _text in [doc.get("claim") or ""] + [(_r.get("ground") or "") for _r in rows
+                                             if (_r.get("status") or "") == "defined"]:
+        _a, _c = _reading_atoms(_text)
+        _used |= _a
+        _cmps |= _c
+    _cap = MAX_ATOMS_WITH_COMPARISONS if _cmps else MAX_ATOMS
+    if len(_used) + len(_cmps) > _cap:
+        issues.append(_issue("error", "E_TOOBIG", "table",
+                             f"{len(_used) + len(_cmps)} atoms in the formulas "
+                             f"({len(_cmps)} of them comparisons): a reading "
+                             f"costs 3**atoms, so it is capped at {_cap} "
+                             f"(rows are NOT capped — split the question instead)"))
+    for _where, _text in [("claim", doc.get("claim") or "")] + [
+            (f"row {i}", (r.get("ground") or "")) for i, r in enumerate(rows, 1)]:
+        if len(_text) > MAX_FORMULA_CHARS:
+            issues.append(_issue("error", "E_TOOLONG", _where,
+                                 f"{len(_text)} characters: a formula is capped at "
+                                 f"{MAX_FORMULA_CHARS} (reading it costs the square of "
+                                 f"its length) — split the question"))
     seen = set()
     for i, r in enumerate(rows, 1):
         at = f"row {i}"
@@ -739,14 +800,122 @@ def validate(doc):
     claim = normalise((doc.get("claim") or "").strip(), rows)
     if claim:
         try:
-            _formula(claim, {r.get("name"): r for r in rows})
+            phi = _formula(claim, {r.get("name"): r for r in rows})
         except Exception as exc:
-            issues.append(_issue("error", "E_CLAIM", "claim", str(exc)))
+            # A LONE `=` STAYS LOGICAL where no row has a value (`normalise`),
+            # so `x*x - 2*x + 5 = 0` over value-less rows dies in the
+            # propositional parser as "stray character '*'". When the equation
+            # reading explains the failure, say THAT: which row needs a value.
+            issues.extend(_numbers_without_value(_LONE_EQ.sub("==", claim), rows)
+                          or [_issue("error", "E_CLAIM", "claim", str(exc))])
+        else:
+            numeric = isinstance(phi, tuple) and phi[:1] == ("comparison",)
+            if numeric:
+                issues.extend(_numbers_without_value(phi[1], rows))
+            issues.extend(_numbers_as_statements(phi[1] if numeric else claim, rows))
         unknown = names_in(claim) - declared
         if unknown:
             issues.append(_issue("error", "E_UNKNOWN_NAME", "claim",
                                  f"no row is called {sorted(unknown)}"))
     return issues
+
+
+def _numbers_without_value(text, rows):
+    """A NAME READ AS A NUMBER NEEDS A NUMBER. Inside a comparison every name
+    is a quantity; a row with no value is not one, and no instrument can read
+    the claim. Until 2026-09-24 the validator waved every comparison through
+    (`_formula` hands it to the sheet judge) and the run refused it later.
+
+    MEASURED 2026-09-24 on the live studio: three questions in prose (two
+    Russian, one English), all translated correctly to `x*x - 2*x + 5 == 0`,
+    and in all three the model left the sought x without a value instead of
+    `?`. `validate` returned nothing, so the translator's repair loop, which
+    runs on these issues, never ran; the person saw E_UNREADABLE "stray
+    character '*'". The issue now names the cell and the cure, and the repair
+    loop can apply it.
+
+    The comparisons are found by `extract_comparisons`, the sheet judge's own
+    splitter, not by a copy of its pattern: a rule written twice drifts, and
+    between `zfl` and the judge that has already cost a day. A name used
+    only as a propositional atom beside a comparison is not touched."""
+    by_name = {}
+    for i, r in enumerate(rows, 1):
+        name = (r.get("name") or "").strip()
+        if name:
+            by_name.setdefault(name, (i, r))
+    # NOTHING TO FIND, NOTHING TO PAY. MEASURED 2026-09-24 on the
+    # 2040-factor claim of the public-service stand: reading the sides made
+    # validate 0.00 s -> 0.5 s. The splitter now runs with `parse=False`,
+    # which only finds the comparisons, and not at all when every name the
+    # claim mentions has a value.
+    valueless = {n for n, (_i, r) in by_name.items()
+                 if not (r.get("value") or "").strip()}
+    if not (names_in(text) & valueless):
+        return []
+    try:
+        _core, atoms = extract_comparisons(text, {}, parse=False)
+    except Exception:
+        return []                # malformed arithmetic: the run says it in its own words
+    used = set()
+    for _kind, _e1, _e2, chunk in atoms.values():
+        used |= names_in(chunk)
+    out = []
+    for name in sorted(used & set(by_name)):
+        i, r = by_name[name]
+        if not (r.get("value") or "").strip():
+            out.append(_issue(
+                "error", "E_NO_VALUE", f"row {i} / value",
+                f"'{name}' is read as a number in the claim, and it has no "
+                f"value: give it a number, an interval [0,10], or ? if "
+                f"'{name}' is what the question asks for"))
+    return out
+
+
+def _numbers_as_statements(text, rows):
+    """A NUMBER IS NOT A STATEMENT. A row with a value is a quantity; it
+    enters a claim through a comparison, and a name of one that stands where
+    a statement goes (beside ^ & | ~ -> <->, or alone) is a type error, not a
+    proposition with an unknown mark.
+
+    MEASURED 2026-09-24 with a live model: a question in prose came back as
+    `x^2 - 2*x + 5 == 0`. `^` is XOR here, so the claim was read as
+    "x XOR (2 - 2*x + 5 == 0)" and answered OPEN, silently; with x = 2
+    measured, `x^2 == 4` and `x^2 == 5` both came back OPEN. The issue names
+    the name and the cure, and the repair loop can apply it."""
+    numbers = {}
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        if name and (r.get("value") or "").strip():
+            numbers[name] = True
+    if not (names_in(text) & set(numbers)):
+        return []
+    try:
+        core, _atoms = extract_comparisons(text, {}, parse=False)
+    except Exception:
+        return []                # the splitter's own refusal: the run says it
+    return [_issue(
+        "error", "E_NUMBER_AS_STATEMENT", "claim",
+        f"'{name}' has a value, so it is a number, and here it stands where a "
+        f"statement goes. A number enters a claim through a comparison "
+        f"(`{name} > 0`); a square is `{name}*{name}`, because `^` is XOR, a "
+        f"connective of statements")
+        for name in sorted(names_in(core) & set(numbers))]
+
+
+def _reading_atoms(text):
+    """(plain names, comparisons) as the completion table reads a formula: a
+    comparison is ONE atom however many names it mentions, and a name used
+    only inside comparisons is not an atom of its own. Found by the judge's
+    own splitter (a rule written twice drifts); only when the text could hold
+    a comparison, so a table of plain grounds pays nothing."""
+    if not re.search(r"[<>]|==|!=|(?<![<>=!])=(?!=)", text or ""):
+        return names_in(text), set()
+    try:
+        core, atoms = extract_comparisons(text, {}, parse=False)
+    except Exception:
+        return names_in(text), set()
+    return ({n for n in names_in(core) if n not in atoms},
+            {" ".join(v[3].split()) for v in atoms.values()})
 
 
 def names_in(text):
@@ -771,6 +940,27 @@ _WORDS = [(r"\band\b", "&"), (r"\bи\b", "&"),
           (r"\bimplies\b", "->")]
 
 
+def _spell(text):
+    """НАПИСАНИЯ одного оператора — в ОДНОМ месте, а не в каждом разборщике.
+
+    `<->` это третье написание эквиваленции (`↔`, `=`), и ему нужен отдельный
+    ход по нежданной причине: `normalise` ниже превращает одинокий `=` в `==`
+    там, где в таблице есть числа. То есть в числовом документе `=` уже занят
+    равенством, и `<->` остаётся ЕДИНСТВЕННЫМ способом написать эквиваленцию.
+    Пока он не читался, логическая эквиваленция была недоступна всякому, кто
+    положил в таблицу хоть одно число.
+
+    Почему одной функцией на все входы. Формульный текст приходит ТРЕМЯ
+    дорогами: `normalise` (claim), `_formula` (ground), `_formula_prop`
+    (ground у defined-строки). Правило, записанное трижды, разойдётся —
+    это у нас уже случилось между `zfl` и судьёй и стоило дня. Здесь оно
+    написано один раз и зовётся оттуда, откуда нужно.
+
+    Промерено 2026-09-21: до правки claim `a <-> b` в документе С ЧИСЛАМИ
+    умирал с «stray character '<'», а такой же БЕЗ чисел проходил."""
+    return (text or "").replace("<->", "↔")
+
+
 def normalise(claim, rows):
     """`x - 10 = 20` is what a person writes, and it is not wrong.
 
@@ -779,7 +969,7 @@ def normalise(claim, rows):
     know that. Where the document has quantities, a lone `=` is read as
     equality — the reading anyone typing an equation intends. Elsewhere it
     keeps its propositional sense."""
-    out = claim or ""
+    out = _spell(claim)
     for pat, sym in _WORDS:
         out = re.sub(pat, sym, out)
     if numeric_rows(rows) and _LONE_EQ.search(out):
@@ -792,7 +982,7 @@ def _formula_prop(text):
     biconditional and never a numeric comparison. Reading it as a comparison
     is how converting the docket's own examples first crashed the fixed
     point with KeyError('comparison')."""
-    t = re.sub(r"\bTr\s*\(\s*([^)]+?)\s*\)", r"\1", text or "")
+    t = re.sub(r"\bTr\s*\(\s*([^)]+?)\s*\)", r"\1", _spell(text))
     for pat, sym in _WORDS:
         t = re.sub(pat, sym, t)
     return formalize(t)
@@ -804,7 +994,10 @@ def _formula(text, _names):
     to a bare reference here — self-reference is a property of the GROUND
     being a formula over names, not a separate operator the reader has to
     know."""
-    t = re.sub(r"\bTr\s*\(\s*([^)]+?)\s*\)", r"\1", text)
+    # `_spell` ПЕРВЫМ: иначе регулярка ниже видит `<` внутри `<->` и уводит
+    # ЛОГИЧЕСКУЮ эквиваленцию в ЧИСЛОВОЙ путь — не отказ, а молчаливая
+    # подмена маршрута, худший вид ошибки.
+    t = re.sub(r"\bTr\s*\(\s*([^)]+?)\s*\)", r"\1", _spell(text))
     for pat, sym in _WORDS:
         t = re.sub(pat, sym, t)
     if re.search(r"(<=|>=|==|<|>)", t):
@@ -871,11 +1064,16 @@ def to_system(rows):
     system = {}
     for name, r in defined.items():
         system[name] = _formula_prop(r.get("ground") or "")
+    # ONCE, not per row (2026-09-26, the cloud red team, F5): asking names_in
+    # of every defined ground for every row was O(rows^2) — 800 defined and
+    # 800 plain rows, a 99 KB body under every cap, cost 16 s of CPU.
+    mentioned = set()
+    for d in defined.values():
+        mentioned |= names_in(d.get("ground") or "")
     for r in rows:
         if r["name"] in defined:
             continue
-        if any(r["name"] in names_in(d.get("ground") or "")
-               for d in defined.values()):
+        if r["name"] in mentioned:
             system[r["name"]] = _MARK.get(r.get("status"), "Z")
     return system
 
@@ -1023,6 +1221,14 @@ def demote_unregistered(rows, registry):
     return out, demoted
 
 
+def _root_text(lo, hi):
+    """A root as a person reads it: exact when it is (`-2`, `1/3`), else the
+    square root's clamp shown as ≈ and twelve significant digits."""
+    if lo == hi:
+        return str(lo)
+    return "≈" + format(float((lo + hi) / 2), ".12g")
+
+
 def resolved_marking(rows):
     """The marking the judge should have seen all along.
 
@@ -1064,6 +1270,53 @@ def unredeemable(comp_kind):
         if kind == "PARADOX" or (kind == "DOWNSTREAM" and param == "permanent"):
             out.add(name)
     return out
+
+
+# THE REVERSE PASS, after the verdict: which unverified inputs to check, and
+# how. `zbackward` (moved from inventory/ on 2026-09-24) gives the minimal
+# sets by GUARANTEE — check them together and the target comes whatever they
+# turn out to be; a work order is written only from these — and by
+# POSSIBILITY — the target becomes reachable if the check goes the right way.
+# THE CAP IS FOR A PUBLIC SERVICE, MEASURED 2026-09-24 on this machine, both
+# targets together: 6 unverified inputs 0.12 s, 7 1.0 s, 8 1.5 s, 9 5.4 s.
+# zbackward's own ceiling of 9 is a notebook's; each request here pays its own.
+BACKWARD_CAP = 6
+
+
+def what_to_check(claim, marking, unverified):
+    """Minimal sets of the claim's own unverified inputs: for EARNED, for REFUTED,
+    and to SETTLE the matter either way."""
+    phi = formalize(claim)
+    atoms = _formula_atoms(phi)
+    own = sorted(a for a in unverified if a in atoms)
+    if len(own) > BACKWARD_CAP:
+        return {"refused": f"{len(own)} unverified inputs; the reverse pass is computed "
+                           f"up to {BACKWARD_CAP} (it grows as 3**n: 6 take 0.12 s, 9 take 5.4 s)"}
+    m = {a: v for a, v in marking.items() if a in atoms}
+    out = {}
+    # SETTLED is the order a person can act on first: check these, and the
+    # verdict becomes final (EARNED or REFUTED) whatever they turn out to be.
+    for target, key in (("EARNED", "EARNED"), ("REFUTED", "REFUTED"),
+                        (zbackward.TERMINAL, "SETTLED")):
+        b = zbackward.backward(phi, m, target, by_disposition=True,
+                               cap_grounds=BACKWARD_CAP)
+        # AN EMPTY FAMILY IS SAID, NOT LEFT EMPTY: a bare [] reads as
+        # "nothing to check", the opposite of "no set will do" (zbackward's
+        # own rule, kept at the door).
+        out[key] = {"already": b["already"],
+                       "guaranteed": [list(x) for x in b["guaranteed"]],
+                       "possible": [list(x) for x in b["possible"]],
+                       "no_guaranteed_set": bool(b["guaranteed_none"]) and not b["already"],
+                       "no_possible_set": bool(b["possible_none"]) and not b["already"]}
+        if "не_искал_дальше" in b:
+            out[key]["searched_up_to"] = zbackward.MAX_K
+    return out
+
+
+def _formula_atoms(phi):
+    if isinstance(phi, str):
+        return {phi}
+    return set().union(*(_formula_atoms(x) for x in phi[1:])) if phi else set()
 
 
 def run(doc, ground_registry=None):
@@ -1116,6 +1369,18 @@ def run(doc, ground_registry=None):
         report["passport"] = [
             {"component": comp, "kind": kind, "detail": why}
             for comp, kind, why in reports]
+        # EVERY ROW THE PASSPORT READ, not only the troubled ones. `reports`
+        # names problem components alone, so a table the passport grounded
+        # whole came back as `passport: []` — true, and it hid the answer the
+        # passport had computed: truncated Yablo is s2 = T, s1 = F, s0 = F,
+        # all GROUNDED (MEASURED 2026-09-24; the page said "nothing to judge").
+        # What each ground holds, and how it came out.
+        by_name = {x["name"]: x for x in rows}
+        report["passport_rows"] = {
+            name: {"kind": kind, "value": lfp.get(name),
+                   "reads": (sorted(names_in(by_name[name].get("ground")) & set(by_name))
+                             if by_name.get(name, {}).get("status") == "defined" else [])}
+            for name, (kind, _n) in sorted(comp_kind.items())}
 
     if what["numeric"] and claim:
         try:
@@ -1134,7 +1399,13 @@ def run(doc, ground_registry=None):
                 solved = {n: {"lo": str(v["lo"]), "hi": str(v["hi"]),
                               "pinned": v["pinned"], "prov": v["prov"],
                               "from": v.get("from", []),
-                              "weak": v.get("weak", [])}
+                              "weak": v.get("weak", []),
+                              **({"roots": [ex or _root_text(lo, hi)
+                                            for (lo, hi), ex in zip(
+                                                v["roots"],
+                                                v.get("roots_exact")
+                                                or [None] * len(v["roots"]))]}
+                                 if v.get("roots") else {})}
                           for n, v in (r.get("solved") or {}).items()}
             else:
                 r = judge_sheet_claim(claim, q, m)
@@ -1144,7 +1415,23 @@ def run(doc, ground_registry=None):
                                  "next_check": r.get("next_check", []),
                                  "solved": solved, "claim": claim,
                                  "sheet": sheet}
-            if unknown and not solved:
+            # THE ANSWER TRAVELS WITH ITS DISPOSITION. The numeric floor has
+            # always known the two-valued answer (the core's verdict under
+            # it) and, on credit, the side it leans to; this report kept
+            # neither, so the receipt of a number claim carried value,
+            # disposition and grade all null (MEASURED 2026-09-24 on every
+            # numeric example), and ON CREDIT could not say toward T or F.
+            core = r.get("core") or {}
+            report["numeric"]["verdict"] = core.get("verdict")
+            report["numeric"]["grade"] = (
+                "hereditary" if r["disposition"] in ("EARNED", "REFUTED") else
+                "until-verification" if r["disposition"] in ("OPEN", "ON CREDIT") else None)
+            report["numeric"]["unverified"] = list(core.get("unverified") or [])
+            if r.get("polarity"):
+                report["numeric"]["polarity"] = r["polarity"]
+            # a REFUTED question needs no more facts: nothing makes it true
+            # (it said "needs 1 fact: x" beside REFUTED until 2026-09-24)
+            if unknown and not solved and r["disposition"] != "REFUTED":
                 names = [x["name"] for x in numeric_rows(rows)
                          if (x.get("value") or "").strip() == "?"]
                 report["numeric"]["missing"] = missing_facts(claim, sheet,
@@ -1175,7 +1462,11 @@ def run(doc, ground_registry=None):
         report["judge"] = {"verdict": r["verdict"],
                            "disposition": r["disposition"],
                            "grade": r["grade"],
-                           "unverified": sorted(r["unverified"])}
+                           "unverified": sorted(r["unverified"]),
+                           "why": r.get("why")}
+        if r["unverified"]:
+            report["what_to_check"] = what_to_check(claim, resolved_marking(rows),
+                                                    sorted(r["unverified"]))
         # The grade stands as the core computed it; what the marking could
         # not say is added beside it rather than folded into it.
         touched = sorted(dead & names_in(claim))
@@ -1236,14 +1527,36 @@ def run(doc, ground_registry=None):
                                  f"the ledger could not read these rows: "
                                  f"{exc}"))
             return {"ok": False, "issues": issues}
-        if judged is not None:
-            report["ledger"] = {
-                "claims": {k: {"disposition": v["disposition"],
-                               "assurance": v["assurance"]}
-                           for k, v in judged.items()},
-                "brackets": {g: list(iv) for g, iv
-                             in zbook.trust_interval(book).items()},
-                "naming": zbook.naming_assumption(book)}
+        # THE SAME GUARD OVER THE WHOLE BRANCH, not only its first call: the
+        # brackets and the naming read the book again, and an OverflowError
+        # from a value past float range escaped run() from here (MEASURED
+        # 2026-09-24: 200 factors of 10**1000 — the public API answered 500).
+        try:
+            if judged is not None:
+                report["ledger"] = {
+                    "claims": {k: {"disposition": v["disposition"],
+                                   "assurance": v["assurance"]}
+                               for k, v in judged.items()},
+                    "brackets": {g: list(iv) for g, iv
+                                 in zbook.trust_interval(book).items()},
+                    "naming": zbook.naming_assumption(book)}
+        except Exception as exc:
+            issues.append(_issue("error", "E_UNREADABLE", "ledger",
+                                 f"the ledger could not read these rows: "
+                                 f"{exc}"))
+            return {"ok": False, "issues": issues}
+
+    # БИРКА НА ЗАВИСЯЩИХ. Заработавшее на объявленном не прячется среди
+    # заработавшего на предъявимом.
+    # COMPUTED BEFORE THE RECEIPT, which reads the tag from this report. While
+    # this block stood below the receipt, the receipt issued by run() carried
+    # `on_stipulation: null` ALWAYS, and could not tell a verdict standing on
+    # what was said from one standing on an act (MEASURED 2026-09-24: the same
+    # document under a story tier and an act tier gave receipts equal to the
+    # byte). Found by the Authority Lab prototype.
+    стип = on_stipulation(rows, ground_registry) if ground_registry else []
+    if стип:
+        report["on_stipulation"] = стип
 
     # КВИТАНЦИЯ ВЫДАЁТСЯ ВСЕГДА, когда есть что квитировать. Иначе она
     # остаётся доступной только тому, кто зовёт питон — а человек в тетради
@@ -1255,12 +1568,6 @@ def run(doc, ground_registry=None):
         report["receipt"] = warrant_receipt.receipt(
             {"report": report}, doc, (doc.get("epoch") or ""),
             ground_registry=ground_registry)
-
-    # БИРКА НА ЗАВИСЯЩИХ. Заработавшее на объявленном не прячется среди
-    # заработавшего на предъявимом.
-    стип = on_stipulation(rows, ground_registry) if ground_registry else []
-    if стип:
-        report["on_stipulation"] = стип
 
     if demoted:
         # ПОИМЁННО, не счётом: читатель должен видеть, ЧЬИ вердикты стояли
