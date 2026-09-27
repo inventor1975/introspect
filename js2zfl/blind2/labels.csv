@@ -1,0 +1,274 @@
+file,category,vulnerable,expect_open,why
+sqli/user-lookup.js,sqli,true,false,req.query.id interpolated into mysql2 query template literal
+sqli/profile-controller.js,sqli,true,false,req.params.username concatenated into mysql2 SELECT string
+sqli/search-products.ts,sqli,true,false,req.query.name concatenated into pg LIKE clause
+sqli/order-history.js,sqli,true,false,ctx.query.customer concatenated into koa mysql2 query
+sqli/article-query.ts,sqli,true,false,@Query tag concatenated into TypeORM createQueryBuilder where
+sqli/tag-filter.js,sqli,true,false,req.query.category interpolated into knex.raw template
+sqli/report-builder.ts,sqli,true,false,req.query.region concatenated into sequelize.query text
+sqli/audit-log.ts,sqli,true,false,req.query.actor interpolated into prisma $queryRawUnsafe
+sqli/comment-thread.js,sqli,true,false,req.params.slug concatenated into sqlite3 db.all query
+sqli/session-store.js,sqli,true,false,req.query.token concatenated into better-sqlite3 prepare text
+sqli/invoice-detail.ts,sqli,true,false,req.params.number interpolated into TypeORM repo.query
+sqli/metrics-endpoint.ts,sqli,true,false,tainted host passed cross-file to helper that concatenates into pg query
+sqli/account-settings.js,sqli,true,false,req.body theme and userId concatenated into mysql UPDATE across two assignments
+sqli/bulk-delete.js,sqli,true,false,req.body.ids joined into IN clause of DELETE
+sqli/sortable-list.ts,sqli,true,false,req.query sort and dir interpolated into ORDER BY
+sqli/notification-purge.ts,sqli,true,false,@Query before interpolated into prisma $executeRawUnsafe
+sqli/geo-search.ts,sqli,true,false,req.query.radius concatenated inside sequelize literal()
+sqli/price-range.js,sqli,true,false,req.query min and max concatenated into knex whereRaw
+sqli/feedback-submit.mjs,sqli,true,false,req.body fields concatenated into pg INSERT VALUES
+sqli/catalog-service.ts,sqli,true,false,tainted sku passed cross-file to fetchByRawWhere which concatenates into mysql query
+sqli/legacy-search.js,sqli,true,false,HTML-escaper applied then value concatenated into SQL string (wrong context)
+sqli/quote-filter.js,sqli,true,false,incomplete sanitizer strips only single quotes before concatenation
+sqli/paginated-feed.ts,sqli,true,false,req.query limit and offset concatenated into pg LIMIT/OFFSET
+sqli/name-suggest.js,sqli,true,false,ctx.query.prefix concatenated into mysql2 LIKE clause
+sqli/preference-load.js,sqli,true,false,req.cookies.locale concatenated into mysql query
+sqli/tenant-resolver.ts,sqli,true,false,x-tenant-id header concatenated into mysql query
+sqli/dynamic-filter.js,sqli,true,false,req.query keys and values concatenated in loop into WHERE
+sqli/resource-detail.ts,sqli,true,false,@Param id interpolated into TypeORM dataSource.query
+sqli/status-toggle.js,sqli,true,false,req.body.id concatenated into mysql UPDATE in both branches
+sqli/export-handler.cjs,sqli,true,false,req.query table and since concatenated into mysql query
+sqli/deferred-filter.js,sqli,true,true,tainted expression stored in module state by one route and concatenated by another
+sqli/queued-writer.ts,sqli,true,true,tainted names accumulated in module-level queue then concatenated into INSERT
+sqli/member-panel.tsx,sqli,true,false,server-action email interpolated into prisma $queryRawUnsafe
+sqli/customer-record.js,sqli,false,false,req.params.id bound as mysql2 placeholder parameter
+sqli/login-check.js,sqli,false,false,credentials bound via mysql2 execute placeholders
+sqli/inventory-search.ts,sqli,false,false,req.query.warehouse bound as pg $1 parameter
+sqli/shipment-track.js,sqli,false,false,tracking bound as koa mysql2 placeholder
+sqli/document-fetch.ts,sqli,false,false,@Param id bound via TypeORM named parameter :id
+sqli/label-lookup.js,sqli,false,false,project bound via knex.raw positional binding
+sqli/summary-report.ts,sqli,false,false,dept bound via sequelize replacements
+sqli/access-review.ts,sqli,false,false,role bound via Prisma.sql tagged template
+sqli/thread-list.js,sqli,false,false,room bound as sqlite3 placeholder parameter
+sqli/token-verify.js,sqli,false,false,token bound to prepared better-sqlite3 statement placeholder
+sqli/billing-detail.ts,sqli,false,false,id bound via TypeORM repo.query positional parameter
+sqli/throughput-stats.ts,sqli,false,false,host bound cross-file through helper to pg $1 parameter
+sqli/numeric-id.js,sqli,false,false,id parsed with parseInt to a verified integer before concatenation
+sqli/column-select.js,sqli,false,false,column name whitelisted via allow-map and value bound as placeholder
+sqli/ranked-list.ts,sqli,false,false,sort mapped through whitelist to fixed ORDER BY fragment
+sqli/event-history.ts,sqli,false,false,type bound via Prisma.sql tagged template
+sqli/region-search.ts,sqli,false,false,region passed to Sequelize where object (no raw SQL)
+sqli/bracket-filter.js,sqli,false,false,values passed to knex where object builder
+sqli/keyword-scan.js,sqli,false,false,keyword neutralised with mysql2 connection.escape for SQL context
+sqli/table-inspect.ts,sqli,false,false,table quoted with mysql2 escapeId identifier escaper
+sqli/health-summary.ts,sqli,false,false,constant query; request input only controls logging
+sqli/autocomplete.js,sqli,false,false,wildcards appended to bound value not to statement text
+sqli/visit-counter.js,sqli,false,false,cookie parsed to integer and bound as placeholder
+sqli/api-gateway.ts,sqli,false,false,api key regex-validated then bound as placeholder
+sqli/batch-fetch.js,sqli,false,false,placeholder list generated and ids bound as parameters
+sqli/contact-search.ts,sqli,false,false,company passed to TypeORM find where object
+sqli/mode-switch.js,sqli,false,false,branch selects between two fixed statements; input never enters SQL
+sqli/subscription-list.ts,sqli,false,false,plan passed to Prisma findMany where object
+sqli/locale-bindings.js,sqli,false,false,locale and namespace bound via knex.raw named bindings
+sqli/checkout-total.mjs,sqli,false,false,cart id coerced with Number and integer-checked then bound as $1
+sqli/config-driven-query.ts,sqli,false,true,predicate loaded from a settings table then concatenated into query
+sqli/template-from-file.js,sqli,false,true,SQL body read from an operator file on disk not from the request
+sqli/team-roster.jsx,sqli,false,false,team id bound as pg $1 parameter in server action
+xss/search-results.js,xss,true,false,Query string concatenated straight into the res.send HTML.
+xss/greeting.ts,xss,true,false,Route param interpolated into a template literal sent as HTML.
+xss/koa-bio.js,xss,true,false,Koa ctx.query value assigned into ctx.body HTML with type html.
+xss/import-preview.js,xss,true,false,On JSON parse failure the raw form field is echoed into a <pre> block.
+xss/announcement.js,xss,true,false,Query value is placed into the body argument of a shared layout helper that does not escape.
+xss/tag-cloud.ts,xss,true,false,Comma-split query values are concatenated into list items in a loop.
+xss/return-link.js,xss,true,false,HTML-escaping does not stop a javascript: URL placed in an href.
+xss/share-button.ts,xss,true,false,"HTML entities are decoded before the onclick JavaScript runs, so &#39; breaks out of the string."
+xss/quantity-form.js,xss,true,false,Escaped value lands in an unquoted attribute where a space adds new event-handler attributes.
+xss/app-shell.js,xss,true,false,JSON.stringify does not escape </script> inside an inline script block.
+xss/welcome.controller.ts,xss,true,false,NestJS handler returns HTML built from an @Query parameter with a text/html header.
+xss/report.controller.ts,xss,true,false,NestJS handler sends req.query data through the injected Express response.
+xss/user-card.ts,xss,true,false,Koa router param concatenated into ctx.body HTML.
+xss/guestbook-page.ts,xss,true,false,Form field flows through a builder class method into the sent page.
+xss/profile-fields.js,xss,true,false,Body fields are collected in a Map and written unescaped with res.write.
+xss/avatar-alt.js,xss,true,false,Tag stripping leaves double quotes so the alt attribute can be broken out of.
+xss/nickname.js,xss,true,false,String replace with a string pattern only replaces the first < and >.
+xss/legacy-status.cjs,xss,true,false,Query value written with res.end after a text/html writeHead.
+xss/order-lookup.mjs,xss,true,false,The not-found branch of an async handler reflects the reference query value.
+xss/dashboard-view.js,xss,true,false,The switch default branch reflects the unknown view name.
+xss/checklist.js,xss,true,false,JSON body item labels are spread into list markup via map and join.
+xss/koa-session-greeting.js,xss,true,true,A middleware copies a query value into ctx.state which a later route writes into HTML.
+xss/signature-preview.js,xss,true,false,The EJS template uses the unescaped <%- tag for a body field.
+xss/bio-card.ts,xss,true,false,A Handlebars triple-stash renders the about field without escaping.
+xss/rich-preview.jsx,xss,true,false,Form content is passed to dangerouslySetInnerHTML in a server-rendered component.
+xss/notice.ts,xss,true,false,Query text reaches a cross-file view helper that interpolates it without escaping.
+xss/username-check.js,xss,true,false,The validation regex is not anchored at the end so any suffix passes and is reflected.
+xss/newsletter.controller.ts,xss,true,false,The @Body DTO name goes into a cross-file service that builds the returned HTML.
+xss/shared-snippet.js,xss,true,false,A base64-decoded query value is inserted into the page as HTML.
+xss/shoutbox.js,xss,true,false,The Pug template uses != which emits the query value unescaped.
+xss/receipt-line.js,xss,true,false,util.format substitutes the query item into a table row sent as HTML.
+xss/comments-board.js,xss,true,true,Comments posted by users are read back from the database and rendered unescaped.
+xss/format-preview.js,xss,true,true,A query-selected formatter is dispatched dynamically and the raw formatter returns input unchanged.
+xss/remote-profile.ts,xss,true,true,User-editable profile fields fetched from an external directory API are inserted into HTML unescaped.
+xss/search-page.js,xss,false,false,The query term is HTML-escaped before going into element text.
+xss/catalog-pages.ts,xss,false,false,Only parseInt numbers reach the HTML.
+xss/theme-switch.js,xss,false,false,The theme is replaced with a default unless it is in a fixed allow-list.
+xss/echo-plain.js,xss,false,false,The echo is served as text/plain with nosniff so it is never parsed as HTML.
+xss/koa-comment-preview.js,xss,false,false,Both body fields go through escape-html before being put into ctx.body.
+xss/salutation.controller.ts,xss,false,false,The NestJS query parameter is encoded with he.encode before being returned as HTML.
+xss/category-label.js,xss,false,false,An own-property lookup into a frozen constant map is the only value that reaches the page.
+xss/welcome-back.ts,xss,false,false,The query-derived headline is overwritten with constants on every branch.
+xss/handle-preview.js,xss,false,false,An anchored alphanumeric regex guard falls back to a constant.
+xss/article-body.js,xss,false,false,DOMPurify sanitizes the HTML body before it is embedded.
+xss/forum-post.ts,xss,false,false,sanitize-html keeps only a few formatting tags and no attributes.
+xss/invoice-note.js,xss,false,false,The EJS template only uses the escaping <%= tag.
+xss/member-card.ts,xss,false,false,Handlebars double-stash output is HTML-escaped.
+xss/markdown-preview.jsx,xss,false,false,React escapes the form value rendered as a text child.
+xss/alerts.ts,xss,false,false,The cross-file alert helper HTML-escapes the message.
+xss/comment-counter.js,xss,false,false,Only character and word counts of the comment are output.
+xss/subscription-status.js,xss,false,false,The request values only choose between constant strings.
+xss/order-link.ts,xss,false,false,The id must pass a UUID v4 check before being interpolated.
+xss/edit-form.js,xss,false,false,Escaped values are placed in double-quoted attributes where quote escaping holds.
+xss/outbound-link.js,xss,false,false,The URL is restricted to http or https and then HTML-escaped.
+xss/hydrate-shell.js,xss,false,false,The serialized state escapes < and line separators so it cannot close the script block.
+xss/koa-invoice.ts,xss,false,false,The param must be a positive integer after Number conversion.
+xss/audit-trail.js,xss,false,false,The query value is only logged; the response is constant HTML.
+xss/pager-links.js,xss,false,false,The query is URL-encoded into a fixed-path double-quoted href.
+xss/event-date.ts,xss,false,false,Only Date-formatted output of a validated date reaches the page.
+xss/sort-options.controller.ts,xss,false,false,The sort value must be one of the enum values or the request is rejected.
+xss/search-snippet.js,xss,false,false,The query is escaped before truncation so no markup can survive.
+xss/bookmark-title.ts,xss,false,false,Both fields are passed through lodash escape.
+xss/static-banner.js,xss,false,false,The helper ignores its argument and renders a constant message.
+xss/tag-filter.js,xss,false,false,Only tags present in a fixed Set are rendered.
+xss/koa-token-digest.js,xss,false,false,Only a hex SHA-256 digest of the token is output.
+xss/status-message.js,xss,false,false,The Pug template uses = which escapes the query values.
+xss/config-banner.js,xss,false,true,The banner markup comes from a site configuration file and the request only picks a key.
+xss/order-summary.tsx,xss,false,false,React escapes the query values rendered as text in the component.
+file/invoice_download.js,file,true,false,Query value joined onto the invoice dir and passed to res.download; path.join does not stop ../
+file/attachment_remove.js,file,true,false,Decoded route param resolved against the attachment dir and unlinked without containment check
+file/documents_router.js,file,true,false,Query doc name flows through a cross-file helper into path.join and fs.promises.readFile
+file/template_preview.js,file,true,false,String.replace with a string pattern removes only the first ../ so deeper traversal survives
+file/notes_view.js,file,true,false,HTML escaping is the wrong context and leaves dots and slashes in the file path
+file/public_share.js,file,true,false,Prefix check on the raw relative path is bypassed by public/../../ before the join
+file/media_resolve.js,file,true,false,Rejects .. but path.resolve with an absolute query value escapes the media root
+file/bulk_publish.js,file,true,false,Each body array entry is joined into both copyFile source and destination paths
+file/uploads_stream.js,file,true,false,Koa route param joined into a path opened with fs.createReadStream
+file/reports.controller.ts,file,true,false,Nest @Param value joined onto the report dir and read with readFileSync
+file/avatar_store.ts,file,true,false,Body username interpolated into the avatar path written with fs.promises.writeFile
+file/export_fetch.ts,file,true,false,Non-recursive removal of ../ is bypassed by ....// sequences
+file/tenant_data.ts,file,true,false,startsWith on the resolved path without a trailing separator admits sibling directories like data-archive
+file/theme_css.js,file,true,false,Cookie value joined onto the themes dir and passed to res.sendFile with an absolute path
+file/draft_save.ts,file,true,false,Koa request body path joined onto the drafts dir and written with fs.writeFile
+file/log_tail.js,file,true,false,Query log name interpolated into a /var/log path opened with createReadStream
+file/browse.controller.ts,file,true,false,Nest query dir joined onto the shared root and listed with readdir and stat
+file/exports.controller.ts,file,true,false,Nest route param joined into a createReadStream path returned as StreamableFile
+file/asset_url.mjs,file,true,false,new URL resolves ../ or an absolute file: URL from the query before readFile
+file/session_cleanup.cjs,file,true,false,Form field joined onto the tmp dir and removed recursively with rmSync
+file/paired_lookup.js,file,true,false,Destructured query section and item are joined into a readFileSync path
+file/library_item.js,file,true,false,The whitelist guards only the kind; the name is joined and sent with res.sendFile
+file/base64_upload.js,file,true,false,Body filename returned by a helper is joined onto the upload dir and written
+file/wildcard_files.mjs,file,true,false,Wildcard route param joined onto the files root and served with res.sendFile
+file/doc_page.jsx,file,true,false,Query page name concatenated into a markdown path read with readFileSync
+file/brochure_fetch.js,file,true,false,Unanchored regex accepts x.pdf/../../ style paths passed to res.download
+file/assets_decoded.js,file,true,false,The .. check runs on the undecoded path and decodeURIComponent afterwards reintroduces ../
+file/extension_filter.js,file,true,false,Only the extension is checked so ../ traversal to other json or yaml files remains
+file/profile_repository.ts,file,true,false,Query handle flows through a service into a generic repository readFile path
+file/stored_uploads.js,file,true,true,Second-order: header file name stored in the database is later used as a copyFile destination
+file/workspace_session.ts,file,true,true,Login body value stored in the session is later joined into a readdir path
+file/file_ops.js,file,true,true,Tainted path reaches an fs call selected by dynamic dispatch through an operations map
+file/archive_import.js,file,true,true,Zip entry names from the uploaded archive come through adm-zip and are joined into write paths
+file/receipt_fetch.js,file,false,false,path.basename strips directory components before the join
+file/shared_drive.ts,file,false,false,Resolved path must start with the root plus a separator before streaming
+file/static_guard.js,file,false,false,path.relative containment check rejects .. and absolute results before streaming
+file/legal_docs.js,file,false,false,Document name must be a member of a fixed Set before res.download
+file/manual_lookup.ts,file,false,false,The file name comes from a constant Map; the query is only a lookup key
+file/statement_pdf.js,file,false,false,Anchored character-class regex allows only plain pdf file names
+file/order_json.js,file,false,false,parseInt result is a number so the path segment cannot contain separators
+file/snapshots.controller.ts,file,false,false,ParseUUIDPipe guarantees a UUID before unlink
+file/feedback_store.mjs,file,false,false,File name is a server-generated UUID; request data is only file content
+file/public_files.js,file,false,false,res.sendFile with the root option makes send reject .. and absolute paths
+file/serve_assets.mjs,file,false,false,koa-send with a root option refuses paths that escape the root
+file/report_download.ts,file,false,false,res.download with the root option is confined by send's traversal check
+file/period_export.js,file,false,false,Query only selects between constant file names in the branches
+file/search_index.cjs,file,false,false,A constant index file is read; the query is used only to filter lines
+file/format_switch.ts,file,false,false,Switch maps the format to constant file names or rejects it
+file/vault_router.js,file,false,false,Cross-file confine helper resolves and requires the root plus separator prefix
+file/markdown_store.ts,file,false,false,Class method validates the slug with an anchored regex before building the path
+file/invoices.controller.ts,file,false,false,ParseIntPipe turns the param into a number before the path is built
+file/charts.controller.ts,file,false,false,ParseEnumPipe restricts kind to fixed enum values
+file/templates.controller.ts,file,false,true,The DTO name is constrained by a class-validator regex enforced through ValidationPipe decorators
+file/daily_digest.js,file,false,false,The path segment comes from Date.toISOString after an invalid-date check
+file/proxy_cache.ts,file,false,false,The cache file name is a sha256 hex digest of the query
+file/scratch_write.js,file,false,false,Everything except letters digits underscore and hyphen is stripped from the file stem
+file/help_article.jsx,file,false,false,Topic must be in a fixed array before the file is read
+file/ticket_attachment.ts,file,false,false,Both ids must match an anchored digits-only regex
+file/realpath_check.js,file,false,false,realpath result must stay under the real root plus separator before reading
+file/batch_archive.js,file,false,false,Each id is converted with Number and skipped unless it is a safe positive integer
+file/strict_name.ts,file,false,false,Type-guard helper rejects separators .. NUL and absolute names before unlink
+file/profile_export.js,file,false,true,Path uses req.user.id set by passport authentication elsewhere
+file/clean_name.js,file,false,true,The header file name passes through the sanitize-filename library
+file/stored_blobs.ts,file,false,true,The stored path key is a server-generated UUID read back from the database
+file/region_report.cjs,file,false,true,Root and region whitelist come from a JSON config file; the year is parsed as an integer
+file/avatar_view.tsx,file,false,false,User id must match a 24-hex anchored regex before the avatar is read
+cmdi/thumbnail-render.js,cmdi,true,false,Query parameters src and size are interpolated into a convert command run by exec.
+cmdi/network-probe.ts,cmdi,true,false,Koa query host is placed in a ping command string run by execSync.
+cmdi/repo-history.controller.ts,cmdi,true,false,Nest @Query branch and limit are concatenated into a git log command passed to exec.
+cmdi/project-export.js,cmdi,true,false,req.body.name flows into a cross-file helper that builds a tar command string for exec.
+cmdi/media-probe.mjs,cmdi,true,false,Query file is interpolated into a spawn command with shell:true.
+cmdi/video-duration.js,cmdi,true,false,Body filename is concatenated into a script run via spawn('sh' '-c').
+cmdi/dns-tools.js,cmdi,true,false,Koa query domain and type go into a dig command executed through execFile('/bin/sh' '-c').
+cmdi/report-export.ts,cmdi,true,false,Query format reaches a class method that interpolates it into a libreoffice exec command.
+cmdi/image-resize.service.ts,cmdi,true,false,Nest @Body DTO fields reach an injectable service that interpolates them into an execSync magick command.
+cmdi/db-backup.js,cmdi,true,false,In the non-'all' branch req.body.database is interpolated into a mysqldump shell command.
+cmdi/bulk-checksum.js,cmdi,true,false,Each element of the body files array is appended in a loop to a sha256sum command run by execSync.
+cmdi/label-printer.js,cmdi,true,false,HTML escaping does not neutralise shell metacharacters so the printer query still injects into the lp command.
+cmdi/font-preview.js,cmdi,true,false,Query text is wrapped in double quotes in a shell command where $() and quote breakout still work.
+cmdi/log-search.ts,cmdi,true,false,Non-global string replace removes only the first ; | & and leaves $() so the grep command is injectable.
+cmdi/access-audit.js,cmdi,true,false,Koa middleware puts the X-Forwarded-For header into a double-quoted logger command run by exec.
+cmdi/locale-dates.js,cmdi,true,false,Cookie lang is interpolated into an execSync date command.
+cmdi/disk-usage.js,cmdi,true,false,Query volume is concatenated into a df command run through a promisified exec.
+cmdi/container-logs.js,cmdi,true,false,Route param container is interpolated into a docker logs command run by exec.
+cmdi/pdf-merge.ts,cmdi,true,false,Body documents and output are mapped and joined into a pdfunite command run by execSync inside try.
+cmdi/whois-lookup.js,cmdi,true,false,util.format inserts the query domain into a whois pipeline run by exec.
+cmdi/name-resolve.js,cmdi,true,false,Query host and server are pushed into an array joined into an nslookup command for execSync.
+cmdi/print-jobs.ts,cmdi,true,false,Koa body printer field is interpolated unescaped into an lp command (only the document name is URI-encoded).
+cmdi/tenant-provision.controller.ts,cmdi,true,false,Nest @Headers x-tenant-id value is interpolated into a createdb command run by execSync.
+cmdi/job-runner.js,cmdi,true,false,body.target is appended to the command property of a job object later passed to exec.
+cmdi/service-status.js,cmdi,true,false,Unanchored regex accepts any string containing a unit name so shell metacharacters reach the systemctl exec.
+cmdi/zone-transfer.ts,cmdi,true,false,Only type and length are checked before the body zone is interpolated into a dig exec command.
+cmdi/remote-check.js,cmdi,true,false,No shell but argument injection: remote like --upload-pack=<cmd> with a local ref path makes git run an arbitrary command.
+cmdi/remote-health.cjs,cmdi,true,false,Body host and user are concatenated into an ssh command run via inline require('child_process').exec.
+cmdi/deploy-hooks.js,cmdi,true,true,Body/query environment is stored in res.locals by middleware and later interpolated into a deploy exec command.
+cmdi/maintenance-runner.ts,cmdi,true,false,Constant command /bin/bash -s executes the request body supplied as stdin input.
+cmdi/transcode-queue.mjs,cmdi,true,false,Koa query preset and bitrate are interpolated into a script run via spawn('bash' '-c').
+cmdi/asset-optimizer.ts,cmdi,true,false,Query asset and quality reach an execa command string with shell:true.
+cmdi/archive-download.js,cmdi,true,false,The switch default case uses the raw query kind as the command executed by exec.
+cmdi/upload-size.js,cmdi,true,false,path.basename strips directories but not shell metacharacters before the du exec command.
+cmdi/note-sign.js,cmdi,true,false,JSON.stringify yields a double-quoted string in which $() and backticks still expand in the echo | gpg shell pipeline.
+cmdi/mirror-sync.js,cmdi,true,true,A PUT handler stores req.body.source in module-level settings that another handler interpolates into an rsync exec.
+cmdi/workspace-shell.ts,cmdi,true,true,Body workspace is saved in the session in one route and later interpolated into an ls exec command in another.
+cmdi/build-describe.jsx,cmdi,true,false,Query ref is concatenated and interpolated into git commands run by execSync in an SSR route.
+cmdi/cert-inspect.js,cmdi,true,false,Host is validated by an anchored regex but the port query parameter reaches the openssl shell pipeline unchecked.
+cmdi/thumbnail-generate.js,cmdi,false,false,Source name must match an anchored strict regex and size comes from a fixed map; execFile runs without a shell.
+cmdi/uptime-probe.ts,cmdi,false,false,Host must be in a fixed allowlist before it reaches the ping execSync command.
+cmdi/log-tail.controller.ts,cmdi,false,false,Nest ParseIntPipe guarantees lines is a number before interpolation into the tail command.
+cmdi/log-head.js,cmdi,false,false,parseInt result checked for NaN is the only request data in the head exec command.
+cmdi/ops-actions.js,cmdi,false,false,The request only selects a constant command from a Map; unknown actions are rejected.
+cmdi/text-grep.js,cmdi,false,false,spawn without shell with -F and -- so the term is only a fixed-string grep pattern.
+cmdi/line-count.js,cmdi,false,false,shell-quote quote() correctly escapes the dataset path for the wc shell command.
+cmdi/archive-list.ts,cmdi,false,false,A cross-file single-quote shell escaper correctly quotes both request values in the exec command.
+cmdi/server-uptime.js,cmdi,false,false,exec runs a constant uptime command; request data is only echoed in the JSON response.
+cmdi/cache-purge.js,cmdi,false,false,The tainted zone variable is overwritten with a constant before the find exec command.
+cmdi/host-lookup.js,cmdi,false,false,Koa route param is checked against a strict anchored hostname regex with ctx.throw before the host exec.
+cmdi/session-cleanup.ts,cmdi,false,false,uuid validate() restricts the session id to hex and dashes before the rm exec command.
+cmdi/audio-convert.controller.ts,cmdi,false,true,class-validator @IsIn/@IsInt enforced by a ValidationPipe decorator restrict both DTO fields; verification is decorator-driven.
+cmdi/bundle-download.js,cmdi,false,false,Switch assigns only constant commands and the default case returns 400.
+cmdi/cache-rebuild.js,cmdi,false,false,The cross-file helper only logs the request reason and runs a constant command.
+cmdi/commit-history.ts,cmdi,false,false,execFile without shell; count is a clamped number and the path follows -- as a pathspec.
+cmdi/word-count.js,cmdi,false,false,Request body is written to the stdin of a fixed wc process spawned without a shell.
+cmdi/csv-sort.ts,cmdi,false,false,Request rows are only stdin input to a constant sort command; the flag only picks between constants.
+cmdi/url-cache-evict.js,cmdi,false,false,Only the SHA-256 hex digest of the URL reaches the rm command.
+cmdi/port-owner.ts,cmdi,false,false,Port is converted with Number and checked as an integer in range before the lsof exec command.
+cmdi/disk-report.js,cmdi,false,false,Query values are compared to constants and only select constant df flags.
+cmdi/preset-render.js,cmdi,false,false,The parsed index is bounds-checked and only selects a constant command from an array.
+cmdi/nightly-backup.js,cmdi,false,true,The command comes from a config file read at startup; the request label never reaches the sink.
+cmdi/scheduled-tasks.service.ts,cmdi,false,true,The command is read from a database row selected by a ParseIntPipe id; its origin is outside the code.
+cmdi/site-provision.ts,cmdi,false,false,The slug is stripped to [a-z0-9_-] with a global regex before the mkdir/cp execSync command.
+cmdi/feedback-submit.js,cmdi,false,false,Request data is only used in an early-return response and a file append; exec runs a constant command.
+cmdi/pdf-text.cjs,cmdi,false,false,execFile without a shell receives the multer-generated temp path; the original filename only appears in JSON.
+cmdi/printer-queue.ts,cmdi,false,false,A cross-file validator throws unless the queue name matches a strict anchored regex before the lpstat exec.
+cmdi/domain-whois.js,cmdi,false,false,execFile without a shell passes the domain as one whois argument; option injection cannot run a command.
+cmdi/version-check.ts,cmdi,false,false,Request data only goes into RegExp.exec; the child_process execFile call runs a constant node --version.
+cmdi/storage-quota.tsx,cmdi,false,false,The volume key must be an own property of a fixed mount map and execFileSync runs df without a shell.
+cmdi/qr-code.controller.ts,cmdi,false,false,Nest ParseUUIDPipe validates the id before the service interpolates it into the qrencode command.
+cmdi/media-tag.mjs,cmdi,false,false,ffmpeg is spawned without a shell and user text is only the value part of title=/artist= metadata arguments.
+cmdi/error-count.js,cmdi,false,false,"The pattern is passed through an environment variable referenced as a quoted ""$PATTERN"" which the shell does not re-evaluate."

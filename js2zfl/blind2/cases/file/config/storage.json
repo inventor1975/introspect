@@ -1,0 +1,4 @@
+{
+  "archiveRoot": "/srv/reports/archive",
+  "regions": ["emea", "apac", "amer"]
+}
