@@ -1,0 +1,69 @@
+file,stage,cause
+code/agent_banner.py,sink,Django Engine.from_string(source) is not a sink (ssti sinks: render_template_string / Template by name)
+code/binary_operator.py,guard,`if op in ALLOWED_OPS:` — the whitelist is a NAMED module-level set; only a literal collection is a guard
+code/decorated_widgets.py,source,"the expression arrives as a keyword argument injected by a decorator; the view's parameter is walked as F, so eval is judged clean (EARNED)"
+code/email_template_editor.py,sink,jinja2 env.from_string(template) is not a sink — and the FastAPI Form parameter is not a source (functions are walked with parameters F)
+code/formula_service.py,propagation,"engine.evaluate(..) on a MODULE-LEVEL instance: receiver types are tracked for locals only, so the call does not resolve to FormulaEngine.evaluate and its eval is never attributed"
+code/math_path_view.py,source,a Django URL path parameter is not a source (parameters are walked as F): eval judged clean (EARNED)
+code/order_quantity.py,guard,`if not qty.isdigit(): return ..` is not a guard
+code/pricing_rules_api.py,source,a FastAPI Query parameter is not a source (parameters F); the eval in lib.formulas is OPEN only in the helper file
+code/quick_sum.py,guard,"`if not RE.fullmatch(x): abort(..)` is not a guard, and abort is not known to terminate"
+code/status_notice.py,sink,"string.Template(x) matches the bare name `Template`, catalogued as a template (ssti) sink; string.Template executes nothing"
+code/symbolic_solver.py,sink,sympify(x) (evaluates its string) is not a sink (expected OPEN)
+code/table_sorter.py,guard,`if field not in SORTABLE: abort(400)` — negated membership in a named tuple + abort is not a guard
+code/value_parser_modes.py,sink,eval taken from a dispatch table and called through a variable is not a sink (expected OPEN)
+file/aiohttp_download.py,sink,`web.FileResponse(path)` is not a file sink: py2zfl's only file sink is open()
+file/attachment_delete.py,sink,`os.remove` is not a file sink: py2zfl's only file sink is open()
+file/avatar_upload.py,sink,`FileStorage.save(path)` is not a file sink: py2zfl's only file sink is open()
+file/bucket_object_get.py,sink,`FileResponse` is not a file sink: py2zfl's only file sink is open() — and the FastAPI path parameter is not a source (functions are walked with parameters F)
+file/bundle_tar_import.py,sink,"`tarfile.extractall` is not a file sink: py2zfl's only file sink is open() (the open() in the file opens the upload, not the traversal)"
+file/django_subpath_serve.py,sink,`Path.read_bytes` is not a file sink: py2zfl's only file sink is open() — and the Django URL parameter is not a source (functions are walked with parameters F)
+file/doc_decorator_inject.py,sink,`send_file` is not a file sink: py2zfl's only file sink is open() — and the decorator-injected keyword parameter is not a source (functions are walked with parameters F)
+file/document_viewer_mv.py,sink,`send_file` is not a file sink: py2zfl's only file sink is open()
+file/export_prefix_check.py,sink,`send_file` is not a file sink: py2zfl's only file sink is open()
+file/fastapi_static_files.py,sink,`FileResponse` is not a file sink: py2zfl's only file sink is open() — and the FastAPI path parameter is not a source (functions are walked with parameters F)
+file/file_rename_api.py,sink,`os.rename` is not a file sink: py2zfl's only file sink is open()
+file/listing_membership.py,guard,`if requested not in set(os.listdir(..)): raise Http404` is not a guard (expected OPEN; the analyzer ACCUSES)
+file/log_tail_api.py,sink,`Path.read_text` is not a file sink: py2zfl's only file sink is open() — and the FastAPI Query parameter is not a source (functions are walked with parameters F)
+file/media_path_route.py,sink,`send_file` is not a file sink: py2zfl's only file sink is open() — and the Flask route variable parameter is not a source (functions are walked with parameters F)
+file/reports_download.py,sink,`send_file` is not a file sink: py2zfl's only file sink is open()
+file/snippet_regex_guard.py,guard,`if not NAME_RE.fullmatch(name): abort(400)` is not a guard
+file/storage_dispatch.py,sink,`os.remove / os.stat / shutil.move` is not a file sink: py2zfl's only file sink is open() (getattr dispatch; expected OPEN)
+file/store_class_reader.py,sink,`Path.read_bytes` is not a file sink: py2zfl's only file sink is open() (inside a lib class)
+file/template_clone.py,sink,`shutil.copyfile` is not a file sink: py2zfl's only file sink is open()
+file/workspace_purge.py,sink,`shutil.rmtree` is not a file sink: py2zfl's only file sink is open()
+sqli/article_archive.py,sink,Django Model.objects.raw(sql) is not a sink (only .execute/.executemany/.executescript by name)
+sqli/author_totals.py,sink,Django raw() is not a sink (the SQL is built in lib.reporting)
+sqli/custom_field_sort.py,guard,`if IDENT.fullmatch(field) is None: abort(..)` is not a guard
+sqli/employee_directory.py,guard,`if col not in ALLOWED_SORT: abort(400)` (named tuple) is not a guard
+sqli/feed_items.py,guard,"validation by exception — int(limit) in try, reset to a constant in except — is not a guard"
+sqli/listing_filters.py,sink,any execute() with a second argument is treated as parameterised and judged F — even when the query TEXT itself is tainted (attacker-chosen keys become column expressions): an unverified clean
+sqli/member_roles.py,guard,`if role not in ROLES: role = 'viewer'` (named tuple + reset) is not a guard
+sqli/price_ceiling_listing.py,sink,Django QuerySet.extra(where=[..]) is not a sink
+sqli/report_jobs.py,sink,"queue.execute(job) on an in-memory JobQueue matches SQL_METHODS by method NAME; the receiver is a module-level instance whose class is not tracked, so the receiver-aware skip does not apply"
+sqli/ticket_status.py,guard,`if not ticket.isdigit(): return ..` is not a guard
+sqli/warehouse_bins.py,sink,"cur.execute(query=f""..""): the query is passed by KEYWORD and only positional args are judged — and the FastAPI path/query parameter is not a source (functions are walked with parameters F)"
+xss/announcement.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only (through a same-file helper)
+xss/bio_editor.py,sink,"render_template_string(TEMPLATE, bio=x) with `{{ bio|safe }}`: only the template argument is judged (as ssti); a value passed as context into a |safe template is not an xss sink"
+xss/card_widget.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only (through lib.fragments.render_card)
+xss/contact_form.py,sink,make_response(html) is not a sink (xss sinks: mark_safe / Markup / HttpResponse)
+xss/coupon_errors.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only (an errorhandler returning f-string HTML; expected OPEN)
+xss/docs_viewer.py,sink,make_response(html) is not a sink (xss sinks: mark_safe / Markup / HttpResponse) — and the Flask route variable parameter is not a source (functions are walked with parameters F)
+xss/export_formats.py,sink,make_response(html) is not a sink (xss sinks: mark_safe / Markup / HttpResponse) (getattr dispatch; expected OPEN)
+xss/feedback_form.py,sink,fastapi HTMLResponse(html) is not a sink; and the FastAPI parameter is not a source (every function is walked with its parameters F)
+xss/filter_tags.py,sink,"flask Response(html, ..) is not a sink (xss sinks: mark_safe / Markup / HttpResponse)"
+xss/greet_user.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only
+xss/homepage_link.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only (escape() in an href would not have helped: javascript: URL)
+xss/legacy_params.py,sink,"flask Response(html, ..) is not a sink (xss sinks: mark_safe / Markup / HttpResponse) — and the decorator-injected keyword parameter is not a source (functions are walked with parameters F)"
+xss/member_page.py,sink,fastapi HTMLResponse(html) is not a sink; and the FastAPI parameter is not a source (every function is walked with its parameters F)
+xss/name_plate.py,sink,a jinja2 Environment(autoescape=False).from_string(..).render(x) is not modelled
+xss/notice_board.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only
+xss/page_builder.py,sink,make_response(html) is not a sink (xss sinks: mark_safe / Markup / HttpResponse)
+xss/pager.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only
+xss/preview_api.py,sink,fastapi HTMLResponse(html) is not a sink; and the FastAPI parameter is not a source (every function is walked with its parameters F)
+xss/roundtrip.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only (html.unescape undoes the escape)
+xss/search_page.py,sink,make_response(html) is not a sink (xss sinks: mark_safe / Markup / HttpResponse)
+xss/shoutbox.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only (module-level shared state; expected OPEN)
+xss/sort_header.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only
+xss/tag_list.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only; request.args.getlist is also not a source (only .get / subscript)
+xss/tooltip_attr.py,sink,a Flask/FastAPI view that RETURNS an HTML string is not a sink: py2zfl's xss sinks are mark_safe / Markup / HttpResponse only (html.escape(quote=False) in a quoted attribute)
