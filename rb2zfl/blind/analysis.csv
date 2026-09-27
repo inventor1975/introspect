@@ -1,0 +1,68 @@
+file,stage,cause
+code/anchored_regex_calc.rb,guard,"`halt 400 .. unless ARITHMETIC_ONLY.match?(expr)`: a regex match? is not a guard (_guard knows ==/!= literal and include?/member?/cover?), halt is not a terminator, and rbast drops the unless negation; eval L8 judged T (expected OPEN)"
+code/attribute_readers_controller.rb,guard,"`return head(..) unless NAME_FORMAT.match?(name)`: a regex match? is not a guard, and rbast encodes unless as if (negation dropped); class_eval L14 judged T (expected OPEN)"
+code/bulk_actions_controller.rb,sink,"invoice.send(operation, *arguments): send / public_send are not code sinks (code sinks: eval, instance_eval/class_eval/module_eval)"
+code/chained_ops_controller.rb,sink,"result.public_send(op, arg) is not a code sink (and it sits in a ternary, encoded `other`, so it is never visited either)"
+code/command_alias_app.rb,sink,"send(name, *args) is not a code sink; also the route is in a Sinatra::Base class body, never walked"
+code/importers_controller.rb,sink,params[:importer].constantize + .new(..) + .run: constantize and reflective instantiation are not code sinks
+code/inline_render_controller.rb,sink,"render inline: ""..#{headline}.."" (ERB compiled from a request-built string) is not a code sink"
+code/method_object_app.rb,sink,calc.method(params[:fn]) then fn.call(*values): method() / Method#call are not code sinks
+code/notification_kinds_controller.rb,sink,safe_constantize + klass.new(params[:payload]): constant lookup and reflective instantiation are not code sinks
+code/plugin_dispatch_app.rb,sink,"Object.const_get(params[:plugin]).public_send(entry, ..): const_get and public_send are not code sinks"
+code/rollout_header_controller.rb,propagation,"front end: eval sits in a ternary `rule.present? ? eval(rule) : false`; rbast encodes ifop as `other`, so the eval is never visited. Also request.headers[..] is not a source (headers not in REQ_SOURCE_MEMBERS -> Z): as an if/else it is OPEN, not REFUTED (repro)"
+code/rpc_endpoint.rb,sink,"settings.service.public_send(method_name, *args) is not a code sink; also the route is in a Sinatra::Base class body, never walked"
+code/sinatra_page_render.rb,sink,Sinatra erb(body_template) with a request String (template source) is not a code sink
+code/subscription_transitions_controller.rb,sink,@subscription.send(event) with event = params[..].to_sym: send is not a code sink
+code/template_preview_controller.rb,sink,"ERB.new(params[:template]).result(binding) is not a code sink (only the html_safe at L8 is judged, xss Z, not scored)"
+code/tilt_layout_app.rb,sink,"Tilt[""erb""].new { src }.render is not a code sink; also the route is in a Sinatra::Base class body, never walked"
+file/attachments_controller.rb,sink,"send_file is not a file sink (file sinks: File/IO .open/.read/.write/.new/.readlines/.binread only); the path is T (as File.read -> REFUTED, repro)"
+file/backups_controller.rb,sink,"send_file is not a file sink; the path is T (as File.read -> REFUTED, repro)"
+file/blog_posts_controller.rb,sanitiser,"String#delete(""^a-z0-9-"") is in RECV_TRANSPARENT (carries the receiver's taint); a delete with a negated character set is not credited as a neutraliser; File.read L6 judged T"
+file/copy_assets_controller.rb,sink,"FileUtils.cp is not a file sink (FILE_BASES = File, IO); src/dest are T (as File.read -> REFUTED, repro)"
+file/crash_reports_controller.rb,sink,"send_file and File.delete are not file sinks; @report_path is set in a before_action and reads Z, so with a known sink it would be OPEN (repro)"
+file/docs_preview.rb,sink,Pathname#read (DOCS.join(page).read) is not a file sink: FILE_METHODS needs a File/IO receiver and an argument; page is T
+file/downloads_app.rb,sink,"send_file is not a file sink; the path is T (as File.read -> REFUTED, repro)"
+file/export_formats_controller.rb,guard,"`return head(..) unless EXPORTERS.key?(fmt)`: key? is not a guard (only include?/member?/cover?), and rbast drops the unless negation; File.read L12 judged T"
+file/exports_archive.rb,sink,"File.delete is not in FILE_METHODS (open/read/write/new/readlines/binread); the path built with String#% is T (as File.read -> REFUTED, repro)"
+file/exports_controller.rb,sink,"send_file is not a file sink; the cross-file PathScrubber.clean summary correctly keeps T (as File.read -> REFUTED, repro)"
+file/folder_listing_controller.rb,sink,"send_file is not a file sink; the path is T via the raw folder param (as File.read -> REFUTED, repro)"
+file/label_printer.rb,guard,"`halt 400 .. unless name =~ /\A..\z/`: =~ is not a guard (only ==/!= against a literal), halt is not a terminator, and rbast drops the unless negation; File.read L10 judged T"
+file/log_viewer.rb,propagation,"front end: rbast collect_defs keeps only def/defs inside a class body, so the Sinatra route block in `class .. < Sinatra::Base` is never walked; nothing judged. File.read is a sink: the same block at top level is REFUTED (repro)"
+file/media_stream.rb,sink,"send_file is not a file sink; also `path = case .. end` (case as an expression) is encoded `other` -> Z, so with a known sink it would be OPEN only (repro)"
+file/private_files_controller.rb,sink,"send_file is not a file sink; File.expand_path is unmodelled -> Z, so with a known sink it would be OPEN (the expected answer) (repro)"
+file/raw_downloads_controller.rb,sink,"send_file params[:path] directly: send_file is not a file sink (as File.read -> REFUTED, repro)"
+file/sheet_downloads.rb,sink,"send_file is not a file sink; the =~ check is not a guard, the path stays T (as File.read -> REFUTED, repro)"
+file/thumbnails.rb,sink,"send_file is not a file sink; File.expand_path is unmodelled -> Z, so with a known sink it would be OPEN only (repro)"
+file/user_avatars_controller.rb,sink,"FileUtils.rm_f is not a file sink (FILE_BASES = File, IO); the path is T (as File.read -> REFUTED, repro)"
+file/workspace_cleanup.rb,sink,"FileUtils.rm_rf is not a file sink (FILE_BASES = File, IO); target is T (as File.read -> REFUTED, repro)"
+sqli/contact_list.rb,sink,"exec_query(sql, name, [name]): the SQL_RAW rule judges the JOIN of ALL arguments, so the bind array taints the verdict though the SQL text is a constant; L4 judged T"
+sqli/device_registry.rb,propagation,"front end: rbast collect_defs keeps only def/defs inside a class body, so the Sinatra route block in `class .. < Sinatra::Base` is never walked; nothing judged. exec_query is a SQL_RAW sink: the same block at top level is REFUTED (repro)"
+sqli/document_archive.rb,sink,where(fragment): the SQL_COND rule judges only an INLINE template/concat first argument; a variable holding the interpolated string (T) is not judged. Inline or find_by_sql(fragment) -> REFUTED (repro)
+sqli/geo_lookup.rb,sink,"Sequel DB[""..#{city}..""] (an aref on a dataset) is not a sql sink; the catalogue is ActiveRecord-only (SQL_RAW / SQL_COND)"
+sqli/incident_timeline.rb,sink,"@severity is set in another method (before_action), so it reads Z; the where rule (SQL_COND) reports ONLY T and drops Z, so no record. find_by_sql with the same string -> OPEN (repro)"
+sqli/media_gallery.rb,sink,"where(query) with a variable argument: SQL_COND judges only an inline template/concat; query (T, `+=` joined) is never judged. find_by_sql(query) -> REFUTED (repro)"
+sqli/metrics_endpoint.rb,sink,"Sequel db.fetch(sql) is not a sql sink (fetch is not in SQL_RAW); also the route sits in a Sinatra::Base class body, which is never walked"
+sqli/order_status.rb,sink,"find_by_sql(["".. ?"", status]): the array-bind form is not recognised; SQL_RAW judges the join of all arguments (the array elements), so the bound value gives T; L4 judged T"
+sqli/payroll_query.rb,sink,connection.select_all(sql) is not in SQL_RAW (find_by_sql/execute/exec_query); the heredoc is T: with find_by_sql -> REFUTED (repro)
+sqli/permission_matrix.rb,guard,"`scope = ""read"" unless KNOWN_SCOPES.include?(scope)`: rbast encodes unless as if (negation dropped) and a reset-to-constant is never a guard anyway (the fall-through branch is not refined; `if !..` also gives T, repro); L7 judged T"
+sqli/price_history.rb,sink,"exec_query(sql, name, [sku]): SQL_RAW judges the join of ALL arguments, so the bind array taints the verdict though the SQL text is a constant; L4 judged T"
+sqli/region_selector.rb,guard,"`return head(..) unless VALID_REGIONS.include?(region)` is the documented guard, but rbast encodes unless/unless_mod as if WITHOUT negation, so the returning branch is read as the include?-TRUE branch and the fall-through keeps T; the same with `if !..include?` -> F (repro); L8 judged T"
+sqli/reports_export.rb,sink,connection.select_all(sql) is not in SQL_RAW; sql is T: with find_by_sql -> REFUTED (repro)
+sqli/sales_dashboard.rb,sink,"connection.select_all is not in SQL_RAW; also the backslash-continued literal (string_concat) is encoded `other` -> Z, so with find_by_sql it would be OPEN only (repro)"
+sqli/transaction_ledger.rb,sink,"implicit-self where(""..#{acct}.."") in a model class method: the callee is a bare ident and SQL_COND/SQL_RAW are matched only on a member call (X.where); .order(Arel.sql(..)) has a call argument, not a template, so not judged"
+sqli/vendor_catalog.rb,sink,"implicit-self find_by_sql(""..#{country}.."") in a model class method: SQL_RAW is matched only on a member call (Vendor.find_by_sql), not a bare ident callee (repro: Foo.where judged T, bare where not judged)"
+sqli/vendor_ledger.rb,sink,"where(fragment): SQL_COND judges only an inline template/concat; the cross-file summary of ReportQueries.status_fragment DOES carry T (find_by_sql(fragment) -> REFUTED, repro)"
+sqli/warehouse_stock.rb,sink,"select(cols) with a variable argument: SQL_COND judges only an inline template/concat; cols = params[:columns] || .. is T (find_by_sql(cols) -> REFUTED, repro)"
+xss/announcements_controller.rb,sink,"render html: is not an xss sink (xss sinks: raw / html_safe only); and helpers.sanitize is credited as an xss escaper (CTX_SANITIZERS) whatever its attributes: allow-list, so raw(cleaned) would be judged F too (repro)"
+xss/continue_links_controller.rb,sink,"escaper credited in the wrong context: html_escape (CTX_SANITIZERS -> xss) is credited for a value placed in an href, where a javascript: URL survives; html_safe at L10 judged F"
+xss/dashboard_widgets_controller.rb,propagation,"dynamic send(""#{kind}_widget"", params[:value]) is not resolved to note_widget; note_widget is judged with its parameter F (html_safe L22 = F); a direct note_widget(params[:value]) call -> REFUTED via its summary (repro)"
+xss/guestbook_app.rb,sink,"Sinatra erb with an inline template string is not an xss sink and the <%= @signature %> inside the string is not Ruby the parser sees; also the route is in a Sinatra::Base class body, never walked"
+xss/listing_descriptions_controller.rb,sink,"helpers.simple_format(text, .., sanitize: false) and render html: are not xss sinks (only raw / html_safe)"
+xss/locale_switch_controller.rb,guard,"`if lang == 'de' || lang == 'fr' || lang == 'en'`: _guard reads a single ==/!= only, not an || disjunction of equalities (a single == is credited, repro); html_safe L5 judged T"
+xss/notes_preview_controller.rb,sink,"render inline: <ERB string> is not a sink; the raw params[:note] sits inside the ERB template text, which the analyzer does not parse"
+xss/pages_app.rb,sink,"the response body is not a sink: halt 404, ""..#{params[:slug]}.."" in a Sinatra route; only raw / html_safe are xss sinks"
+xss/report_filters_controller.rb,sink,escaper credited in the wrong context: ERB::Util.h (member prop h in CTX_SANITIZERS -> xss) is credited for an UNQUOTED attribute value; html_safe at L5 judged F
+xss/search_app.rb,sink,the response body is not a sink: a Sinatra route returning an HTML string with #{term}; only raw / html_safe are xss sinks
+xss/weekly_report_controller.rb,propagation,"chained append out << '<p>' << line << '</p>': the `<<` effect folds only when the LEFT operand is an identifier, so only the leading '<p>' reaches out; html_safe L9 judged F. Unchained, the case gives OPEN (Array(..) and squish are unmodelled -> Z); with params[..].each and a bare line it is REFUTED (repro)"
+xss/widget_app.rb,sink,"the response body is not a sink: body panel(..) returns a helper-built HTML string; only raw / html_safe are xss sinks; also the route is in a Sinatra::Base class body, never walked"
+xss/wiki_pages_controller.rb,guard,"`return head(..) unless SLUG_FORMAT.match?(slug)`: a regex match? is not a guard, and rbast drops the unless negation; html_safe L8 judged T"
