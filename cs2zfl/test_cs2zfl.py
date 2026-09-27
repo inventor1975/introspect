@@ -22,6 +22,19 @@ EXPECT = {
     "u08_member_store.cs":  ["REFUTED"],   # o.Cmd = v; o.Cmd reads v
     "u09_callee_after.cs":  ["REFUTED"],   # summaries to a fixpoint
     "u10_parse_int.cs":     [],            # int.Parse gives a number
+    # round 1 of the blind corpus (2026-09-27): each fails on the slice-2 engine (b49bb74)
+    "w01_content_html.cs":      ["REFUTED"],             # Content(html, "text/html"); Content(x) is text/plain
+    "w02_qualified_file.cs":    ["REFUTED", "REFUTED"],  # System.IO.File.X / Directory.Delete
+    "w03_dapper_ef.cs":         ["REFUTED", "REFUTED"],  # Dapper Query, EF FromSqlRaw; FromSqlInterpolated is bound
+    "w04_minimal_api.cs":       ["REFUTED", "REFUTED"],  # lambda handlers: string param, ReadFormAsync; a long is a number
+    "w05_using_block.cs":       ["REFUTED"],             # a sink in a using (..) header
+    "w06_href_encode.cs":       ["REFUTED"],             # HtmlEncode at an href START does not protect
+    "w07_regex_guard.cs":       ["REFUTED"],             # an anchored identifier regex guards; an unanchored one does not
+    "w08_numeric_params.cs":    ["REFUTED"],             # an int route value carries no text; a string one does
+    "w09_path_containment.cs":  ["OPEN"],                # GetFullPath + StartsWith(root + sep) guards; ".." rejection is Z
+    "w10_json_script.cs":       ["REFUTED"],             # Newtonsoft keeps < >; System.Text.Json escapes them
+    "w11_keep_letters.cs":      ["REFUTED"],             # Where(char.IsLetterOrDigit) is clean; quote doubling is not HTML
+    "w12_webforms.cs":          ["REFUTED"],             # Label.Text renders HTML; LiteralMode.Encode / TextBox encode
 }
 def main():
     fails = []
