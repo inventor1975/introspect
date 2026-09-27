@@ -1,0 +1,203 @@
+file,category,vulnerable,expect_open,why
+sqli/OrderSearchController.cs,sqli,true,false,Request.Query value concatenated into a quoted literal in new SqlCommand.
+sqli/ProductSkuEndpoints.cs,sqli,true,false,Minimal API route value interpolated into NpgsqlCommand text.
+sqli/CustomerDirectoryController.cs,sqli,true,false,[FromQuery] name concatenated into a LIKE literal passed to Dapper Query.
+sqli/CategoryBrowseController.cs,sqli,true,false,Route value interpolated into a plain string handed to FromSqlRaw.
+sqli/CartMaintenanceController.cs,sqli,true,false,string.Format builds the SQL text before ExecuteSqlRaw so the token is not a parameter.
+sqli/InventoryReportController.cs,sqli,true,false,"Quote doubling protects the literal but orderBy is appended unquoted to ORDER BY, where quote escaping is useless."
+sqli/InvoiceDetailController.cs,sqli,true,false,Quote doubling applied to a value used in a numeric (unquoted) context.
+sqli/AccountLookupController.cs,sqli,true,false,Cross-file helper WhereEquals concatenates the query value into a quoted literal.
+sqli/BulkStatusController.cs,sqli,true,false,Loop appends each repeated query value into an IN list set as CommandText.
+sqli/LegacyOrderLookupController.cs,sqli,true,false,The catch branch falls back to concatenating the raw reference into SQL.
+sqli/ProductFinderController.cs,sqli,true,false,"The exact branch is parameterised, but the else branch concatenates the term."
+sqli/ProfileUpdateController.cs,sqli,true,false,[FromBody] DTO string properties concatenated into an UPDATE statement.
+sqli/ReviewModerationController.cs,sqli,true,false,Request.Form value concatenated into a SqlDataAdapter select command.
+sqli/TenantInvoicesController.cs,sqli,true,false,Cookie value interpolated as a bracketed schema name without escaping ].
+sqli/ProfileBioController.cs,sqli,true,false,"id is a Dapper parameter, but bio is interpolated into the SQL text of ExecuteAsync."
+sqli/SupplierSearchController.cs,sqli,true,false,FormattableString.Invariant renders to a plain string so FromSqlRaw receives the value inline.
+sqli/SalesReportController.cs,sqli,true,false,Query values stored on a ReportFilter object whose ToWhereClause concatenates them.
+sqli/AdvancedSearchEndpoints.cs,sqli,true,false,Every query-string key and value is appended into the WHERE clause.
+sqli/ShipmentTrackingController.cs,sqli,true,false,HTML encoding is the wrong context for an unquoted numeric SQL position.
+sqli/CouponRedeemController.cs,sqli,true,false,"Stripping comment and semicolon tokens leaves the single quote, so the literal can be broken."
+sqli/NewsletterEndpoints.cs,sqli,true,false,Form field trimmed and lowercased then concatenated into Npgsql CommandText.
+sqli/BlogPostController.cs,sqli,true,false,Route slug concatenated into a SqliteCommand.
+sqli/WishlistController.cs,sqli,true,false,A lambda builds the SQL by concatenating route and query values.
+sqli/StoreLocatorController.cs,sqli,true,false,Ternary picks a condition that concatenates the city into the Dapper query.
+sqli/GiftCardController.cs,sqli,true,false,Cross-file Literal helper wraps the value in quotes without escaping them.
+sqli/ProductTagController.cs,sqli,true,false,A length check alone does not prevent quote injection into the literal.
+sqli/WarehouseBinController.cs,sqli,true,false,Unanchored regex accepts any string containing a bin-code-shaped substring.
+sqli/CatalogSearchController.cs,sqli,true,false,Cross-file repository method concatenates the search term into a Dapper query.
+sqli/LoyaltyPointsController.cs,sqli,true,false,Request header concatenated via string.Concat into QueryFirstOrDefaultAsync.
+sqli/ArchiveCleanupController.cs,sqli,true,false,"The id is an EF parameter, but the route-derived table name is concatenated into ExecuteSqlRawAsync."
+sqli/OrderHistory.aspx.cs,sqli,true,false,WebForms QueryString values concatenated into SqlCommand text.
+sqli/RegionPreferenceController.cs,sqli,true,true,Session value written from a form field in another action is concatenated into SQL.
+sqli/ReferralLeaderboardController.cs,sqli,true,true,Second-order: user-chosen nicknames read back from the database are concatenated into a query.
+sqli/OrderStatusController.cs,sqli,false,false,Request.Query value bound as a SqlCommand parameter.
+sqli/ProductDetailEndpoints.cs,sqli,false,false,Interpolation only inserts a const table name; sku is an Npgsql parameter.
+sqli/CustomerSearchController.cs,sqli,false,false,LIKE pattern passed as a Dapper parameter; only integers are concatenated.
+sqli/CategoryListingController.cs,sqli,false,false,FromSqlInterpolated turns interpolation holes into parameters.
+sqli/BrandProductsController.cs,sqli,false,false,EF Core FromSql takes a FormattableString and parameterises the holes.
+sqli/ProductSortController.cs,sqli,false,false,Switch maps the sort input onto constant ORDER BY fragments.
+sqli/OrderReceiptController.cs,sqli,false,false,int.TryParse output is the only value concatenated.
+sqli/ReturnRequestController.cs,sqli,false,false,The value is parsed as a Guid and re-formatted before concatenation.
+sqli/BulkCancelController.cs,sqli,false,false,Loop builds numbered placeholders and binds each value as a parameter.
+sqli/ReportColumnsController.cs,sqli,false,false,HashSet whitelist guard rejects any sort column not in the fixed set.
+sqli/CustomerContactController.cs,sqli,false,false,Cross-file BindEquals helper adds parameters and returns only column and placeholder text.
+sqli/PriceAlertController.cs,sqli,false,false,Body fields go through Dapper DynamicParameters.
+sqli/RegionalSalesController.cs,sqli,false,false,The table suffix is an enum value whose ToString yields only a name or digits.
+sqli/CommentArchiveController.cs,sqli,false,false,Doubling single quotes inside an N'...' T-SQL literal is correct escaping for that context.
+sqli/PaymentStatusController.cs,sqli,false,false,long.Parse in try with every failure returning early; only the long is concatenated.
+sqli/ProductQueryController.cs,sqli,false,false,Both branches bind the term as a parameter; the LIKE escaping only affects wildcards.
+sqli/ExportTableController.cs,sqli,false,false,Anchored identifier regex (with \z) guards the bracketed table name.
+sqli/ActiveProductsController.cs,sqli,false,false,A bool selects between constant conditions; category is a Dapper parameter.
+sqli/AuditedSearchController.cs,sqli,false,false,Tainted text is built only for logging; the query uses constant SQL with parameters.
+sqli/FilteredSearchEndpoints.cs,sqli,false,false,Query keys are mapped via a fixed dictionary to column names and values are parameters.
+sqli/SkuLookupController.cs,sqli,false,false,Cross-file repository method binds the sku as a SqlCommand parameter.
+sqli/OrderLineEndpoints.cs,sqli,false,false,The interpolated route value is typed long by the route constraint and binding.
+sqli/PagedOrdersController.cs,sqli,false,false,Offset and size are clamped integers; the customer id is a parameter.
+sqli/TableStatsController.cs,sqli,false,false,SqlCommandBuilder.QuoteIdentifier brackets the name and doubles any closing bracket.
+sqli/LoyaltyTierController.cs,sqli,false,false,Stored procedure call with a constant name and the header bound as a parameter.
+sqli/OrderBatchController.cs,sqli,false,false,Dapper expands the array for IN @skus into individual parameters.
+sqli/PriceSortEndpoints.cs,sqli,false,false,Enum.TryParse picks between constant ASC/DESC; category is a positional parameter.
+sqli/ArchivedOrdersController.cs,sqli,false,false,Only a parsed bool mapped to 1 or 0 is concatenated.
+sqli/GiftRegistryController.cs,sqli,false,false,Local function builds placeholder text and binds values as parameters.
+sqli/CartExpiryController.cs,sqli,false,false,ExecuteSqlRaw with a {0} placeholder and a separate argument is parameterised by EF Core.
+sqli/CustomerOrders.aspx.cs,sqli,false,false,WebForms QueryString values bound as SqlCommand parameters.
+sqli/DeliveryWindowController.cs,sqli,false,false,The value is parsed as a DateTime and re-formatted as yyyy-MM-dd before concatenation.
+sqli/MailingListEndpoints.cs,sqli,false,false,Form field bound as an Npgsql parameter.
+sqli/VoucherCheckController.cs,sqli,false,false,Character filter keeps only ASCII A-Z 0-9 and hyphen before the value is quoted.
+sqli/DashboardViewController.cs,sqli,false,true,The view name comes from application configuration; request values are parameters.
+sqli/ExportPresetController.cs,sqli,false,true,The table and columns come from a JSON file on disk; the request value is a parameter.
+xss/GreetingEndpoint.cs,xss,true,false,Minimal API query param interpolated into Results.Content text/html.
+xss/SearchController.cs,xss,true,false,[FromQuery] value concatenated into Content text/html unencoded.
+xss/CampaignLandingEndpoint.cs,xss,true,false,Request.Query value written raw via Response.WriteAsync with text/html.
+xss/NoticeController.cs,xss,true,false,Action param passes through cross-file helper that wraps it raw in a paragraph.
+xss/ProfileLinkController.cs,xss,true,false,HtmlEncode does not stop a javascript: URL placed in href.
+xss/ThemeWidgetController.cs,xss,true,false,HtmlEncode output placed in an unquoted class attribute allows attribute injection via spaces.
+xss/ChartEmbedController.cs,xss,true,false,HtmlEncode used for an unquoted JavaScript expression inside a script block.
+xss/TagCloudEndpoint.cs,xss,true,false,Loop over multi-valued query param builds HTML with AppendFormat unencoded.
+xss/AccountHeaderController.cs,xss,true,false,Branch join keeps tainted query value in else branch which reaches Content.
+xss/ReportSortController.cs,xss,true,false,Input embedded in exception message that is echoed raw in the catch block.
+xss/FeedbackController.cs,xss,true,false,Length check only; form comment echoed raw into HTML.
+xss/ReviewPreviewController.cs,xss,true,false,Blacklist removing only script tags leaves event-handler payloads intact.
+xss/ColorSwatchEndpoint.cs,xss,true,false,Unanchored regex only requires one letter; value lands in attribute and body raw.
+xss/AuthorBioController.cs,xss,true,false,Query value wrapped in new HtmlString and handed to the view as raw markup.
+xss/AnnouncementBar.cs,xss,true,false,Blazor query parameter cast to MarkupString renders as raw HTML.
+xss/RecentSearchesViewComponent.cs,xss,true,false,View component returns HtmlString built from Request.Query.
+xss/WishlistShareEndpoint.cs,xss,true,false,[FromBody] record properties flow through a helper into Results.Content.
+xss/CategoryLabelController.cs,xss,true,false,Dictionary fallback returns the attacker route key itself into HTML.
+xss/BackLinkController.cs,xss,true,false,returnUrl query value concatenated into a single-quoted href unencoded.
+xss/DocsPageEndpoint.cs,xss,true,false,Route values formatted with string.Format into 404 HTML page.
+xss/GuestbookEndpoint.cs,xss,true,false,Form fields read via ReadFormAsync written raw with Response.WriteAsync.
+xss/LandingPageController.cs,xss,true,false,Action params flow through cross-file fluent PageBuilder into Content text/html.
+xss/KeywordHighlightEndpoint.cs,xss,true,false,Query value split and mapped through a local function and LINQ into HTML.
+xss/InvoiceHeaderController.cs,xss,true,false,Encoded copy computed but the raw reference variable is emitted.
+xss/MessageRelayController.cs,xss,true,false,HtmlDecode undoes the encoding before output.
+xss/CheckoutConfigController.cs,xss,true,false,Newtonsoft serialization does not escape </script> inside an inline script block.
+xss/OrderStatus.aspx.cs,xss,true,false,WebForms Request.QueryString written via Response.Write unencoded.
+xss/ContactThanks.aspx.cs,xss,true,false,Request.Params assigned to Literal.Text in default pass-through mode.
+xss/GiftNotePageModel.cs,xss,true,false,Bound page property wrapped in new HtmlString without encoding.
+xss/NewsletterConfirmController.cs,xss,true,false,Encoding applied only when strict is set; default path is raw.
+xss/CouponBannerController.cs,xss,true,false,Validation result ignored; truncation does not neutralize markup.
+xss/StatusBoardEndpoint.cs,xss,true,false,UnsafeRelaxedJsonEscaping leaves </script> breakout possible in inline script.
+xss/ProductQuestionsController.cs,xss,true,true,Stored XSS: user questions saved to the database and later rendered raw.
+xss/NicknameController.cs,xss,true,true,Nickname stored in session by one action and rendered raw by another.
+xss/AlertsController.cs,xss,true,true,Injected IMarkupRenderer resolves via DI registration to the non-encoding implementation.
+xss/ProductSearchController.cs,xss,false,false,Injected HtmlEncoder encodes the query value in element content.
+xss/NewsletterFormController.cs,xss,false,false,WebUtility.HtmlEncode used in a double-quoted value attribute.
+xss/ItemDetailsEndpoint.cs,xss,false,false,Only the parsed integer reaches the HTML.
+xss/OrderListController.cs,xss,false,false,Whitelist Contains guard; otherwise constant default.
+xss/ShippingSpeedEndpoint.cs,xss,false,false,Enum.TryParse plus IsDefined yields only enum names.
+xss/DownloadReceiptController.cs,xss,false,false,Only a parsed Guid is rendered.
+xss/EchoDiagnosticsController.cs,xss,false,false,Echo is served as text/plain with nosniff.
+xss/AnnouncementText.cs,xss,false,false,Blazor AddContent of a string is text-encoded; MarkupString is a constant.
+xss/LastSearchViewComponent.cs,xss,false,false,HtmlContentBuilder.Append encodes the query value; only constants use AppendHtml.
+xss/DedicationPageModel.cs,xss,false,false,Note is HtmlEncoder-encoded before being wrapped in HtmlString.
+xss/VisitorBannerController.cs,xss,false,false,Tainted name is overwritten with constants on both branches.
+xss/NoteCardController.cs,xss,false,false,Cross-file helper HTML-encodes the message.
+xss/FilterChipsEndpoint.cs,xss,false,false,Each query value encoded inside the loop before appending.
+xss/BreadcrumbController.cs,xss,false,false,Segments added via HtmlContentBuilder.Append and written with HtmlEncoder.
+xss/SellerLinkController.cs,xss,false,false,TagBuilder attributes and InnerHtml.Append are encoded when written.
+xss/StoreSlugEndpoint.cs,xss,false,false,Anchored alphanumeric regex guard before rendering the route value.
+xss/CacheKeyController.cs,xss,false,false,Only a SHA-256 hex digest of the input is rendered.
+xss/PasswordHintEndpoint.cs,xss,false,false,Only derived length and a constant verdict are written.
+xss/RegionNameController.cs,xss,false,false,Dictionary lookup returns only constant labels with a constant default.
+xss/ExportFormatController.cs,xss,false,false,Switch maps to constants and the exception message is constant.
+xss/TrackShipment.aspx.cs,xss,false,false,Server.HtmlEncode applied before Response.Write.
+xss/SignupWelcome.aspx.cs,xss,false,false,Literal set to LiteralMode.Encode so Text is HTML-encoded.
+xss/ExternalLinkController.cs,xss,false,false,Scheme restricted to http/https and the URL is HTML-encoded in a quoted href.
+xss/QuickSearchController.cs,xss,false,false,Input is only logged; the HTML response is constant.
+xss/ProductTrackerController.cs,xss,false,false,JavaScriptEncoder used for a double-quoted JS string in a script block.
+xss/RelatedSearchEndpoint.cs,xss,false,false,UrlEncoder for the href query part and HtmlEncoder for link text.
+xss/SavedCartEndpoint.cs,xss,false,false,System.Text.Json default encoder escapes < and > so no script breakout.
+xss/ProductDescriptionController.cs,xss,false,true,Third-party HtmlSanitizer cleans the markup; library behaviour not visible in source.
+xss/MaintenanceBannerController.cs,xss,false,true,HTML comes from operator configuration not from the request.
+xss/PostalCodeController.cs,xss,false,true,DataAnnotations regex enforced via model binding and ModelState check.
+xss/PingEndpoint.cs,xss,false,false,Results.Text defaults to text/plain so the markup is not rendered.
+xss/StockAlertEndpoint.cs,xss,false,false,Local helper HTML-encodes every form value before WriteAsync.
+xss/UsernamePreviewController.cs,xss,false,false,Only letters and digits are kept before rendering.
+file/InvoiceDownloadController.cs,file,true,false,[FromQuery] file name joined with Path.Combine and served via PhysicalFile without any check.
+file/ReportEndpoints.cs,file,true,false,Minimal API route value combined into report path and returned with Results.File.
+file/AvatarUploadController.cs,file,true,false,Client-supplied IFormFile.FileName used as the target path for a FileStream write.
+file/LogTailEndpoint.cs,file,true,false,Query value interpolated into a /var/log path and read with File.ReadAllText.
+file/TemplatePreviewController.cs,file,true,false,Action parameter passes through a cross-file helper that only concatenates before File.ReadAllBytes.
+file/AttachmentRemovalController.cs,file,true,false,Route file name combined into the uploads path and passed to File.Delete.
+file/ManualPagesController.cs,file,true,false,"Single-pass Replace of ../ is bypassable (....//) and absolute paths are untouched, so the read escapes."
+file/ExportArchiveController.cs,file,true,false,StartsWith check runs on a non-normalised Path.Combine result so ../ segments pass it.
+file/TenantAssetsController.cs,file,true,false,"Tenant segment is itself attacker-chosen and the prefix check lacks a trailing separator, allowing sibling directories."
+file/FirmwareImagesController.cs,file,true,false,"Blocking .. does not stop an absolute path, which Path.Combine lets replace the base directory."
+file/SharedFolderBrowserController.cs,file,true,false,Folder query parameter drives Directory.GetFiles so arbitrary directories can be listed.
+file/WorkspaceCleanupController.cs,file,true,false,Form field combined into a directory path that is deleted recursively.
+file/PluginInstallController.cs,file,true,false,Zip entry FullName from the uploaded archive is extracted without a containment check (zip slip).
+file/ThemeStylesheetEndpoint.cs,file,true,false,Cookie value combined into the stylesheet path and sent with SendFileAsync.
+file/DatasetStreamController.cs,file,true,false,Route and query values formatted into a path with string.Format and opened with FileStream.
+file/BulkPurgeController.cs,file,true,false,Each posted photo name in a loop is concatenated into a path and deleted.
+file/ChangelogController.cs,file,true,false,Route version concatenated into the read path; try/catch only handles missing files.
+file/SnapshotExportController.cs,file,true,false,[FromBody] DTO OutputName chooses where File.WriteAllBytes writes.
+file/ContractArchiveController.cs,file,true,false,Route id flows into a cross-file DocumentStore.Load that does Path.Combine plus File.ReadAllBytes.
+file/MediaDuplicateController.cs,file,true,false,Both source and target of File.Copy come from the request body.
+file/DraftRenameController.cs,file,true,false,Form newName becomes the File.Move destination so a draft can be written anywhere as .md.
+file/SignedDownloadEndpoint.cs,file,true,false,"The base64 token is only decoded (no signature is verified), so its path part reaches Results.File."
+file/ArchiveBrowserController.cs,file,true,false,Name parameter joined onto either branch directory and opened with File.OpenRead.
+file/EvidenceViewerModel.cs,file,true,false,BindProperty values bound from the query string build the path passed to File.ReadAllText.
+file/ProjectFilesController.cs,file,true,false,"GetFileName is applied to the name, but the subfolder parameter is unsanitised."
+file/SpecSheetController.cs,file,true,false,The allow-list regex permits dots and slashes so ../ sequences pass.
+file/GlossaryController.cs,file,true,false,HtmlEncode is the wrong context and leaves ../ intact before the file read.
+file/JournalWriterEndpoint.cs,file,true,false,Form field picks the file that a StreamWriter appends to.
+file/LocaleBundleController.cs,file,true,false,Unknown locales fall back to the raw route value as the bundle file name.
+file/DocumentViewerPage.cs,file,true,false,WebForms QueryString doc combined under MapPath and streamed with Response.WriteFile.
+file/StoredUploadsController.cs,file,true,true,"The client file name is stored in the database at upload, then reused as a File.Copy destination (second-order)."
+file/ExportSessionController.cs,file,true,true,Posted file name is kept in session state and later read back into a File.ReadAllBytes path.
+file/AssetProxyController.cs,file,true,true,Path comes from an injected IAssetLocator interface whose implementation is chosen by DI (the known one just combines).
+file/BrochureDownloadController.cs,file,false,false,Path.GetFileName strips directory components before the path is combined.
+file/CustomerFilesController.cs,file,false,false,GetFullPath plus an ordinal StartsWith against the root with a trailing separator.
+file/LegalDocumentsEndpoint.cs,file,false,false,Route value must be a member of a fixed HashSet before it is used.
+file/HelpTopicsController.cs,file,false,false,The id only selects a constant file name from a dictionary; unknown ids return 404.
+file/StatementPdfController.cs,file,false,false,Route values are bound as int so the file name is numeric.
+file/ReceiptImagesEndpoint.cs,file,false,false,Guid.TryParse gates the id and the path uses the parsed Guid's N format.
+file/ProfilePhotoController.cs,file,false,false,The stored file name is a new Guid plus an allow-listed extension; the client name is only logged.
+file/WidgetConfigEndpoint.cs,file,false,false,Strict alphanumeric regex anchored at both ends before the name is used.
+file/FeedbackInboxController.cs,file,false,false,User data is only the content appended to a constant file path.
+file/PrintQueueController.cs,file,false,false,Both branches assign a constant spool file; request data is only the content.
+file/CertificateDownloadController.cs,file,false,false,User input only sets the download name; the physical path is constant.
+file/SupportBundleController.cs,file,false,false,Cross-file helper resolves the full path and enforces root containment with a trailing separator.
+file/SavedFiltersController.cs,file,false,false,"Rejects invalid filename characters, both slash kinds and a leading dot before writing."
+file/ScheduledReportsController.cs,file,false,false,Enum.TryParse plus IsDefined maps input to a fixed enum name.
+file/VaultFilesController.cs,file,false,true,The path is a server-generated StoragePath loaded from the database for the owner.
+file/NightlyExportController.cs,file,false,true,Directory comes from configuration and the file name is one of two constants.
+file/PressKitController.cs,file,false,false,Path is built from an int id and an extension from a fixed dictionary.
+file/PolicyEndpoints.cs,file,false,false,A switch expression maps the product to constant file names or null.
+file/KnowledgeBaseSearchController.cs,file,false,false,The query is only a search term; files are enumerated from a constant directory.
+file/ThemePackageController.cs,file,false,false,Zip entries are normalised with GetFullPath and checked against the destination with a separator.
+file/AttachmentLabelController.cs,file,false,false,Both names are reduced with Path.GetFileName and the extension is allow-listed before File.Move.
+file/RecycleBinController.cs,file,false,false,Deletes loop over a list of ints formatted into file names.
+file/RenderCacheEndpoint.cs,file,false,false,The query is hashed with SHA-256 and only the hex digest forms the file name.
+file/MarkdownDocsController.cs,file,false,false,GetFileNameWithoutExtension keeps only the last segment before .md is appended.
+file/StaticBundleController.cs,file,false,true,PhysicalFileProvider.GetFileInfo refuses paths above its root but it is a library-internal check.
+file/ShipmentLabelController.cs,file,false,true,A [RegularExpression] model annotation enforced through ModelState.IsValid restricts the tracking number.
+file/AuditLogRangeController.cs,file,false,false,The path is constant; user input is only a numeric seek offset and length.
+file/AnnualReportModel.cs,file,false,false,Bound property is an int range-checked before it forms the file name.
+file/TranslationFilesController.cs,file,false,false,Equality checks select constant file names with a constant default.
+file/SoundClipsEndpoint.cs,file,false,false,"Requires GetFileName(clip) == clip, no leading dot and no backslash."
+file/DataRoomController.cs,file,false,false,GetRelativePath from the root rejects results starting with .. or rooted.
+file/ThumbnailController.cs,file,false,false,Cross-file helper formats the path from a Guid and two ints.
