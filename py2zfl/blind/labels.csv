@@ -1,0 +1,275 @@
+file,category,vulnerable,expect_open,why
+sqli/order_search.py,sqli,true,false,Query-string term is interpolated by f-string into a sqlite3 LIKE literal.
+sqli/article_archive.py,sqli,true,false,GET year is %-formatted into the SQL string passed to Django raw() without params.
+sqli/inventory_lookup.py,sqli,true,false,FastAPI str query param (length limits only) is f-stringed into SQLAlchemy text().
+sqli/report_column_sort.py,sqli,true,false,Sort column and direction from the query string are .format()ed into ORDER BY for psycopg2.
+sqli/customer_segment_filter.py,sqli,true,false,"All query args go through lib.filters.build_where_clause, which quotes keys and values by % formatting."
+sqli/order_quick_search.py,sqli,true,false,Request term reaches OrderRepository.search which interpolates it into a LIKE literal.
+sqli/tag_multi_select.py,sqli,true,false,getlist tags are quoted by f-string inside an IN list with no escaping.
+sqli/activity_since.py,sqli,true,false,When fromisoformat fails the raw since value is spliced into a datetime() literal.
+sqli/comment_thread.py,sqli,true,false,html.escape does not protect an unquoted numeric SQL context (e.g. 0 OR 1=1).
+sqli/price_ceiling_listing.py,sqli,true,false,GET max_price is f-stringed into a Django extra(where=...) clause.
+sqli/regional_stats.py,sqli,true,false,Region is applied with the % operator before cursor.execute instead of being passed as params.
+sqli/member_directory.py,sqli,true,false,Escaping double quotes does not protect a single-quoted MySQL literal.
+sqli/order_notes.py,sqli,true,false,Pydantic str fields author and body are f-stringed into an INSERT via text().
+sqli/audit_trail.py,sqli,true,false,Tuple-unpacked sort column and direction from the request go straight into ORDER BY.
+sqli/dashboard_widget.py,sqli,true,false,Request metric stored in a dict entry is interpolated into SUM() in the executed text().
+sqli/shipment_tracker.py,sqli,true,false,Form carrier stored on a ShipmentQuery instance is interpolated by its sql() method.
+sqli/bulk_status_update.py,sqli,true,false,JSON ids are str()-joined into an IN list so string elements can carry SQL.
+sqli/catalog_sort_order.py,sqli,true,false,Substring check on sort ('name' in sort) is not a whitelist; the value reaches ORDER BY.
+sqli/category_browser.py,sqli,true,false,Category is whitelisted but the sub parameter is concatenated unchecked.
+sqli/password_reset.py,sqli,true,false,Failed email regex only flashes a message and execution continues to an f-string query.
+sqli/listing_filters.py,sqli,true,false,Values are bound but attacker-chosen query-arg keys become column expressions in WHERE.
+sqli/regional_pricing.py,sqli,true,false,Currency cookie is f-stringed into a column name.
+sqli/tenant_invoices.py,sqli,true,false,X-Tenant-ID header is f-stringed into SET search_path (stacked statements possible).
+sqli/notes_restore.py,sqli,true,false,Uploaded file content is run as a whole script by sqlite3 executescript.
+sqli/author_totals.py,sqli,true,false,GET author passes through lib.reporting.author_totals_sql (.format into a literal) into raw().
+sqli/table_browser.py,sqli,true,false,Route segment wrapped in psycopg2 sql.SQL (not Identifier) is composed verbatim into the query.
+sqli/project_board.py,sqli,true,false,The else branch %-formats the team query arg into the WHERE clause.
+sqli/warehouse_bins.py,sqli,true,false,Path and query params are f-stringed into a psycopg2 execute passed by keyword query=.
+sqli/glossary_lookup.py,sqli,true,false,Helper defined after the route returns the unescaped f-string early for terms up to 64 chars.
+sqli/store_locator.py,sqli,true,false,City is appended with += concatenation into the text() statement.
+sqli/event_search.py,sqli,true,false,Query params collected by a Depends class are f-stringed into ILIKE and venue literals.
+sqli/saved_reports.py,sqli,true,true,Second-order: a user-submitted filter is stored in the DB and later concatenated into WHERE.
+sqli/org_workspace.py,sqli,true,true,Session org_slug set from a login form field in another route is f-stringed into the query.
+sqli/tenant_context.py,sqli,true,true,g.tenant_schema set in before_request from a header is concatenated into SET search_path.
+sqli/order_batch_lookup.py,sqli,false,false,The f-string only inserts generated ? placeholders; the ids are bound parameters.
+sqli/revenue_report.py,sqli,false,false,Sort key is mapped through a constant dict with a constant default and direction is a constant choice.
+sqli/employee_directory.py,sqli,false,false,Column is checked against a constant tuple with abort and direction is a constant choice.
+sqli/invoice_detail.py,sqli,false,false,The Flask <int:> converter guarantees an int before interpolation.
+sqli/article_search.py,sqli,false,false,raw() receives %s placeholders with the LIKE patterns in the params list.
+sqli/supplier_search.py,sqli,false,false,text() uses :named placeholders filled by bindparams.
+sqli/metric_explorer.py,sqli,false,false,The column is wrapped in psycopg2 sql.Identifier and days is bound.
+sqli/knowledge_base.py,sqli,false,false,The request term only builds a log line; the executed query is constant with the term bound.
+sqli/member_roles.py,sqli,false,false,Role outside the constant tuple is reset to a constant so it is always whitelisted.
+sqli/custom_field_sort.py,sqli,false,false,A fullmatch identifier regex with abort restricts order_by to [a-z0-9_].
+sqli/ticket_status.py,sqli,false,false,isdigit() with an early return allows only digits into the concatenation.
+sqli/device_sessions.py,sqli,false,false,The token is normalised by uuid.UUID so only hex and dashes reach the literal.
+sqli/booking_calendar.py,sqli,false,false,Dates parsed by date.fromisoformat are re-emitted by isoformat before interpolation.
+sqli/table_export.py,sqli,false,true,The table name is quoted by a hand-rolled but correct identifier quoter (doubling double quotes).
+sqli/coupon_redeem.py,sqli,false,false,Constant text() statements with dict-bound parameters.
+sqli/report_jobs.py,sqli,false,false,JobQueue.execute is an in-memory queue; the real cursor.execute is parameterised.
+sqli/vendor_search.py,sqli,false,false,The % formatting builds the bound LIKE value not the query.
+sqli/leaderboard.py,sqli,false,false,FastAPI Enum and int parameters restrict interpolated values to constants and integers.
+sqli/parcel_detail.py,sqli,false,false,FastAPI int path parameter is validated before f-string interpolation.
+sqli/timesheet_query.py,sqli,false,false,Pydantic Literal and bounded int fields restrict all interpolated values.
+sqli/photo_gallery.py,sqli,false,false,page is int()-converted with abort on failure and only integers reach %d.
+sqli/record_counts.py,sqli,false,false,The table is interpolated only inside a branch guarded by set membership.
+sqli/vehicle_listings.py,sqli,false,false,Only keys in a constant allow-set become columns and values are bound.
+sqli/product_price_band.py,sqli,false,false,Django extra() uses %s placeholders with params.
+sqli/sales_by_rep.py,sqli,false,false,The f-string inserts a constant column list; region and quarter are bound params.
+sqli/project_archive.py,sqli,false,false,Request data only selects constant fragments and owner is bound.
+sqli/api_key_check.py,sqli,false,false,The header is reduced to a sha256 hexdigest before interpolation.
+sqli/supplier_contacts.py,sqli,false,false,psycopg2 mogrify binds the name before the statement is executed.
+sqli/feed_items.py,sqli,false,false,The string is used only if int() accepts it (digits/sign/whitespace/underscores) else reset to a constant.
+sqli/order_status_board.py,sqli,false,false,Uses OrderRepository.find_by_status which binds status and limit.
+sqli/customer_segment_list.py,sqli,false,false,build_param_where iterates the constant column tuple and binds the values.
+sqli/recipe_search.py,sqli,false,false,The LIKE-escaped term is passed as a bound parameter.
+sqli/author_catalog.py,sqli,false,false,lib.reporting.author_totals_query returns a %s query with the author in params.
+sqli/warehouse_reporting.py,sqli,false,true,Schema comes from app configuration and the sku is bound.
+sqli/security_audit_log.py,sqli,false,true,Table name comes from an environment variable and the actor is bound.
+sqli/column_manifest_export.py,sqli,false,true,Column names come from a JSON file shipped with the app and since is bound.
+xss/greet_user.py,xss,true,false,Query parameter interpolated into an f-string HTML response.
+xss/search_page.py,xss,true,false,Query parameter %-formatted into HTML passed to make_response.
+xss/profile_views.py,xss,true,false,GET values formatted by an in-file helper and returned in HttpResponse; str.title() does not neutralise.
+xss/preview_api.py,xss,true,false,FastAPI query string split into paragraphs and returned unescaped in HTMLResponse.
+xss/comment_thread.py,xss,true,false,Form text wrapped in Markup so the template's autoescape is bypassed.
+xss/tooltip_attr.py,xss,true,false,"html.escape(quote=False) leaves double quotes, so the hint breaks out of the title attribute."
+xss/homepage_link.py,xss,true,false,HTML-escaping does not stop a javascript: URL in href.
+xss/card_widget.py,xss,true,false,Title flows cross-file into lib.fragments.render_card which concatenates without escaping.
+xss/report_view.py,xss,true,false,Class-based view formats the GET title into the page via a method; only the row counter is numeric.
+xss/tag_list.py,xss,true,false,Each tag from getlist is appended with += into the HTML list unescaped.
+xss/pager.py,xss,true,false,The ValueError branch reflects the raw page parameter in the error HTML.
+xss/name_plate.py,xss,true,false,Jinja2 Environment with autoescape=False renders query values into HTML.
+xss/bio_editor.py,xss,true,false,Constant template marks the form field with |safe so autoescape is skipped.
+xss/query_echo_views.py,xss,true,false,Django template wraps the query in autoescape off.
+xss/member_page.py,xss,true,false,FastAPI path parameter interpolated into HTMLResponse.
+xss/contact_form.py,xss,true,false,Form values stored in a dict and read back by key into make_response HTML.
+xss/legacy_params.py,xss,true,false,A decorator injects request.args values as view kwargs; label is output unescaped (only color is escaped).
+xss/sort_header.py,xss,true,false,The whitelist guards sort but the folder parameter is echoed raw.
+xss/notice_board.py,xss,true,false,Message is escaped only for info/warning levels; any other level returns it raw.
+xss/dashboard_views.py,xss,true,false,json.dumps inside a script block does not escape </script> so the title can break out.
+xss/docs_viewer.py,xss,true,false,Decoded path segment reflected in the 404 HTML via make_response.
+xss/feedback_form.py,xss,true,false,FastAPI Form fields name and remarks returned unescaped in HTMLResponse.
+xss/page_builder.py,xss,true,false,Page class escapes the title but appends body paragraphs raw.
+xss/greeting_views.py,xss,true,false,Name is pre-interpolated by an f-string so format_html only escapes the city argument.
+xss/announcement.py,xss,true,false,Headline passed to a helper defined after the route that concatenates it into HTML.
+xss/filter_tags.py,xss,true,false,A blacklist replace of script tags is bypassable (e.g. img onerror or nested tokens).
+xss/roundtrip.py,xss,true,false,html.unescape undoes the preceding html.escape before output.
+xss/blog_comments_views.py,xss,true,true,Stored comment bodies from the database are wrapped in mark_safe; origin is a DB round trip.
+xss/fragment_cache.py,xss,true,true,User-posted HTML is stored in a cache and later returned as Markup; flow passes through external cache state.
+xss/shoutbox.py,xss,true,true,Posted messages are kept in module-level shared state and rendered raw to all visitors.
+xss/coupon_errors.py,xss,true,true,The raw coupon code travels via a raised exception to a framework-dispatched error handler that renders it.
+xss/export_formats.py,xss,true,true,getattr dispatch on a user-chosen format can reach as_list which outputs rows unescaped.
+xss/product_teaser_views.py,xss,true,false,SafeString wraps the GET tagline so the template will not escape it.
+xss/greet_visitor.py,xss,false,false,Name passed through markupsafe.escape before the f-string HTML.
+xss/lookup_page.py,xss,false,false,Term html.escape'd before being formatted into make_response HTML.
+xss/account_views.py,xss,false,false,In-file helper applies django escape to every value before HttpResponse.
+xss/snippet_api.py,xss,false,false,Both text and lang are html.escape'd before HTMLResponse.
+xss/rating_widget.py,xss,false,false,Markup % escapes every interpolated argument including quotes.
+xss/welcome_views.py,xss,false,false,format_html with placeholders escapes both arguments.
+xss/find_page.py,xss,false,false,Flask render_template_string autoescapes string templates.
+xss/search_views.py,xss,false,false,Django Template autoescape is on by default.
+xss/caption_render.py,xss,false,false,Jinja2 Environment with autoescape=True plus urlencode for the src value.
+xss/page_counter.py,xss,false,false,Both values are int-cast before interpolation.
+xss/color_swatch.py,xss,false,false,Color is only output inside the branch guarded by membership in a constant palette.
+xss/theme_switch.py,xss,false,false,Output is a value from a constant dict; the user input is only the lookup key.
+xss/invoice_lookup.py,xss,false,false,The error branch escapes the raw value and the success branch prints an int.
+xss/keyword_list.py,xss,false,false,Each keyword is escaped inside the += loop.
+xss/tile_widget.py,xss,false,false,Values flow cross-file into lib.fragments.render_tile which escapes both.
+xss/alert_banner.py,xss,false,false,Both branches html.escape the message before concatenation.
+xss/motd.py,xss,false,false,Text is reassigned to its escaped form before the only tags are added.
+xss/chart_views.py,xss,false,false,Django json_script safely encodes the data for a script element.
+xss/map_embed.py,xss,false,false,Jinja2 htmlsafe_json_dumps escapes < > & ' inside the script block.
+xss/outbound_link.py,xss,false,false,Scheme is restricted to http/https and the URL is escaped for the attribute.
+xss/title_attr.py,xss,false,false,html.escape with default quote=True in a double-quoted attribute and in text.
+xss/layout_builder.py,xss,false,false,Layout class escapes both the title and every paragraph.
+xss/order_status.py,xss,false,false,Reference must fullmatch a strict regex or the request is aborted.
+xss/handle_check.py,xss,false,false,isalnum check aborts on any markup character before output.
+xss/item_detail_api.py,xss,false,false,FastAPI int-typed path and query parameters.
+xss/listing_api.py,xss,false,false,Order is an Enum validated by FastAPI and q is html.escape'd.
+xss/excerpt_views.py,xss,false,false,mark_safe wraps a string whose only user part is escaped.
+xss/line_breaks.py,xss,false,false,Markup.join escapes each user-supplied line.
+xss/site_footer.py,xss,false,true,Markup wraps an operator-set config value loaded from an external settings file.
+xss/notes_views.py,xss,false,false,Under autoescape off the escape and force_escape filters still escape both fields.
+xss/rich_text.py,xss,false,false,bleach.clean with a tag/attribute/protocol allowlist before Markup.
+xss/ticket_lookup.py,xss,false,false,Only a parsed UUID is rendered; invalid input gets a constant error.
+xss/help_panel.py,xss,false,true,Markup wraps a server-side static file read; the user topic goes through Markup.format escaping.
+xss/markup_format.py,xss,false,false,Markup.format escapes the username in both the attribute and the text.
+xss/article_views.py,xss,false,true,Body is bleach-sanitised before saving and mark_safe'd after a database read; title is escaped by format_html.
+code/calc_endpoint.py,code,true,false,Query parameter expr is passed straight to eval.
+code/greeting_card.py,code,true,false,Query parameters are interpolated by an f-string into the source given to render_template_string.
+code/snippet_runner_view.py,code,true,false,POST field code is run by exec in a Django view.
+code/pricing_rules_api.py,code,true,false,FastAPI query parameter formula reaches eval inside the lib.formulas helper.
+code/newsletter_preview.py,code,true,false,Form field body becomes the source of a jinja2 Template.
+code/invoice_notes.py,code,true,false,GET parameter note is compiled as a Django Template.
+code/batch_rules.py,code,true,false,Each rule condition from the JSON body is compiled and evaluated.
+code/formula_service.py,code,true,false,JSON field formula reaches eval through a FormulaEngine method.
+code/decorated_widgets.py,code,true,false,A decorator injects the JSON field expr as a keyword argument that the view evals.
+code/sort_key_builder.py,code,true,false,Query parameter sort_by is concatenated into a lambda source and evaluated.
+code/fallback_parser.py,code,true,false,Raw request body falls back to eval when it is not valid JSON.
+code/expression_tool.py,code,true,false,html.escape does not neutralise Python code before eval.
+code/promo_banner.py,code,true,false,markupsafe escape leaves Jinja delimiters intact before %-formatting into the template source.
+code/calculator_form.py,code,true,false,A keyword blacklist before eval is bypassable (open() or attribute chains).
+code/grade_weights.py,code,true,false,Emptying __builtins__ does not stop attribute-chain escapes in eval of the query parameter.
+code/quote_calculator.py,code,true,false,Pydantic string field formula is formatted into source run by exec.
+code/math_path_view.py,code,true,false,Django URL path segment expression is passed to eval.
+code/cookie_theme.py,code,true,false,Cookie value is concatenated into the render_template_string source.
+code/agent_banner.py,code,true,false,User-Agent header is concatenated into a Django Engine.from_string template.
+code/value_compare.py,code,true,false,Query values returned as a tuple from a helper are formatted into an eval string.
+code/script_builder.py,code,true,false,Form field is appended with += to a script executed by exec.
+code/hooks_endpoint.py,code,true,false,JSON field transform reaches exec in lib.scripting.run_hook from a class-based view.
+code/chart_series.py,code,true,false,Query parameter fn reaches eval in a helper defined after the route.
+code/notebook_cell.py,code,true,false,Body field src is compiled via keyword arguments and executed.
+code/ranked_feed.py,code,true,false,An optional query parameter overrides the default expression on one branch before eval.
+code/email_template_editor.py,code,true,false,Form field template is compiled with jinja2 Environment.from_string.
+code/page_title_render.py,code,true,false,Query parameter title is %-formatted into the render_template_string source.
+code/quote_share.py,code,true,false,"Wrapping input in a raw block does not help, since the input can close it with endraw."
+code/stored_formula.py,code,true,true,An expression saved from a POST is later read from the database and evaluated.
+code/session_formula.py,code,true,true,A formula stored in the session by one route is evaluated by another.
+code/symbolic_solver.py,code,true,true,sympify evaluates its string argument internally in a third-party library.
+code/value_parser_modes.py,code,true,true,The request picks eval out of a dispatch table and it is applied to another request value.
+code/alert_conditions.py,code,true,false,Query parameter values collected in a dict comprehension are evaluated in a loop.
+code/snippet_preview.py,code,true,false,Form field snippet becomes the template source in the lib.templating helper.
+code/migration_console.py,code,true,false,Form list items are accumulated in a loop and joined into a script for exec.
+code/notice_board.py,code,true,false,Form text stored on an object attribute is concatenated into render_template_string source.
+code/welcome_page.py,code,false,false,Request values are passed only as template context to a constant template.
+code/binary_operator.py,code,false,false,The operator is checked against a whitelist and the operands are cast to int before eval.
+code/cart_total.py,code,false,false,Request data goes only into the eval namespace and the expression is constant.
+code/paged_listing.py,code,false,false,Page number is cast to int before f-string interpolation into the template source.
+code/maintenance_snippets.py,code,false,false,exec runs only constant snippets looked up by the request key.
+code/welcome_mail.py,code,false,true,The Template source is read from a file shipped with the app and request data is only context.
+code/search_summary.py,code,false,false,A constant Django Template gets request data only through Context.
+code/kpi_widget.py,code,false,false,The request expression is only logged and is overwritten with a constant before eval.
+code/quick_sum.py,code,false,false,A fullmatch regex allows only digits and basic operators before eval.
+code/table_sorter.py,code,false,false,Field name is guarded by an allowlist with abort before eval.
+code/unit_converter.py,code,false,false,The operator is a FastAPI Enum and the operands are floats.
+code/aggregate_stats.py,code,false,false,The function name is limited by a Literal type and the values stay in the namespace.
+code/column_picker.py,code,false,false,The eval string is built from the constant loop variable after an equality match.
+code/profile_greeting.py,code,false,false,All Jinja delimiter characters are stripped before interpolation into the template source.
+code/report_compiler.py,code,false,false,Request data reaches only the filename argument of compile and the source is constant.
+code/payload_transform.py,code,false,false,exec runs a constant script and the JSON body is only a global variable.
+code/order_quantity.py,code,false,false,isdigit guard with an early return lets only digits into the eval string.
+code/tax_estimate.py,code,false,false,Rate is cast to float before formatting into the eval string.
+code/report_runner.py,code,false,false,lib.reports looks up constant expressions by name and passes params only as namespace values.
+code/status_notice.py,code,false,false,string.Template does not execute code and its output is only template context.
+code/rule_book.py,code,false,false,A custom eval method looks up constant rules and builtin eval never sees request text.
+code/pricing_rule_apply.py,code,false,true,The expression comes from a database row maintained by staff and request data is only namespace.
+code/deploy_hook.py,code,false,true,exec runs a snippet from Django settings and the request value is only a namespace variable.
+code/site_banner.py,code,false,true,The template source comes from an environment variable and the request value is only context.
+code/gallery_layouts.py,code,false,false,The request key selects one of several constant templates.
+code/metric_endpoint.py,code,false,false,A decorator enforces an allowlist on metric before the view formats it into eval.
+code/comment_render.py,code,false,false,A constant Jinja template is rendered with form values as context.
+code/escaped_title.py,code,false,false,Escaped values are passed as context to a constant template.
+code/chart_settings.py,code,false,false,ast.literal_eval parses the body and the values are only namespace for a constant expression.
+code/shipping_estimate.py,code,false,false,int cast with a constant fallback in the except branch before eval.
+code/average_series.py,code,false,false,Values are cast to float in a comprehension before formatting into the eval string.
+code/invoice_totals.py,code,false,false,Both branches of the request-dependent condition assign constant expressions.
+code/tag_cloud_view.py,code,false,false,A class-based view renders a constant Django template with request data in Context.
+code/block_render.py,code,false,false,lib.templating renders a constant source and form values are only context.
+file/reports_download.py,file,true,false,Query arg joined onto the report dir and passed to send_file with no containment check.
+file/avatar_upload.py,file,true,false,Raw multipart filename (extension check only) joined into the avatar folder and saved.
+file/invoice_pdf_view.py,file,true,false,GET param joined under MEDIA_ROOT and opened; the .pdf suffix check does not stop ../ segments.
+file/log_tail_api.py,file,true,false,FastAPI query string appended to a Path with / and read_text().
+file/theme_stylesheet.py,file,true,false,Cookie value interpolated into an f-string path and opened.
+file/attachment_delete.py,file,true,false,POST field joined into a per-user folder and handed to os.remove.
+file/template_clone.py,file,true,false,JSON body field concatenated onto the template dir as the shutil.copyfile source.
+file/manual_pages.py,file,true,false,Cross-file helper join_under only strips whitespace before os.path.join; result opened.
+file/document_viewer_mv.py,file,true,false,MethodView stores the query arg on self and a second method send_files the joined path.
+file/filename_preview.py,file,true,false,html.escape is the wrong context: dots and slashes survive into open().
+file/backup_restore_norm.py,file,true,false,normpath collapses ../ but no check that the result stays under BACKUP_ROOT.
+file/snippet_loader_replace.py,file,true,false,Single-pass replace of ../ is bypassed by ....// before open().
+file/export_prefix_check.py,file,true,false,startswith is tested on the un-normalised joined string so ../ passes.
+file/attachment_basename_mixup.py,file,true,false,basename is computed only for the download name while the raw value builds the opened path.
+file/nested_folder_listing.py,file,true,false,Loop joins every getlist() segment onto the share root before open().
+file/notes_fallback.py,file,true,false,try/except only supplies a default; the request value reaches open() on the normal path.
+file/locale_alias_lookup.py,file,true,false,"dict.get(key, key) falls back to the raw request value, which is joined and opened."
+file/bucket_object_get.py,file,true,false,Tuple-unpacked split of a query param builds bucket/key path for FileResponse.
+file/draft_append_path.py,file,true,false,Form fields appended to the path with += and the file is opened for writing.
+file/archive_reader_kw.py,file,true,false,Request value passed as a keyword argument to a helper that joins and opens it.
+file/doc_decorator_inject.py,file,true,false,Decorator injects request.args['doc'] as a kwarg that the view joins into send_file.
+file/media_path_route.py,file,true,false,Flask <path:> route variable joined onto MEDIA_ROOT and passed to send_file.
+file/django_subpath_serve.py,file,true,false,Django <path:> converter value appended to a Path and read_bytes() returned.
+file/fastapi_static_files.py,file,true,false,FastAPI {file_path:path} joined onto the asset dir and served by FileResponse.
+file/dataset_absolute_join.py,file,true,false,lstrip('.') leaves an absolute path that makes os.path.join discard the base.
+file/plugin_zip_install.py,file,true,false,Zip slip: archive member names from an upload are joined and written without containment.
+file/bundle_tar_import.py,file,true,false,extractall on an uploaded tar without a filter writes ../ or absolute members (Python 3.11).
+file/workspace_purge.py,file,true,false,Form field joined into the workspace path and removed with shutil.rmtree.
+file/file_rename_api.py,file,true,false,DRF request.data values used as both os.rename source and destination.
+file/aiohttp_download.py,file,true,false,aiohttp query category joined into the path served by web.FileResponse.
+file/store_class_reader.py,file,true,false,Cross-file DiskStore.read_bytes joins the key onto its root and opens it.
+file/avatar_from_profile.py,file,true,true,Path segment stored in the DB by another view from POST data is later joined and opened.
+file/storage_dispatch.py,file,true,true,getattr dispatch picks an op_ method that joins the form path into os.remove/os.stat/shutil.move.
+file/reports_directory_send.py,file,false,false,send_from_directory confines the name to the directory via safe_join.
+file/resume_upload.py,file,false,false,secure_filename strips separators before the upload is saved.
+file/policy_document_whitelist.py,file,false,false,The requested name must be one of a constant tuple of documents.
+file/report_key_map.py,file,false,false,URL key only selects a constant path from a dict; unknown keys 404.
+file/invoice_numeric.py,file,false,false,int() cast leaves only a number in the formatted file name.
+file/export_realpath_guard.py,file,false,false,realpath plus commonpath check against the export root before send_file.
+file/fastapi_resolve_relative.py,file,false,false,resolve() then is_relative_to(NOTES_ROOT) rejects escapes before read_text().
+file/receipt_uuid.py,file,false,false,uuid.UUID parse means only a canonical UUID string enters the path.
+file/snippet_regex_guard.py,file,false,false,"fullmatch on [A-Za-z0-9_-]{1,64} rejects dots and slashes before open()."
+file/transcript_basename.py,file,false,false,basename strips directories and a .txt suffix is appended before opening.
+file/werkzeug_join_download.py,file,false,false,werkzeug safe_join returns None for escaping paths and that case aborts.
+file/attachment_osjoin_view.py,file,false,false,django.utils._os.safe_join raises SuspiciousFileOperation on traversal.
+file/media_storage_open.py,file,false,false,FileSystemStorage.open/exists validate the name against the storage location.
+file/audit_log_constant.py,file,false,false,Request data is only written as file content; the opened path is a constant.
+file/thumbnail_overwrite.py,file,false,false,The tainted name is unconditionally overwritten with a constant before send_file.
+file/manuals_resolved_helper.py,file,false,false,Cross-file resolve_inside does realpath plus commonpath and raises on escape.
+file/fastapi_enum_export.py,file,false,false,FastAPI validates the path param against a str Enum so only fixed values reach the path.
+file/fastapi_int_report.py,file,false,false,report_id is declared int so FastAPI rejects anything non-numeric; section is only a dict key.
+file/django_int_converter.py,file,false,false,Django <int:> converter hands the view an integer used in the file name.
+file/document_db_path.py,file,false,true,Opened path comes from a server-managed DB column looked up by owner and pk.
+file/cache_digest_file.py,file,false,false,Only a sha256 hex digest of the request value is used in the path.
+file/backup_prefix_realpath.py,file,false,false,realpath result must start with BACKUP_ROOT plus separator before open().
+file/dotdot_reject.py,file,false,false,"Rejects any '..', backslash or absolute path before joining under the firmware dir."
+file/terms_language_select.py,file,false,false,Language code only selects from a constant map with a constant fallback.
+file/upload_cleanup.py,file,false,false,secure_filename sanitises the name before os.remove in the user's folder.
+file/bundle_tar_filter.py,file,false,false,extractall uses filter='data' which refuses absolute and ../ members.
+file/plugin_zip_checked.py,file,false,false,Each archive member is realpath'd and commonpath-checked before writing.
+file/pathlib_name_only.py,file,false,false,Path(file).name keeps only the final component plus a suffix check.
+file/scan_upload_uuid.py,file,false,false,Stored file name is a uuid4 hex plus an extension picked from a constant map.
+file/export_session_path.py,file,false,true,Path read from the signed session was set server-side in another view.
+file/terms_config_file.py,file,false,true,"send_file path comes from application config, not the request."
+file/listing_membership.py,file,false,true,Name must be an existing entry of os.listdir(FONT_DIR); the allow-list is filesystem data.
+file/slug_helper_crossfile.py,file,false,false,Cross-file slugify_name reduces the title to [a-z0-9_-] before it is joined and written.
