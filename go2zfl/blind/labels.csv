@@ -1,0 +1,261 @@
+file,category,vulnerable,expect_open,why
+sqli/order_lookup.go,sqli,true,false,Query-string id concatenated unquoted into db.Query.
+sqli/customer_search.go,sqli,true,false,gin c.Query formatted with Sprintf into a LIKE literal passed to db.Query.
+sqli/article_by_slug.go,sqli,true,false,mux route variable formatted into a quoted literal for QueryRow.
+sqli/report_sorting.go,sqli,true,false,gin query param passed straight to gorm Order.
+sqli/ticket_status_raw.go,sqli,true,false,Route param and query param concatenated into gorm Raw SQL.
+sqli/member_lookup_gorm.go,sqli,true,false,Form value concatenated into a gorm Where string condition.
+sqli/inventory_select.go,sqli,true,false,Helper builds WHERE clause by concatenating gin query params; result goes to sqlx Select.
+sqli/invoice_list.go,sqli,true,false,Cross-file helper lib.WhereEquals formats the query param into a quoted literal used by db.Query.
+sqli/product_detail.go,sqli,true,false,html.EscapeString is the wrong context for an unquoted numeric SQL position.
+sqli/comment_feed.go,sqli,true,false,Replacing ' with \' without escaping backslashes is bypassable on MySQL.
+sqli/tenant_users.go,sqli,true,false,Request header used as schema name concatenated into QueryContext.
+sqli/region_stats.go,sqli,true,false,Cookie value concatenated into QueryRow; branch default does not remove taint.
+sqli/audit_filter.go,sqli,true,false,JSON body fields appended to WHERE string for db.Query.
+sqli/profile_update.go,sqli,true,false,ShouldBindJSON struct fields formatted into an UPDATE for db.Exec.
+sqli/bulk_fetch.go,sqli,true,false,Loop quotes multi-valued query params without escaping and joins them into an IN list.
+sqli/listing_order.go,sqli,true,false,Query param overrides the default ORDER BY column in one branch.
+sqli/event_query_builder.go,sqli,true,false,Route var and query param written into a strings.Builder query.
+sqli/employee_directory.go,sqli,true,false,Form value concatenated into the text given to Prepare; only the second marker is bound.
+sqli/coupon_redeem.go,sqli,true,false,Length-only check does not stop quote injection into Exec.
+sqli/shipment_track.go,sqli,true,false,Unanchored regexp lets extra characters through into the QueryRow literal.
+sqli/page_fetch.go,sqli,true,false,Atoi error is ignored and the raw string rather than the int is concatenated.
+sqli/account_repo.go,sqli,true,false,Repository method concatenates the email from the handler into QueryRow.
+sqli/transfer_note.go,sqli,true,false,Posted note concatenated into tx.Exec although the id is bound.
+sqli/paged_logs.go,sqli,true,false,Raw limit/offset strings formatted with %s into QueryContext.
+sqli/table_purge.go,sqli,true,false,gin route param table name and days query param concatenated into ExecContext.
+sqli/archive_gorm_exec.go,sqli,true,false,Bound form fields formatted into gorm tx.Exec inside a transaction.
+sqli/dynamic_field_filter.go,sqli,true,false,Query param used as the column name in the gorm Where format string.
+sqli/device_sqlx_get.go,sqli,true,false,Request header formatted into the query given to sqlx Get.
+sqli/inline_route.go,sqli,true,false,Inline mux closure concatenates the route var into QueryRow.
+sqli/clause_join.go,sqli,true,false,Variadic helpers join raw query params into a WHERE string for db.Query.
+sqli/column_fallback.go,sqli,true,false,Allowlist lookup falls back to the raw param when the key is missing.
+sqli/saved_filter_run.go,sqli,true,true,Second-order: user-saved expression read back from the database and concatenated into db.Query.
+sqli/search_backend.go,sqli,true,true,Sink sits behind an interface picked from a registry by environment at init.
+sqli/order_status.go,sqli,false,false,Query param bound as $1 argument.
+sqli/customer_like.go,sqli,false,false,Concatenation only builds the LIKE pattern which is passed as a bound argument.
+sqli/report_columns.go,sqli,false,false,Map allowlist with a constant default picks the ORDER BY column.
+sqli/sort_direction.go,sqli,false,false,Switch maps direction to constants and rejects anything else; board is bound.
+sqli/page_number.go,sqli,false,false,Page is parsed with Atoi and only the int reaches Sprintf %d.
+sqli/order_id_check.go,sqli,false,false,Handler returns unless Atoi succeeds so the concatenated string is numeric.
+sqli/column_pattern.go,sqli,false,false,Anchored identifier regexp guards the concatenated column name.
+sqli/entity_table.go,sqli,false,false,Table name comes from a constant switch; id is bound.
+sqli/member_gorm_bound.go,sqli,false,false,gorm Where with a constant condition and a bound argument.
+sqli/status_map_gorm.go,sqli,false,false,gorm Where with a map condition binds all values.
+sqli/gorm_sort_allowlist.go,sqli,false,false,Loop over a constant allowlist only assigns matching values to the gorm Order column.
+sqli/contact_named.go,sqli,false,false,sqlx NamedExec binds struct fields to named parameters.
+sqli/batch_in_sqlx.go,sqli,false,false,sqlx.In expands bound placeholders and Rebind adapts them.
+sqli/multi_id_placeholders.go,sqli,false,false,Loop concatenates only ? markers and passes values as args.
+sqli/prepared_lookup.go,sqli,false,false,Constant prepared statement receives the form value as a bound parameter.
+sqli/schema_quoted.go,sqli,false,false,pq.QuoteIdentifier correctly quotes the header-supplied schema name.
+sqli/archived_toggle.go,sqli,false,false,User input only chooses between constant fragments; owner is bound.
+sqli/limit_clamp.go,sqli,false,false,Limit is an int parsed and clamped before Sprintf %d.
+sqli/session_uuid.go,sqli,false,false,uuid.Parse then String yields a canonical hex UUID before concatenation.
+sqli/daily_totals.go,sqli,false,false,time.Parse then Format re-renders the date from a constant layout.
+sqli/user_store.go,sqli,false,false,Store methods use constant queries with bound parameters.
+sqli/shipment_batch.go,sqli,false,false,Cross-file helper builds $n placeholders from a count; codes are bound args.
+sqli/category_parse.go,sqli,false,false,Helper returns a parsed uint64 which is formatted with %d.
+sqli/schema_from_env.go,sqli,false,true,Schema name comes from an environment variable read at construction; month is bound.
+sqli/sqlite_quoted.go,sqli,false,true,Quote doubling is correct for SQLite string literals but is a custom escaper.
+sqli/order_bind_oneof.go,sqli,false,true,gin binding oneof tags restrict sort and dir before Sprintf.
+sqli/identifier_filter.go,sqli,false,false,strings.Map keeps only lowercase letters digits and underscore in the column name.
+sqli/metrics_loop.go,sqli,false,false,Table names come from a constant slice; request values are bound.
+sqli/link_builder.go,sqli,false,false,url.Query is not a DB call and all db.Query/Exec calls bind the code.
+sqli/tenant_scope.go,sqli,false,false,Tenant id is type-asserted to int64 and formatted with %d; name is bound.
+sqli/query_args_helper.go,sqli,false,false,Helper returns constant conditions with values in a separate args slice.
+xss/welcome_banner.go,xss,true,false,FormValue name is formatted with %s into a text/html response.
+xss/catalog_search.go,xss,true,false,Query parameter q is concatenated into an HTML page built in a strings.Builder and written with w.Write.
+xss/member_profile_route.go,xss,true,false,gorilla mux path variable is written unescaped via io.WriteString into text/html.
+xss/notice_fragment.go,xss,true,false,Query values msg and level are concatenated into HTML sent with gin c.Data as text/html.
+xss/article_slug_page.go,xss,true,false,"Content-Type is preset to text/html, so gin c.String keeps it and the raw path param is rendered as HTML."
+xss/invoice_note_render.go,xss,true,false,text/template does no escaping and the query values are rendered into a text/html page.
+xss/author_bio.go,xss,true,false,Posted bio is converted to template.HTML which bypasses html/template escaping.
+xss/vendor_website_link.go,xss,true,false,"Wrapping the website in template.URL disables href filtering, so javascript: URLs are emitted."
+xss/widget_bootstrap.go,xss,true,false,Query value cast to template.JS is inserted verbatim into a script block.
+xss/email_template_preview.go,xss,true,false,User input is concatenated into the html/template source text so escaping never applies to it.
+xss/color_swatch.go,xss,true,false,html.EscapeString output is placed in an unquoted attribute where spaces allow injecting event handlers.
+xss/homepage_link_card.go,xss,true,false,html.EscapeString does not stop a javascript: URL placed in an href attribute.
+xss/tracking_snippet.go,xss,true,false,strconv.Quote leaves < and > intact so </script> breaks out of the inline script.
+xss/cart_state_script.go,xss,true,false,JSON encoder with SetEscapeHTML(false) lets </script> in the coupon break out of the script block.
+xss/guestbook_entry.go,xss,true,false,Blacklist removal of script tags leaves other markup such as img onerror intact.
+xss/coupon_code_check.go,xss,true,false,Unanchored regexp only requires a matching substring so arbitrary HTML passes the guard.
+xss/export_format_switch.go,xss,true,false,The rich branch writes the title unescaped and the branches join before the sink.
+xss/quantity_update.go,xss,true,false,strconv.NumError text embeds the raw input and is written into the HTML error message.
+xss/shared_banner_link.go,xss,true,false,Base64 decoding is transparent and the decoded bytes are written into text/html.
+xss/forum_signature.go,xss,true,false,html.UnescapeString decodes entities and the result is written raw to the page.
+xss/dashboard_card.go,xss,true,false,Cross-file helper pagekit.Card concatenates title and body without escaping.
+xss/nickname_input.go,xss,true,false,Stripping angle brackets does not stop a double quote from breaking out of the value attribute.
+xss/report_async_render.go,xss,true,false,Headings travel through goroutines and a channel into raw HTML output.
+xss/event_page.go,xss,true,false,Struct fields filled from the form are concatenated into HTML by a method and written out.
+xss/tag_filter_list.go,xss,true,false,Multi-valued tag parameters are written raw into a bytes.Buffer flushed to a text/html response.
+xss/support_ticket_form.go,xss,true,false,Bound form subject is written with c.Writer.WriteString after the content type is set to text/html.
+xss/comment_preview_gin.go,xss,true,false,Posted comment body is passed as template.HTML to gin c.HTML so it is not escaped.
+xss/echo_debug.go,xss,true,false,"No Content-Type is set, so a payload starting with <html> is sniffed as text/html and rendered."
+xss/unsubscribe_confirm.go,xss,true,false,"Output begins with a doctype so it is sniffed as HTML, and the email parameter is written raw."
+xss/wiki_preview.go,xss,true,false,blackfriday passes raw HTML through by default and no sanitizer is applied.
+xss/recipe_reviews.go,xss,true,true,Stored review bodies from the database are rendered as template.HTML (stored XSS through SQL).
+xss/recent_searches.go,xss,true,true,Search terms stored in a package-level slice by one handler are written raw by another.
+xss/account_header.go,xss,true,true,User display name from an unresolvable auth package is printed unescaped into HTML.
+xss/locale_greeting.go,xss,true,false,A closure selected by locale formats the raw name query value into HTML.
+xss/greeting_card.go,xss,false,false,Every user value is passed through html.EscapeString in text and quoted-attribute contexts.
+xss/speaker_bio.go,xss,false,false,html/template contextually escapes all posted fields.
+xss/partner_link.go,xss,false,false,html/template filters unsafe URL schemes in href for plain strings.
+xss/order_receipt.go,xss,false,false,text/template values are piped through the builtin html escaper in a body context.
+xss/status_line.go,xss,false,false,gin c.String sends text/plain so the markup is not rendered.
+xss/lookup_api.go,xss,false,false,gin c.JSON sends application/json and escapes angle brackets.
+xss/section_not_found.go,xss,false,false,http.Error sets text/plain with nosniff so the echoed path is not rendered as HTML.
+xss/raw_log_view.go,xss,false,false,Response is explicitly text/plain with nosniff.
+xss/pagination_links.go,xss,false,false,Page number is converted with strconv.Atoi and printed with %d.
+xss/theme_stylesheet.go,xss,false,false,Theme is replaced by a constant unless it is in the whitelist map.
+xss/sort_order_label.go,xss,false,false,Switch maps the parameter to constant labels.
+xss/project_slug_header.go,xss,false,false,Anchored regexp limits the slug to lowercase letters digits and hyphens.
+xss/checkout_state.go,xss,false,false,"json.Marshal escapes <, > and & so the object is safe inside a script block."
+xss/chat_widget_init.go,xss,false,false,template.JSEscapeString escapes quotes and angle brackets inside JS string literals.
+xss/download_fingerprint.go,xss,false,false,Only the hex SHA-256 digest of the input is written.
+xss/resume_token_form.go,xss,false,false,Base64url encoding yields only safe characters inside a quoted attribute.
+xss/review_sanitized.go,xss,false,false,bluemonday UGCPolicy sanitizes the body before it is marked template.HTML.
+xss/docs_preview.go,xss,false,false,Markdown output is sanitized by bluemonday before being written.
+xss/team_card.go,xss,false,false,Inputs are escaped via pagekit.Escape and Layout escapes the title itself.
+xss/subscription_state.go,xss,false,false,The status variable is overwritten with a constant on every branch.
+xss/message_format_toggle.go,xss,false,false,Both branches HTML-escape the message before the join.
+xss/order_lookup.go,xss,false,false,uuid.Parse rejects anything that is not a UUID and the canonical form is printed.
+xss/booking_date.go,xss,false,false,Date is parsed with time.Parse and re-formatted so only the formatted date is written.
+xss/ticket_detail_route.go,xss,false,false,Path id is parsed to int64 and printed with %d.
+xss/results_page_gin.go,xss,false,false,gin c.HTML uses html/template which escapes plain string values.
+xss/share_link_box.go,xss,false,false,url.QueryEscape encodes quotes and angle brackets in a fixed-prefix relative URL.
+xss/tooltip_text.go,xss,false,false,Replacer escapes all five HTML-special characters for quoted attributes and text.
+xss/password_strength.go,xss,false,false,Only derived integer counts of the password are written.
+xss/maintenance_notice.go,xss,false,true,Notice HTML comes from an operator-controlled file path set by configuration.
+xss/export_renderer.go,xss,false,true,Rows reach the writer through interface dispatch chosen from a map and every implementation escapes.
+xss/raw_json_passthrough.go,xss,false,false,gin PureJSON sends application/json which browsers do not render as HTML.
+xss/csv_cell_preview.go,xss,false,false,Response is text/csv with nosniff so the cell is not rendered as HTML.
+file/invoice_pdf.go,file,true,false,Query parameter joined onto the invoice dir and opened; ../ escapes.
+file/report_export.go,file,true,false,Form value formatted into a path by a helper; the .csv suffix does not stop ../ traversal.
+file/avatar_store.go,file,true,false,Username form field becomes the os.Create filename so ../ writes outside the avatar dir.
+file/note_delete.go,file,true,false,Query id joined and passed to os.Remove letting callers delete arbitrary files.
+file/static_docs.go,file,true,false,Gin catch-all param is not cleaned by gin and reaches os.ReadFile via filepath.Join.
+file/attachment_download.go,file,true,false,Query path joined and served with c.FileAttachment; ServeFile only checks URL.Path not the name.
+file/theme_loader.go,file,true,false,Theme cookie value is concatenated into the stylesheet path.
+file/tenant_header.go,file,true,false,X-Workspace header and dir query reach os.ReadDir allowing listing of arbitrary directories.
+file/profile_json.go,file,true,false,JSON body field avatar is joined onto the media dir and read back to the client.
+file/config_save.go,file,true,false,Bound JSON name reaches os.WriteFile; ../ writes a .yaml file anywhere.
+file/media_fetch.go,file,true,false,ServeMux PathValue is unescaped so %2F-encoded ../ reaches os.Open.
+file/archive_import.go,file,true,false,Zip slip: uploaded entry names are joined onto the staging dir without a containment check.
+file/backup_restore.go,file,true,false,Tar slip: header names from the request body are joined and created without a check.
+file/wiki_page.go,file,true,false,The .. check runs before url.QueryUnescape so double-encoded dots pass.
+file/snippet_read.go,file,true,false,Single-pass ReplaceAll of ../ is bypassed with ....// sequences.
+file/export_fetch.go,file,true,false,filepath.Clean keeps leading ../ so the joined path still escapes the exports base.
+file/asset_proxy.go,file,true,false,Only a leading .. is rejected; an absolute path is opened directly.
+file/tenant_files.go,file,true,false,Prefix check without a trailing separator lets tenant 42 read tenant 421 files.
+file/gallery_image.go,file,true,false,html.EscapeString is the wrong context and leaves ../ intact before c.File.
+file/label_print.go,file,true,false,Unanchored regexp matches any string containing a word char so ../ passes.
+file/manual_page.go,file,true,false,Validation failure writes an error but does not return so the read still happens.
+file/snapshot_remove.go,file,true,false,Validation error is only logged and os.RemoveAll proceeds with the raw name.
+file/upload_rename.go,file,true,false,filepath.Base result is only used for logging; the raw filename is the rename target.
+file/workspace_purge.go,file,true,false,Separators are rejected but the name .. still makes os.RemoveAll delete the parent directory.
+file/thumbnail_serve.go,file,true,false,The id is based but the attacker-controlled ext parameter carries ../ into the path.
+file/contract_view.go,file,true,false,Cross-file helper pathutil.Under is a plain filepath.Join with no containment.
+file/label_template.go,file,true,false,pathutil.Normalize only trims and lowercases before template.ParseFiles reads the file.
+file/document_service.go,file,true,false,Service method joins the query name onto its root with only trimming and a length limit.
+file/bundle_download.go,file,true,false,Each comma-separated f value is joined and read into the zip without validation.
+file/legacy_fetch.go,file,true,false,filepath.Base is applied only when v=2; the default branch passes the raw name.
+file/share_link.go,file,true,false,Router has SkipClean(true) so a {path:.*} var with ../ reaches os.Open.
+file/attachment_history.go,file,true,true,Stored name is written from a form field then read back from the database into os.Open (second order).
+file/preference_avatar.go,file,true,true,Avatar path is set in the session by another handler and later read into os.ReadFile.
+file/blob_backend.go,file,true,true,Query key goes through a Backend interface chosen from a registry by environment; the disk implementation joins it unchecked.
+file/invoice_archive.go,file,false,false,filepath.Base plus rejection of . and .. keeps the file inside the archive dir.
+file/report_by_year.go,file,false,false,Year is parsed with strconv.Atoi and range-checked before formatting the path.
+file/export_bundle.go,file,false,false,"filepath.Clean(""/""+name) roots the name so the join cannot climb above the base."
+file/project_file.go,file,false,false,filepath.Rel check rejects any result that climbs out of the project root.
+file/fixture_load.go,file,false,false,filepath.IsLocal rejects absolute and escaping names before the join.
+file/workspace_reader.go,file,false,false,os.Root confines Open to the workspace directory.
+file/brochure_pdf.go,file,false,false,http.Dir.Open roots and cleans the name before touching the filesystem.
+file/locale_bundle.go,file,false,false,fs.ReadFile on os.DirFS rejects names that are not valid fs paths.
+file/help_topics.go,file,false,false,The name is read from an embed.FS which only holds compiled-in files.
+file/public_site.go,file,false,false,ServeFile rejects any r.URL.Path containing a .. element.
+file/static_assets.go,file,false,false,c.FileFromFS serves through http.FileServer over http.Dir which cleans and roots the path.
+file/terms_document.go,file,false,false,Query key only selects a filename from a constant map.
+file/statement_export.go,file,false,false,Format switch picks a constant filename and the account id is a server-side int.
+file/shipping_label.go,file,false,false,Anchored regexp allows only [A-Z0-9_-] so no separators or dots.
+file/receipt_image.go,file,false,false,uuid.Parse validates the id and the canonical String form is used in the path.
+file/snippet_library.go,file,false,false,Any .. is rejected and filepath.Join keeps absolute names under the root.
+file/cache_entry.go,file,false,false,The filename is a sha256 hex digest of the user URL.
+file/feedback_submit.go,file,false,false,User input only becomes file content; the filename is time plus random hex.
+file/onboarding_guide.go,file,false,false,The language only selects among constant paths.
+file/sample_dataset.go,file,false,false,Numeric index is bounds-checked into a constant slice of filenames.
+file/contract_preview.go,file,false,false,Cross-file helper pathutil.Contained verifies containment with filepath.Rel.
+file/print_queue.go,file,false,false,Job name is reduced with filepath.Base and checked against an extension allowlist.
+file/theme_import.go,file,false,false,Zip entries are checked against the cleaned destination plus separator before extraction.
+file/upload_finalize.go,file,false,false,strings.Map keeps only safe characters and leading dots are trimmed so the name is one element.
+file/snapshot_prune.go,file,false,false,Validation rejects separators and dot names and the handler returns on error.
+file/tenant_exports.go,file,false,false,Prefix check uses the cleaned base plus a separator so neither parent nor sibling tenants are reachable.
+file/thumbnail_variant.go,file,false,false,Numeric-only id regexp and an extension allowlist map.
+file/changelog_search.go,file,false,false,The query only filters lines of a constant file.
+file/report_templates.go,file,false,true,Query key selects a path from a catalog loaded from an external config file.
+file/order_invoice.go,file,false,false,Route regexp plus strconv.ParseInt make the path numeric.
+file/glossary_entry.go,file,false,false,url.PathEscape encodes / so the term plus .json is a single path element.
+file/ticket_attachment.go,file,false,false,Gin binding validator requires alphanum so the name has no dots or separators.
+ssrf/avatar_proxy.go,ssrf,true,false,Query parameter src is passed straight to http.Get.
+ssrf/webhook_ping.go,ssrf,true,false,Form value callback is the URL of an http.Post.
+ssrf/image_thumb.go,ssrf,true,false,gin c.Query image becomes the URL of http.NewRequest sent with client.Do.
+ssrf/link_preview.go,ssrf,true,false,gorilla mux path var site is formatted in as the host of an http.Get.
+ssrf/feed_import.go,ssrf,true,false,JSON body field feed_url is fetched with http.Get.
+ssrf/upstream_switch.go,ssrf,true,false,X-Upstream request header chooses the target of NewSingleHostReverseProxy.
+ssrf/invoice_pdf.go,ssrf,true,false,gin query logo flows cross-package into lib/fetch.Download which issues the request.
+ssrf/mirror_probe.go,ssrf,true,false,Every repeated mirror form value is fetched in a loop.
+ssrf/scheme_guard.go,ssrf,true,false,An https:// prefix check does not restrict the host of the fetched URL.
+ssrf/cdn_origin.go,ssrf,true,false,strings.Contains on the cdn domain is bypassable (e.g. evil.com/?acme-cdn.net) before http.Get.
+ssrf/html_escaped_url.go,ssrf,true,false,html.EscapeString is the wrong context and leaves the fetched host attacker-chosen.
+ssrf/routing_director.go,ssrf,true,false,ReverseProxy Director sets req.URL.Host from the X-Tenant-Backend request header.
+ssrf/service_health.go,ssrf,true,false,gin path param is concatenated in as the hostname (svc can be evil.com/# etc.).
+ssrf/endpoint_checker.go,ssrf,true,false,gin PostForm endpoint is used for NewRequestWithContext and DefaultClient.Do.
+ssrf/rates_override.go,ssrf,true,false,Branch replaces the constant rates URL with the source form value before http.Get.
+ssrf/remote_loader.go,ssrf,true,false,Query location reaches client.Get through a struct method on Loader.
+ssrf/https_upgrade.go,ssrf,true,false,Forcing the scheme to https after url.Parse keeps the attacker host.
+ssrf/encoded_target.go,ssrf,true,false,Base64-decoded query token is used as the http.Get URL.
+ssrf/callback_header.go,ssrf,true,false,X-Callback-Url header is the target of a POST sent with notifier.Do.
+ssrf/oembed_lookup.go,ssrf,true,false,Bound JSON provider field is the base URL (host) of client.Get; only resource is encoded.
+ssrf/region_cookie.go,ssrf,true,false,Cookie api_host returned by a helper becomes the host of http.Get.
+ssrf/node_status.go,ssrf,true,false,Form value node is set as url.URL Host for http.Get.
+ssrf/service_alias.go,ssrf,true,false,Alias lookup falls back to the raw svc query value as the base URL.
+ssrf/batch_fetch.go,ssrf,true,false,Comma-split links query values are fetched in goroutines.
+ssrf/uptime_head.go,ssrf,true,false,Query probe is passed to http.Head.
+ssrf/loopback_block.go,ssrf,true,false,A literal-string blocklist leaves arbitrary (including internal) hosts reachable.
+ssrf/relative_join.go,ssrf,true,false,ResolveReference with an absolute user ref replaces the base host.
+ssrf/fetch_chain.go,ssrf,true,false,Form value target flows through buildTarget and proxyTo into NewRequest/Do.
+ssrf/port_check.go,ssrf,true,false,Form host and port are dialled with net.DialTimeout.
+ssrf/webhook_store.go,ssrf,true,true,Unvalidated webhook URL is stored via the DB and later POSTed to (flow through the database).
+ssrf/prefetch_queue.go,ssrf,true,true,Posted resource is queued in package state and fetched later by a background worker.
+ssrf/tenant_discovery.go,ssrf,true,false,X-Forwarded-Host header chooses the host of the discovery client.Get.
+ssrf/asset_mirror.go,ssrf,true,false,The allow.Check error is only logged and the raw query URL is fetched anyway.
+ssrf/service_catalog.go,ssrf,false,false,Service name only selects a URL from a constant map; unknown names are rejected.
+ssrf/partner_fetch.go,ssrf,false,false,Parsed URL must be https on an exact-match partner host allowlist.
+ssrf/search_proxy.go,ssrf,false,false,User data is only url.Values-encoded query parameters of a constant endpoint.
+ssrf/profile_lookup.go,ssrf,false,false,Login is PathEscaped into the path of a fixed directory host.
+ssrf/inventory_item.go,ssrf,false,false,SKU is converted with strconv.Atoi and formatted as %d on a fixed host.
+ssrf/region_quote.go,ssrf,false,false,Region switch maps to constant hosts with a rejecting default.
+ssrf/feed_default.go,ssrf,false,false,The feed variable is overwritten with a constant before http.Get.
+ssrf/event_forward.go,ssrf,false,false,User data (including a url field) goes only into the POST body to a fixed ingest URL.
+ssrf/trace_forward.go,ssrf,false,false,User headers are copied as request headers; the request URL is constant.
+ssrf/static_gateway.go,ssrf,false,false,Reverse proxy target is a constant backend; only the path is forwarded.
+ssrf/fixed_director.go,ssrf,false,false,Director sets a constant host; X-Forwarded-Host is only logged.
+ssrf/callback_registry.go,ssrf,false,false,Callback must exactly equal one entry of a constant slice (slices.Contains).
+ssrf/mirror_index.go,ssrf,false,false,Numeric index into a constant mirror list with bounds check; package name is path-escaped.
+ssrf/asset_proxy.go,ssrf,false,false,lib/allow.Check enforces an exact https host allowlist and its result is used.
+ssrf/debug_fetch.go,ssrf,false,false,The user endpoint branch is guarded by a constant false and never runs.
+ssrf/blob_download.go,ssrf,false,false,Anchored UUID regex guards an id appended to a fixed internal host path.
+ssrf/shadowed_target.go,ssrf,false,false,The user target is a shadowed inner variable used only for logging.
+ssrf/billing_sync.go,ssrf,false,true,Base URL comes from environment configuration and the customer id is parsed as an integer.
+ssrf/metrics_scrape.go,ssrf,false,false,Port must be an integer present in a constant exporter map on loopback.
+ssrf/job_runner.go,ssrf,false,false,Bound WorkerURL is overwritten with a constant before http.Post.
+ssrf/repo_stats.go,ssrf,false,false,Forge is mapped to a constant host; owner/repo only fill the url.URL Path.
+ssrf/health_fanout.go,ssrf,false,false,Goroutines fetch a constant dependency list; the user only sets a parsed timeout.
+ssrf/github_user.go,ssrf,false,false,Mux var only fills the Path of a url.URL with constant host api.github.com.
+ssrf/signed_fetch.go,ssrf,false,true,URL is fetched only if its HMAC (key from environment) verifies; server-signed URLs only.
+ssrf/webhook_vetted.go,ssrf,false,true,Hook is allowlisted before being stored and later read back from the database.
+ssrf/relative_resolve.go,ssrf,false,false,Resolved reference is rejected unless scheme and host equal the fixed base.
+ssrf/geocode_address.go,ssrf,false,false,User values are url.QueryEscaped into query parameters of a fixed geocoder host.
+ssrf/order_status.go,ssrf,false,false,Order id is ParseInt-ed and formatted as %d on a fixed internal base.
+ssrf/tenant_domain.go,ssrf,false,false,Hostname must end in the operator-owned tenant zone with https and no port or userinfo.
+ssrf/upstream_config.go,ssrf,false,true,Upstream base URLs come from a server config file; the user only selects an existing key.
+ssrf/status_echo.go,ssrf,false,false,Page is used only after equality with one of two constant URLs.
