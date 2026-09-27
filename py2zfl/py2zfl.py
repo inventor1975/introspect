@@ -555,12 +555,16 @@ class Engine:
 
 def analyze(src): e=Engine(); return e.run(ast.parse(src))
 
+UNPARSED = []     # files the last analyze_app could not parse: NOT analysed, NOT clean
+
 def analyze_app(paths):
     """Cross-file: index every file's summaries GLOBALLY, then judge each file's call sites."""
     e=Engine(); trees=[]
+    del UNPARSED[:]
     for path in paths:
         try: t=ast.parse(open(path,encoding='utf-8',errors='replace').read())
-        except SyntaxError: continue
+        except SyntaxError as ex:
+            UNPARSED.append((path, "SyntaxError")); continue
         trees.append((path,t)); e.index(t)
     out=[]
     for path,t in trees:

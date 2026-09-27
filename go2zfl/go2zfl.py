@@ -484,10 +484,14 @@ def parse(path):
 
 def analyze(path): return Engine().run(parse(path))
 
+UNPARSED = []     # files the last analyze_app could not parse: NOT analysed, NOT clean
+
 def analyze_app(paths):
     e = Engine(); trees = []
+    del UNPARSED[:]
     for p in paths:
         t = parse(p)
+        if t.get("error"): UNPARSED.append((p, str(t["error"])[:60])); continue
         if t.get("funcs") or t.get("globals"): trees.append((p, t))
     e.genv = e.globals_env([t for _, t in trees])
     for _, t in trees: e.index(t)

@@ -53,6 +53,8 @@ SIMPLE_TYPES = {"String","int","Integer","long","Long","short","Short","byte","B
 # (char is NOT here: a single quote is one char.)
 CLEAN_TYPES = {"int","long","short","byte","boolean","double","float","Integer","Long","Short","Byte",
                "Boolean","Double","Float","BigDecimal","BigInteger","AtomicInteger","AtomicLong","void"}
+# a parameter of these types cannot be changed by the callee in a way the caller sees
+IMMUTABLE_TYPES = CLEAN_TYPES | {"String", "char", "Character", "CharSequence"}
 # constructor sinks: new ProcessBuilder(taint) is command execution (the injection is the ctor arg)
 CTOR_SINKS = {"ProcessBuilder":"shell"}
 # specific method names: the name alone is enough to call it a sink. (ctx, which args carry the payload)
@@ -96,6 +98,24 @@ CTX_SANITIZERS = {"escapeHtml":"xss","escapeHtml4":"xss","escapeHtml3":"xss","ht
                   "encodeForHTMLAttribute":"xss","escapeXml":"xss","escapeXml10":"xss","escapeXml11":"xss",
                   "forJavaScript":"xss","encodeForJavaScript":"xss","escapeEcmaScript":"xss",
                   "encodeForSQL":"sql","encodeForOS":"shell"}
+# escaper FAMILIES: what each one encodes decides where its output is safe (the blind corpus, 27.09: an
+# escapeHtml4 value in a single-quoted attribute, an HTML-escaped value in href/onclick/<script>)
+ESC_FAMILY = {"escapeHtml": "html_nosq", "escapeHtml3": "html_nosq", "escapeHtml4": "html_nosq",
+              "htmlEscape": "html_full", "forHtml": "html_full", "encodeForHTML": "html_full",
+              "escapeXml": "html_full", "escapeXml10": "html_full", "escapeXml11": "html_full",
+              "forHtmlContent": "html_text", "forHtmlAttribute": "html_attr",
+              "encodeForHTMLAttribute": "esapi_attr",
+              "forJavaScript": "js", "encodeForJavaScript": "js", "escapeEcmaScript": "js"}
+# the HTML sub-contexts where each family's output cannot break out
+CTX_ALLOWED = {"text":      {"html_nosq", "html_full", "html_text", "html_attr", "esapi_attr", "url", "strip"},
+               "dq_attr":   {"html_nosq", "html_full", "html_attr", "esapi_attr", "url", "strip"},
+               "sq_attr":   {"html_full", "html_attr", "esapi_attr", "url", "strip"},
+               "uq_attr":   {"esapi_attr", "url"},
+               "url_start": {"url"},
+               "js_str":    {"js"},
+               "event": set(), "tag": set(), "css": set(), "js": set()}
+URL_ATTRS = {"href", "src", "action", "formaction", "background", "poster", "data", "codebase", "cite",
+             "xlink:href", "srcset", "ping", "manifest"}
 # library calls that pass taint through: result = join(receiver, arguments)
 TRANSPARENT = {"substring","subSequence","trim","strip","stripLeading","stripTrailing","toLowerCase",
                "toUpperCase","concat","replace","replaceAll","replaceFirst","split","toCharArray","getBytes",
@@ -164,18 +184,106 @@ def _compose(a, r):
     """Taint of a call's result from one argument: a = the argument, r = the result when that parameter is T."""
     return _pc(lambda x, y: F if x == F else (y if x == T else (Z if y != F else F)), a, r)
 
-def _clean_for(v, ctx):
+def _clean_for(v, ctx, fam=None):
     d, over = _parts(v)
     over[ctx] = F
+    if fam: over["~" + fam] = F          # which escaper family made it clean (a marker, not a context)
+    return _mk(d, over)
+
+def _render(node):
+    """The constant text an expression contributes to a string (unknown pieces -> NUL)."""
+    if isinstance(node, J.Literal) and isinstance(node.value, str):
+        v = node.value
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            return v[1:-1].replace('\\"', '"').replace("\\'", "'")
+        return v
+    if isinstance(node, J.BinaryOperation) and node.operator == "+":
+        return _render(node.operandl) + _render(node.operandr)
+    return "\x00"
+
+def _html_ctx(prefix):
+    """The HTML sub-context at the end of the text emitted so far."""
+    p = prefix[-600:].lower()
+    so, sc = p.rfind("<script"), p.rfind("</script")
+    if so > sc:                                        # inside <script>: in a JS string or bare code
+        body = p[p.find(">", so) + 1:] if p.find(">", so) >= 0 else ""
+        q = None; i = 0
+        while i < len(body):
+            ch = body[i]
+            if ch == "\\": i += 2; continue
+            if q is None and ch in "'\"`": q = ch
+            elif q == ch: q = None
+            i += 1
+        if not q: return "js"
+        import re as _re2
+        before = body[:body.rfind(q)] if q in body else body
+        if _re2.search(r"(location(\.href)?|\.href|\.src|\.action)\s*=\s*$|(window\.open|location\.(assign|replace))\s*\(\s*$",
+                       before.rstrip()):
+            return "url_start"                        # a JS string that becomes a URL: javascript: survives
+        return "js_str"
+    st, stc = p.rfind("<style"), p.rfind("</style")
+    if st > stc: return "css"
+    lt, gt = p.rfind("<"), p.rfind(">")
+    if lt <= gt: return "text"
+    tag = p[lt + 1:]
+    q = None; name = ""; start = 0; i = 0
+    import re as _re
+    while i < len(tag):
+        ch = tag[i]
+        if q is None and ch in "'\"":
+            m = _re.search(r"([\w:-]+)\s*=\s*$", tag[:i])
+            name = m.group(1) if m else ""; q = ch; start = i + 1
+        elif q == ch: q = None
+        i += 1
+    if q is None:
+        return "uq_attr" if _re.search(r"=\s*$", tag) else "tag"
+    if name.startswith("on"): return "event"
+    if name == "style": return "css"
+    if name in URL_ATTRS and tag[start:].strip() == "": return "url_start"
+    return "dq_attr" if q == '"' else "sq_attr"
+
+def _adjust(v, prefix):
+    """An escaped value keeps its xss credit only where its escaper family is safe."""
+    if isinstance(v, str) or _at(v, "xss") != F: return v
+    d, over = _parts(v)
+    if d == F: return v
+    fams = {k[1:] for k, l in over.items() if k.startswith("~") and l == F}
+    if fams & CTX_ALLOWED.get(_html_ctx(prefix), set()): return v
+    over["xss"] = d                                    # wrong sub-context: the escaper does not protect here
+    for k in [k for k in over if k.startswith("~")]: del over[k]
     return _mk(d, over)
 
 
 # ---------------------------------------------------------------- AST helpers
 def _is_spring_source(param):
-    return any(getattr(a,'name',None) in SPRING_SOURCES for a in (getattr(param,'annotations',None) or []))
+    return any(_anno(a) in SPRING_SOURCES for a in (getattr(param,'annotations',None) or []))
+
+def _anno(a): return (getattr(a, 'name', None) or "").split(".")[-1]
 
 def _is_handler(meth):
-    return any(getattr(a,'name',None) in MAPPING_ANNOS for a in (getattr(meth,'annotations',None) or []))
+    return any(_anno(a) in MAPPING_ANNOS for a in (getattr(meth,'annotations',None) or []))
+
+def _type_args(ty):
+    """Generic arguments of the innermost type: ResponseEntity<String> -> ['String']."""
+    while ty is not None and getattr(ty, 'sub_type', None) is not None: ty = ty.sub_type
+    out = []
+    for a in (getattr(ty, 'arguments', None) or []):
+        out.append(_typename(getattr(a, 'type', None)) if getattr(a, 'type', None) is not None else "?")
+    return out
+
+def _marks(node):
+    """'html' / 'plain' if the subtree names a content type, else None."""
+    kinds = set()
+    for _, n in node.filter(J.MemberReference):
+        if n.member in ("TEXT_HTML", "TEXT_HTML_VALUE", "APPLICATION_XHTML_XML", "APPLICATION_XHTML_XML_VALUE"):
+            kinds.add("html")
+        if n.member in ("TEXT_PLAIN", "TEXT_PLAIN_VALUE", "APPLICATION_JSON", "APPLICATION_JSON_VALUE"):
+            kinds.add("plain")
+    for _, n in node.filter(J.Literal):
+        v = str(n.value).lower()
+        if "text/html" in v or "xhtml" in v: kinds.add("html")
+        if "text/plain" in v or "application/json" in v: kinds.add("plain")
+    return "html" if "html" in kinds else ("plain" if "plain" in kinds else None)
 
 def _typename(ty):
     """Simple (last) name of a possibly-qualified/nested javalang type: java.sql.Statement -> 'Statement'."""
@@ -245,6 +353,41 @@ def _binop(op, a, b):
     if op == ">=": return x >= y
     return _NC
 
+def _all_literal(node):
+    """A collection built only from literals: Map.of / List.of / Set.of / Map.entry / a double-brace HashMap."""
+    if node is None: return False
+    if isinstance(node, J.MethodInvocation):
+        if node.member not in ("of", "ofEntries", "entry", "asList", "unmodifiableMap", "unmodifiableList",
+                               "unmodifiableSet", "copyOf", "singletonMap", "singletonList"): return False
+        return all(isinstance(a, J.Literal) or _all_literal(a) for a in (node.arguments or []))
+    if isinstance(node, J.ClassCreator) and getattr(node, 'body', None):
+        puts = [n for _, n in J.Node.filter(node, J.MethodInvocation)] if False else []
+        for b in node.body:
+            for _, n in (b.filter(J.MethodInvocation) if hasattr(b, 'filter') else []):
+                if n.member not in ("put", "add") or not all(isinstance(a, J.Literal) for a in (n.arguments or [])):
+                    return False
+                puts.append(n)
+        return bool(puts)
+    return False
+
+def _kept_by_strip(pattern):
+    """The characters a `[^...]` (optionally `+`) whitelist strip leaves, or None if not that shape."""
+    import re as _re
+    if not isinstance(pattern, str): return None
+    m = _re.fullmatch(r"\[\^([^\]]+)\]\+?", pattern)
+    if not m: return None
+    body, keep, i = m.group(1), set(), 0
+    while i < len(body):
+        c = body[i]
+        if c == "\\" and i + 1 < len(body):
+            nx = body[i + 1]
+            if nx in "dws": return None                      # classes like \w: not worth guessing
+            keep.add(nx); i += 2; continue
+        if i + 2 < len(body) and body[i + 1] == "-":
+            keep |= {chr(x) for x in range(ord(c), ord(body[i + 2]) + 1)}; i += 3; continue
+        keep.add(c); i += 1
+    return keep
+
 def _jumps(stmts):
     """How a statement list ends: 'term' (return/throw/continue), 'break', or None (falls through)."""
     if not stmts: return None
@@ -289,6 +432,9 @@ class Engine:
         self._dirty = False
         self._fam = {}
         self._esc = []        # stack (one per enclosing loop/switch) of environments leaving by break/continue
+        self._wtail = ""      # the constant text this method has written to a response so far (HTML context)
+        self._ret_sink = None # a Spring handler whose returned String IS the response body: "hard" / "soft"
+        self._nonhtml = None  # the method set a non-HTML content type: "nosniff" (not a sink) / "plain" (soft)
 
     # ---------------------------------------------------------------- the class index
     def _register(self, tree):
@@ -300,7 +446,8 @@ class Engine:
             for s in (ext if isinstance(ext, list) else [ext] if ext else []): supers.append(_typename(s))
             for s in (getattr(td, 'implements', None) or []): supers.append(_typename(s))
             info = {"simple": td.name, "outer": outer, "supers": [s for s in supers if s],
-                    "ftypes": {}, "consts": {}}
+                    "ftypes": {}, "consts": {}, "constcoll": set(),
+                    "annos": {_anno(a) for a in (getattr(td, 'annotations', None) or [])}}
             self.classes[qn] = info
             self.by_simple.setdefault(td.name, [])
             if qn not in self.by_simple[td.name]: self.by_simple[td.name].append(qn)
@@ -310,6 +457,14 @@ class Engine:
                         info["ftypes"][d.name] = _typename(m.type)
                         if "final" in (m.modifiers or set()) and isinstance(d.initializer, J.Literal):
                             info["consts"][d.name] = _lit(d.initializer)
+                        if "final" in (m.modifiers or set()) and _all_literal(d.initializer):
+                            info["constcoll"].add(d.name)       # Map.of("a","b") / List.of(..) of literals
+                elif isinstance(m, list):                         # static { M.put("a", "b"); }
+                    for st in m:
+                        for _, n in (st.filter(J.MethodInvocation) if hasattr(st, 'filter') else []):
+                            if n.qualifier and n.member in ("put", "add", "putAll", "addAll"):
+                                ok = n.member in ("put", "add") and all(isinstance(x, J.Literal) for x in (n.arguments or []))
+                                info.setdefault("_puts", {}).setdefault(n.qualifier, []).append(ok)
                 elif isinstance(m, (J.MethodDeclaration, J.ConstructorDeclaration)):
                     self.owner[id(m)] = qn
                     if isinstance(m, J.MethodDeclaration):
@@ -318,6 +473,14 @@ class Engine:
                         self.decls.append(m)
                 elif isinstance(m, (J.ClassDeclaration, J.InterfaceDeclaration, J.EnumDeclaration)):
                     walk_type(m, qn)
+            # a final field created empty and filled ONLY with literal put/add in static blocks is constant
+            for fname, oks in info.pop("_puts", {}).items():
+                if all(oks): info["constcoll"].add(fname)
+            for _, n in td.filter(J.MethodInvocation):                # a non-literal store anywhere un-constants it
+                if n.qualifier in info["constcoll"] and n.member in ("put", "add", "putAll", "addAll", "set",
+                                                                      "putIfAbsent", "merge", "compute") \
+                        and not all(isinstance(x, J.Literal) for x in (n.arguments or [])):
+                    info["constcoll"].discard(n.qualifier)
         for td in (tree.types or []):
             if isinstance(td, (J.ClassDeclaration, J.InterfaceDeclaration, J.EnumDeclaration)):
                 walk_type(td, None)
@@ -426,26 +589,34 @@ class Engine:
         if meth.body is None:
             return {"body": False, "base": Z, "ret": [Z] * len(params), "sinks": {}}
         clean_ret = _typename(meth.return_type) in CLEAN_TYPES if meth.return_type is not None else True
-        saved = (self.sinks, self.vt, self.cur, self._rets, self.alloc)
+        saved = (self.sinks, self.vt, self.cur, self._rets, self.alloc, self._wtail, self._ret_sink, self._nonhtml)
         self.cur = self.owner.get(id(meth))
         self.vt = self._types_of(meth)
+        self._ret_sink = None; self._nonhtml = self._content_kind(meth)
+        mutable = [i for i, p in enumerate(meth.parameters or []) if _typename(p.type) not in IMMUTABLE_TYPES]
         def run(env):
-            self.sinks, self._rets = [], []
+            self.sinks, self._rets, self._wtail = [], [], ""
             self._walk(meth.body, env)
             ret = F if clean_ret else join(*self._rets)
             got = {}
             for (_l, nm, ctx, d) in self.sinks:
                 k = (_l, nm, ctx)
                 if _DRANK[d] > _DRANK.get(got.get(k), -1): got[k] = d
-            return ret, got
+            return ret, got, env
         try:
             base_env = {p.name: F for p in (meth.parameters or [])}
-            base, bsinks = run(dict(base_env))
-            summ = {"body": True, "base": base, "ret": [], "sinks": {}}
+            base, bsinks, bend = run(dict(base_env))
+            names = [p.name for p in (meth.parameters or [])]
+            summ = {"body": True, "base": base, "ret": [], "sinks": {}, "argfx": {}, "argbase": {}}
+            for j in mutable:                              # what the method stores into a caller's object by itself
+                if bend.get(names[j], F) != F: summ["argbase"][j] = bend[names[j]]
             for i, p in enumerate(meth.parameters or []):
                 env = dict(base_env)
                 env[p.name] = F if _typename(p.type) in CLEAN_TYPES else T
-                r, psinks = run(env)
+                r, psinks, pend = run(env)
+                for j in mutable:                          # a helper that appends param i to the caller's builder j
+                    if j != i and _RANK[_at(pend.get(names[j], F), None)] > _RANK[_at(bend.get(names[j], F), None)]:
+                        summ["argfx"].setdefault(i, {})[j] = pend[names[j]]
                 summ["ret"].append(r)
                 eff = {}
                 for k, d in psinks.items():
@@ -455,7 +626,7 @@ class Engine:
                 if eff: summ["sinks"][i] = eff
             return summ
         finally:
-            self.sinks, self.vt, self.cur, self._rets, self.alloc = saved
+            self.sinks, self.vt, self.cur, self._rets, self.alloc, self._wtail, self._ret_sink, self._nonhtml = saved
 
     def _types_of(self, meth):
         """Var -> simple type name for one method: params, locals, for-each vars, resources, catch params.
@@ -496,6 +667,25 @@ class Engine:
             results.append(v)
         if not results: return Z
         return results[0] if all(r == results[0] for r in results) else Z
+
+    def _arg_effects(self, inv, cands, argvals, env):
+        """Side effects on the caller's objects: sb passed to a helper that appends a tainted value into it."""
+        if env is None: return
+        nodes = inv.arguments or []
+        for j, node in enumerate(nodes):
+            if not (isinstance(node, J.MemberReference) and not node.qualifier and not node.selectors
+                    and node.member in env): continue
+            vals = []
+            for m in cands:
+                s = self.summaries.get(id(m))
+                if s is None or not s["body"]: vals.append(Z if any(a != F for a in argvals) else F); continue
+                v = s.get("argbase", {}).get(j, F)
+                for i, fx in s.get("argfx", {}).items():
+                    if j in fx and i < len(argvals): v = join(v, _compose(argvals[i], fx[j]))
+                vals.append(v)
+            if not vals: continue
+            v = vals[0] if all(x == vals[0] for x in vals) else (Z if any(x != F for x in vals) else F)
+            if v != F: env[node.member] = join(env[node.member], v)
 
     def _summary_sinks(self, inv, cands, argvals):
         """A tainted argument reaching a sink inside the callee is reported at the call."""
@@ -601,7 +791,11 @@ class Engine:
             l = self.taint(node.operandl, env)
             if node.operator == "instanceof": return F, None
             r = self.taint(node.operandr, env)
-            return (join(l, r), None) if node.operator == "+" else (F, None)
+            if node.operator != "+": return F, None
+            if not (isinstance(node.operandl, J.BinaryOperation) and node.operandl.operator == "+"):
+                l = _adjust(l, self._wtail)                   # the first piece: after what was written so far
+            r = _adjust(r, self._wtail + _render(node.operandl))
+            return join(l, r), None
         if isinstance(node, J.TernaryExpression):
             self.taint(node.condition, env)
             c = self._const(node.condition, env)
@@ -625,7 +819,7 @@ class Engine:
             args = [self.taint(a, env) for a in (node.arguments or [])]
             outer = self.classes.get(self.cur, {})
             supers = [q for s in outer.get("supers", []) for q in self._class_of(s, self.cur)]
-            v, ty = self._call(node, node.member, args, F, ("cls", supers) if supers else ("lib",), None)
+            v, ty = self._call(node, node.member, args, F, ("cls", supers) if supers else ("lib",), None, env)
             return self._chain(v, ty, node.selectors, env, node)
         if isinstance(node, J.This):
             return self._chain(F, ("self",), node.selectors, env, node)
@@ -636,8 +830,10 @@ class Engine:
                 if nm: e[nm] = Z
             if isinstance(node.body, list): self._walk(node.body, e)
             else: self.taint(node.body, e)
+            for k in env:                                 # the body may run: its stores into outer locals count
+                if k in e and not k.startswith("#"): env[k] = join(env[k], e[k])
             return F, None
-        if isinstance(node, J.MethodReference): return Z, None
+        if isinstance(node, J.MethodReference): return F, None       # a function value carries no text
         if isinstance(node, (J.ExplicitConstructorInvocation, J.SuperConstructorInvocation)):
             for a in (node.arguments or []): self.taint(a, env)
             return F, None
@@ -756,8 +952,14 @@ class Engine:
                     recv_val, recv = F, ("lib",)                  # a library class (or package path)
                 else:
                     recv_val, recv = Z, ("any",)                  # an unknown field
+        if q and q.split(".")[-1] == "ResponseEntity": rtype = "ResponseEntityBuilder"
         self._sink(node, node.member, args, rtype, q)
-        v, ty = self._call(node, node.member, args, recv_val, recv, rtype)
+        v, ty = self._call(node, node.member, args, recv_val, recv, rtype, env)
+        if q and q.split(".")[-1] == "URLEncoder" and node.member == "encode":
+            v = _clean_for(join(*args), "xss", "url")            # percent-encoding: no HTML metacharacter survives
+        if q and node.member in ("get", "getOrDefault") and self._const_coll(q) \
+                and all(isinstance(a, J.Literal) for a in (node.arguments or [])[1:]):
+            v = F                                                 # a lookup in a literal-only table: a constant
         if q and "." not in q and q in env:
             m = self._model_get(q, node, env)
             if m is not None: v = m
@@ -765,6 +967,52 @@ class Engine:
         if q and "." not in q and q in env and node.member in ("append", "insert") and node.selectors:
             env[q] = join(env[q], v)                              # sb.append(a).append(b): sb holds b too
         return v, ty
+
+    def _fmt_adjust(self, nodes, args):
+        fi = 1 if (len(nodes) > 1 and not isinstance(nodes[0], J.Literal)) else 0
+        if not (fi < len(nodes) and isinstance(nodes[fi], J.Literal) and isinstance(_lit(nodes[fi]), str)): return args
+        fmt = _lit(nodes[fi]); pieces = fmt.split("%s"); args = list(args)
+        for k in range(fi + 1, len(args)):
+            pre = "%s".join(pieces[:k - fi]) if k - fi <= len(pieces) - 1 else fmt
+            args[k] = _adjust(args[k], self._wtail + pre)
+        return args
+
+    def _xss_arg(self, inv, name, args):
+        """The value a response-writing call emits, each escaped piece judged in its HTML sub-context;
+        then what it wrote is appended to the method's HTML tail."""
+        nodes = inv.arguments or []
+        if name in ("printf", "format"):
+            vals = self._fmt_adjust(nodes, args)
+            v = join(*vals)
+        else:
+            vals = list(args)
+            if nodes and not (isinstance(nodes[0], J.BinaryOperation) and nodes[0].operator == "+"):
+                vals[0] = _adjust(vals[0], self._wtail)     # a standalone escaped value: after what came before
+            v = join(*vals)
+        if nodes:
+            k = 1 if (name in ("printf", "format") and len(nodes) > 1 and not isinstance(nodes[0], J.Literal)) else 0
+            self._wtail = (self._wtail + _render(nodes[k]))[-600:]
+        return v
+
+    def _const_coll(self, q):
+        parts = q.split(".")
+        if len(parts) == 1:
+            return parts[0] not in self.vt and parts[0] in self.classes.get(self.cur, {}).get("constcoll", set())
+        return any(parts[-1] in self.classes[c]["constcoll"] for c in self._class_of(parts[-2], self.cur))
+
+    def _content_kind(self, meth):
+        """A method that declares a non-HTML response: 'nosniff' (text/plain or JSON + nosniff) / 'plain'."""
+        if meth.body is None: return None
+        plain = nosniff = html = False
+        for st in meth.body:
+            for _, n in st.filter(J.MethodInvocation):
+                if n.member in ("setContentType", "setHeader", "addHeader") and n.arguments:
+                    txt = " ".join(str(getattr(a, 'value', '')) for a in n.arguments).lower()
+                    if "text/html" in txt: html = True
+                    if "text/plain" in txt or "application/json" in txt: plain = True
+                    if "nosniff" in txt: nosniff = True
+        if html or not plain: return None
+        return "nosniff" if nosniff else "plain"
 
     def _chain(self, v, ty, selectors, env, node):
         """Apply selectors left to right. ty: the receiver's simple type name, or ('self',) for this."""
@@ -781,21 +1029,39 @@ class Engine:
                     rt = ty
                     recv = self._recv_of_type(ty) if ty else ("any",)
                 self._sink(sel, sel.member, args, rt, None)
-                v, ty = self._call(sel, sel.member, args, v, recv, rt)
+                v, ty = self._call(sel, sel.member, args, v, recv, rt, env)
                 if sel.selectors: v, ty = self._chain(v, ty, sel.selectors, env, sel)
             else:
                 ty = None
         return v, (None if ty == ("self",) else ty)
 
-    def _call(self, inv, name, args, recv_val, recv, rtype):
+    def _call(self, inv, name, args, recv_val, recv, rtype, env=None):
         """Value (and result type) of a call. Order: source, escaper, user code, library catalogue, Z."""
+        nodes = inv.arguments or []
+        if rtype == "ResponseEntityBuilder":                     # ResponseEntity.ok().contentType(..).body(x)
+            if name in ("ok", "body", "of"): return join(recv_val, *args), "ResponseEntityBuilder"
+            return recv_val, "ResponseEntityBuilder"
+        if name in ("map", "mapToObj", "mapToLong", "mapToInt") and nodes and isinstance(nodes[0], J.MethodReference) \
+                and getattr(nodes[0].method, 'member', None) in NUMERIC_RESULT:
+            return F, None                                        # .map(Long::parseLong): numbers
+        if name in ("replaceAll", "replace") and len(nodes) == 2 and isinstance(nodes[0], J.Literal) \
+                and isinstance(nodes[1], J.Literal) and _lit(nodes[1]) == "":
+            keep = _kept_by_strip(_lit(nodes[0]))
+            if keep is not None:                                  # x.replaceAll("[^A-Za-z0-9 ]", ""): a whitelist
+                v = recv_val
+                if not keep & set("<>\"'&`"): v = _clean_for(v, "xss", "strip")
+                if keep <= set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"):
+                    v = _clean_for(_clean_for(v, "sql"), "shell")
+                return v, "String"
+        if name in ("format", "formatted", "printf") and nodes:  # String.format("<a href='%s'>", esc(x))
+            args = self._fmt_adjust(nodes, args)
         if name in SOURCE_METHODS and not (name in SOURCE_ON_REQUEST and rtype and rtype not in REQUEST_TYPES):
             return T, None
         # the program's own escapeHtml(..) wins — when the call resolves to it by receiver (this / its class),
         # not when an untyped receiver merely shares the name with some user method
         own = self._cands(name, len(args), recv) if (name in CTX_SANITIZERS and recv[0] != "any") else None
         if name in CTX_SANITIZERS and not own:                # the program's own escapeHtml(..) wins
-            return _clean_for(join(*args), CTX_SANITIZERS[name]), "String"
+            return _clean_for(join(*args), CTX_SANITIZERS[name], ESC_FAMILY.get(name)), "String"
         if name in SANITIZERS: return F, None
         # an unknown receiver (a chain after a library call, an untyped name): a catalogued library name answers
         # first — otherwise every user class in the project that happens to define toString() is a candidate
@@ -805,11 +1071,22 @@ class Engine:
             rtypes = {_typename(m.return_type) for m in cands if m.return_type is not None}
             ty = rtypes.pop() if len(rtypes) == 1 else None
             self._summary_sinks(inv, cands, args)
+            self._arg_effects(inv, cands, args, env)
             if ty in CLEAN_TYPES: return F, ty
             return self._apply(cands, args), ty
         if name in NUMERIC_RESULT: return F, None
         if name in CLEAN_FACTORY and not args: return F, RETURNS.get(name)
-        if name in TRANSPARENT: return join(recv_val, *args), RETURNS.get(name)
+        if name in TRANSPARENT:
+            keep = rtype if (name in ("append", "insert", "format", "printf") and rtype in
+                             WRITER_TYPES | {"StringBuilder", "StringBuffer"}) else RETURNS.get(name)
+            return join(recv_val, *args), keep
+        # an unknown call handed a tainted value next to a local object MAY have stored it there
+        if env is not None and any(a != F for a in args):
+            for j, node in enumerate(nodes):
+                if isinstance(node, J.MemberReference) and not node.qualifier and not node.selectors \
+                        and node.member in env and self.vt.get(node.member) not in IMMUTABLE_TYPES \
+                        and any(a != F for k, a in enumerate(args) if k != j):
+                    env[node.member] = join(env[node.member], Z)
         return Z, RETURNS.get(name)
 
     # ---------------------------------------------------------------- containers
@@ -876,6 +1153,11 @@ class Engine:
             ctx, types, open_unknown, which = SINK_RECV[name]
             if qual and qual.startswith("System."): return          # console stream, not a web sink
             v = args[0] if which == "first" else join(*args)
+            if ctx == "xss" and rtype in types:
+                if self._nonhtml == "nosniff": return               # text/plain or JSON + nosniff: not HTML
+                v = self._xss_arg(inv, name, args)
+                self._judge(inv, name, ctx, v, soft=(self._nonhtml == "plain"), fallback_line=self._stline)
+                return
             if rtype in types:
                 self._judge(inv, name, ctx, v, fallback_line=self._stline)
             elif rtype is not None: return                          # known type, not a sink-bearer
@@ -901,6 +1183,21 @@ class Engine:
         if cond.member in GUARD_RECV and cond.qualifier and "." not in cond.qualifier:
             return (cond.qualifier, neg)
         return (None, False)
+
+    def _guards(self, cond):
+        """(narrowed in THEN, narrowed in ELSE). `a && b`: every positive guard holds in THEN;
+        `a || b`: in ELSE every part is false, so every negated guard holds there (x == null || !ok(x))."""
+        def flat(n, op):
+            if isinstance(n, J.BinaryOperation) and n.operator == op and not (getattr(n, "prefix_operators", None) or []):
+                return flat(n.operandl, op) + flat(n.operandr, op)
+            return [n]
+        if isinstance(cond, J.BinaryOperation) and cond.operator == "&&":
+            return [v for v, n in map(self._guard, flat(cond, "&&")) if v and not n], []
+        if isinstance(cond, J.BinaryOperation) and cond.operator == "||":
+            return [], [v for v, n in map(self._guard, flat(cond, "||")) if v and n]
+        v, n = self._guard(cond)
+        if not v: return [], []
+        return ([], [v]) if n else ([v], [])
 
     def _join(self, a, b): return join(a, b)
 
@@ -929,16 +1226,16 @@ class Engine:
                     self._walk([st.then_statement], env); continue
                 if c is False:
                     self._walk([st.else_statement] if st.else_statement else [], env); continue
-                var, neg = self._guard(st.condition)
+                pos_then, neg_else = self._guards(st.condition)
                 then_term = self._terminates(st.then_statement)
                 else_term = self._terminates(st.else_statement)
                 e1 = dict(env); e2 = dict(env)
-                if var and not neg: e1[var] = F               # positive guard narrows the THEN branch
+                for v_ in pos_then: e1[v_] = F                # guard(s) that hold in the THEN branch
+                for v_ in neg_else: e2[v_] = F                # !guard(s) all false in the ELSE branch: validated
                 self._walk([st.then_statement] if st.then_statement else [], e1)
                 self._walk([st.else_statement] if st.else_statement else [], e2)
                 if then_term and not else_term:
                     _set_env(env, e2)                         # continuation follows else/fallthrough
-                    if var and neg: env[var] = F              # !guard{return} => clean after the if
                 elif else_term and not then_term:
                     _set_env(env, e1)
                 else:
@@ -959,6 +1256,15 @@ class Engine:
             if isinstance(st, J.ReturnStatement):
                 v = self.taint(st.expression, env) if st.expression is not None else F
                 if self._rets is not None: self._rets.append(v)
+                if self._ret_sink and self._rets is None and st.expression is not None:
+                    kind = _marks(st.expression) or self._ret_sink
+                    vv = _adjust(v, "")
+                    # declared HTML: a sink like any writer. Undeclared: the sink itself is a maybe (the browser's
+                    # Accept decides), so it is judged only for a value KNOWN to come from the request (T -> OPEN);
+                    # an unknown value into a maybe-sink is not reported (measured: 78 such OPEN on java-sec-code)
+                    if kind == "html" or (kind == "soft" and _at(vv, "xss") == T):
+                        self._judge(st, "return (response body)", "xss", vv,
+                                    soft=(kind != "html"), fallback_line=self._stline)
                 continue
             if isinstance(st, J.StatementExpression):
                 self.taint(st.expression, env); continue
@@ -1139,16 +1445,37 @@ class Engine:
             return F
         env = {p.name: _src(p) for p in (m.parameters or [])}
         self._rets = None
+        self._wtail = ""
+        self._nonhtml = self._content_kind(m)
+        self._ret_sink = None
+        if handler:
+            cls_annos = self.classes.get(self.cur, {}).get("annos", set())
+            m_annos = {_anno(a) for a in (m.annotations or [])}
+            rt = _typename(m.return_type) if getattr(m, 'return_type', None) is not None else None
+            body = ((("RestController" in cls_annos) or ("ResponseBody" in cls_annos | m_annos))
+                    and rt in ("String", "CharSequence")) or \
+                   (rt == "ResponseEntity" and _type_args(m.return_type) in ([], ["String"], ["?"], ["CharSequence"]))
+            if body:
+                mark = None
+                for a in (m.annotations or []):
+                    if _anno(a) in MAPPING_ANNOS: mark = mark or _marks(a)
+                # produces = text/html -> a real sink; text/plain / JSON -> not HTML; unsaid -> the browser's
+                # Accept decides (Spring writes a String as text/html to a browser): OPEN at worst
+                self._ret_sink = None if mark == "plain" else ("html" if mark == "html" else "soft")
         self._walk(m.body, env)
 
     def run(self, tree): self.index(tree); return self.judge(tree)
 
 def analyze(code): return Engine().run(javalang.parse.parse(code))
+UNPARSED = []     # files the last analyze_app could not parse: NOT analysed, NOT clean (introspect lists them)
+
 def analyze_app(paths):
     e=Engine(); trees=[]
+    del UNPARSED[:]
     for p in paths:
         try: t=javalang.parse.parse(open(p,encoding="utf-8",errors="replace").read())
-        except Exception: continue
+        except Exception as ex:
+            UNPARSED.append((p, type(ex).__name__)); continue
         trees.append((p,t)); e.index(t)
     out=[]
     for p,t in trees:

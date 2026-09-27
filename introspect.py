@@ -127,6 +127,8 @@ def run_language(moddir, files):
         for t in mod.analyze_app(files):         # (path, line, name, ctx, disp, [why])
             findings.append({"file": t[0], "line": t[1], "name": t[2],
                              "ctx": t[3], "disp": _norm(t[4])})
+    # files the parser could not read: NOT analysed — they must not pass as clean in silence
+    run_language.unparsed = [p for p, _why in getattr(mod, "UNPARSED", [])]
     return findings
 
 
@@ -160,7 +162,8 @@ def main():
         for f in findings:
             counts[f["disp"]] = counts.get(f["disp"], 0) + 1
         report["languages"][moddir] = {"files": len(files), "counts": counts,
-                                       "findings": findings}
+                                       "findings": findings,
+                                       "unparsed": list(getattr(run_language, "unparsed", []))}
 
     total_refuted = sum(v["counts"].get("REFUTED", 0) for v in report["languages"].values())
     report["total_refuted"] = total_refuted
@@ -188,6 +191,10 @@ def _print(report, show_open=False, quiet=False):
             print(f"  {LABEL[moddir]:<8} {v['files']:>5} files    "
                   f"REFUTED {c.get('REFUTED',0):<4} OPEN {c.get('OPEN',0):<4} "
                   f"EARNED {c.get('EARNED',0)}")
+            if v.get("unparsed"):
+                shown = ", ".join(os.path.relpath(p, report["project"]) for p in v["unparsed"][:5])
+                more = f" (+{len(v['unparsed']) - 5} more)" if len(v["unparsed"]) > 5 else ""
+                print(f"  {'':<8} {len(v['unparsed']):>5} NOT PARSED — not analysed, NOT 'safe': {shown}{more}")
         for moddir in sorted(skipped):
             s = skipped[moddir]
             # A skip is NOT always a missing parser: a path bug, a timeout or a crash

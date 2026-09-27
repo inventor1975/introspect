@@ -523,10 +523,14 @@ def parse(path):
 
 def analyze(path): return Engine().run(parse(path))
 
+UNPARSED = []     # files the last analyze_app could not parse: NOT analysed, NOT clean
+
 def analyze_app(paths):
     e = Engine(); trees = []
+    del UNPARSED[:]
     for p in paths:
         t = parse(p)
+        if t.get("error"): UNPARSED.append((p, str(t["error"])[:60])); continue
         if t.get("funcs"): trees.append((p, t)); e.index(t)
     out = []
     for p, t in trees:

@@ -47,6 +47,16 @@ EXPECT = {
     "f38_anon_impl.java":      ["OPEN"],     # an anonymous implementation is a candidate too: disagreement -> OPEN
     "f39_exec_dir.java":       ["REFUTED"],  # exec: command + envp carry the payload, the working dir does not
     "f40_lib_constant.java":   ["REFUTED","OPEN"],  # Locale.US is clean; an unknown lower-case field stays OPEN
+    # slice 7 (2026-09-27, from the cloud's blind corpus, PR #2)
+    "f41_outparam.java":       ["REFUTED"],  # a helper stores into the caller's StringBuilder (was EARNED)
+    "f42_spring_return.java":  ["REFUTED","OPEN","REFUTED"],  # handler return = body: html / undeclared / entity
+    "f43_view_name.java":      [],           # @Controller returning a view name is not a body
+    "f44_subcontext.java":     ["REFUTED","REFUTED","REFUTED"],  # escaper credited only in its safe sub-context
+    "f45_guards_tables.java":  ["REFUTED"],  # compound whitelist guard; literal-only lookup table
+    "f46_neutralisers.java":   ["REFUTED"],  # URLEncoder.encode and a [^..] strip are clean; [<>] is not
+    "f47_plaintext.java":      [],           # text/plain + nosniff is not HTML
+    "f48_append_chain.java":   ["REFUTED"],  # PrintWriter.append returns the writer: the chain is a sink
+    "f49_lambda_store.java":   ["OPEN"],     # a lambda's store into an outer builder is kept
 }
 def main():
     fails=[]

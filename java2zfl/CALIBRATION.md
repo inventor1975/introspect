@@ -1,5 +1,47 @@
 # java2zfl — calibration
 
+## 2026-09-27 evening — slice 7: the BLIND corpus (cloud, PR #2) and what it changed (MEASURED)
+
+**The honest number came from outside.** Three fresh cloud sub-agents that had seen neither the code nor the
+fixtures wrote 216 labelled cases (sqli 106, xss 110; the cmdi author was stopped by a safety filter and
+that was not worked around), committed at `9c110c2` BEFORE the analyzer ran. On `a9695f2` — the engine that
+scores 644/644 on OWASP and 0 misses on Juliet — the blind result was **TPR 54.3%, FPR 15.7%, 32 silent on
+vulnerable cases**. Reproduced here exactly before anything was changed. The OWASP/Juliet figures measured
+fit, not strength.
+
+What the silences were, and the fix (fixtures f41–f49; 8 of 9 fail on `a9695f2`):
+- 25 — a String returned from a Spring handler (`@RestController` / `@ResponseBody` / `ResponseEntity`) IS
+  the response body; only writer calls were sinks. Now: declared HTML (`produces = TEXT_HTML_VALUE`,
+  `.contentType(MediaType.TEXT_HTML)`) is a sink like a writer; undeclared is judged only for a value
+  known to come from the request (T -> OPEN) — an unknown value into a maybe-sink is not reported
+  (measured: that alone raised 78 OPEN on java-sec-code); JSON / text/plain is not HTML.
+- 7 — an escaper credited in a sub-context it does not protect. Escapers now carry a family; the HTML
+  sub-context at the value (from the literals before it in the concatenation / format string and from
+  what the method already wrote) decides: escapeHtml4 in a single-quoted attribute, anything but URL
+  encoding at the start of href/src, anything in on*/style/bare script, a JS string that becomes
+  location.href — not clean.
+- 1 — a helper appending into the CALLER's StringBuilder (summaries now carry side effects on
+  parameters); an unknown call handed a tainted value next to a local object makes it Z.
+- 1 — `getWriter().append(a).append(x)`: append returns the writer.
+- lambdas: a lambda body's stores into outer locals are kept (`forEach((k, v) -> sb.append(k))`).
+False alarms fixed: compound whitelist guards (`x == null || !P.matcher(x).matches()` + return, `a && b`,
+reset-to-constant in the THEN branch), lookups in literal-only tables (`Map.of(..)`, static-block puts),
+URLEncoder.encode and `replaceAll("[^A-Za-z0-9 ...]", "")` strips, text/plain + nosniff, `.map(Long::parseLong)`.
+Files javalang cannot parse (records, switch expressions, text blocks) are now LISTED by introspect as
+NOT PARSED — not analysed, not clean — in every language module.
+
+| engine | blind: vuln REFUTED / OPEN / silent (of 92) | safe REFUTED / OPEN (of 89) | TPR | FPR |
+|---|---|---|--:|--:|
+| `a9695f2` (blind) | 50 / 10 / **32** | 14 / 13 | 54.3 | 15.7 |
+| slice 7 (**fitted to this corpus — not a measure**) | 73 / 17 / **2** | 7 / 18 | 79.3 | 7.9 |
+
+The two silences left raise OPEN in another file (a base class; a `record` javalang cannot parse); the
+per-file scoring counts them silent. Unchanged by slice 7: OWASP 644/644 0 FP (both modes), Juliet
+918/0/0, petclinic 0/0. java-sec-code: 7 REFUTED (same), OPEN 2 -> 20 — the new ones are its
+reflected-XSS endpoints (`XSS.java /reflect`, cookie and header echoes) returned from @ResponseBody
+without a declared content type: real, previously invisible.
+**Next measure: round 2, a new blind corpus** (TZ written 27.09) — the only way to get a number again.
+
 ## 2026-09-27 — slice 6: soundness, then a labelled denominator (MEASURED)
 
 **Why.** The OWASP Benchmark v1.2 run (branch `bench/owasp-java-2026-09`, report `OWASP-2026-09.md`)
