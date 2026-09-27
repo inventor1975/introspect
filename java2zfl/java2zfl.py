@@ -56,9 +56,9 @@ CLEAN_TYPES = {"int","long","short","byte","boolean","double","float","Integer",
 # constructor sinks: new ProcessBuilder(taint) is command execution (the injection is the ctor arg)
 CTOR_SINKS = {"ProcessBuilder":"shell"}
 # specific method names: the name alone is enough to call it a sink. (ctx, which args carry the payload)
-# 'first' = the query/command text only (the rest are bind values); 'all' = any argument (exec's envp,
-# a writer's format arguments).
-SINK_HIGH = {"exec":("shell","all"),
+# 'first' = the query/command text only (the rest are bind values); 'all' = any argument (a writer's
+# format arguments); 'cmd' = exec's command and envp (the third, the working directory, is not a command).
+SINK_HIGH = {"exec":("shell","cmd"),
              "executeQuery":("sql","first"),"executeUpdate":("sql","first"),"executeLargeUpdate":("sql","first"),
              "prepareStatement":("sql","first"),"prepareCall":("sql","first"),"addBatch":("sql","first"),
              "queryForObject":("sql","first"),"queryForList":("sql","first"),"queryForMap":("sql","first"),
@@ -321,7 +321,21 @@ class Engine:
         for td in (tree.types or []):
             if isinstance(td, (J.ClassDeclaration, J.InterfaceDeclaration, J.EnumDeclaration)):
                 walk_type(td, None)
-        # methods of anonymous / local classes: owned by the nearest named class, found by name only
+        # anonymous classes `new I() { .. }`: an implementation of I, under a synthetic name
+        for n_, (path, cc) in enumerate(tree.filter(J.ClassCreator)):
+            if getattr(cc, 'body', None) is None: continue
+            tn = _typename(cc.type)
+            names = [p.name for p in path if isinstance(p, (J.ClassDeclaration, J.InterfaceDeclaration, J.EnumDeclaration))]
+            qn = (pkg + "." if pkg else "") + ".".join(names + [f"$anon{n_}"])
+            self.classes[qn] = {"simple": f"$anon{n_}", "outer": None, "supers": [tn] if tn else [],
+                                "ftypes": {}, "consts": {}}
+            for m in cc.body:
+                if isinstance(m, J.MethodDeclaration):
+                    self.owner[id(m)] = qn
+                    self.meths.setdefault((qn, m.name), []).append(m)
+                    self.by_name.setdefault(m.name, []).append((qn, m))
+                    self.decls.append(m)
+        # methods of local classes: owned by the nearest named class, found by name only
         for path, m in tree.filter(J.MethodDeclaration):
             if id(m) not in self.owner:
                 names = [p.name for p in path if isinstance(p, (J.ClassDeclaration, J.InterfaceDeclaration, J.EnumDeclaration))]
@@ -383,8 +397,11 @@ class Engine:
         if not found and recv[0] in ("self", "any"):
             found = [m for _q, m in self.by_name.get(name, [])]
         if not found: return None if recv[0] != "cls" else []
-        fit = [m for m in found if len(m.parameters or []) == nargs]
-        return fit or found
+        fit = [m for m in found if len(m.parameters or []) == nargs] or found
+        # an abstract/interface declaration does not vote when implementations are in view (anonymous
+        # `new I(){..}` classes are registered as implementations, so none is silently left out)
+        bodied = [m for m in fit if m.body is not None]
+        return bodied or fit
 
     def _user_type(self, tname):
         return self._class_of(tname, self.cur) if tname else []
@@ -650,6 +667,9 @@ class Engine:
                 return self._chain(F, None, node.selectors, env, node)
             if node.member in info["ftypes"]:
                 return self._chain(Z, info["ftypes"][node.member], node.selectors, env, node)
+        # a LIBRARY class's UPPER_CASE constant (Locale.US, StandardCharsets.UTF_8): not request data
+        if last[:1].isupper() and not self._class_of(last, self.cur) and node.member.isupper():
+            return self._chain(F, None, node.selectors, env, node)
         return self._chain(Z, None, node.selectors, env, node)
 
     def _assign(self, node, env):
@@ -774,7 +794,10 @@ class Engine:
         if name in CTX_SANITIZERS:
             return _clean_for(join(*args), CTX_SANITIZERS[name]), "String"
         if name in SANITIZERS: return F, None
-        cands = self._cands(name, len(args), recv)
+        # an unknown receiver (a chain after a library call, an untyped name): a catalogued library name answers
+        # first — otherwise every user class in the project that happens to define toString() is a candidate
+        known_lib = name in TRANSPARENT or name in NUMERIC_RESULT or (name in CLEAN_FACTORY and not args)
+        cands = None if (recv[0] == "any" and known_lib) else self._cands(name, len(args), recv)
         if cands:
             rtypes = {_typename(m.return_type) for m in cands if m.return_type is not None}
             ty = rtypes.pop() if len(rtypes) == 1 else None
@@ -839,7 +862,8 @@ class Engine:
         if not args: return
         if name in SINK_HIGH:
             ctx, which = SINK_HIGH[name]
-            self._judge(inv, name, ctx, args[0] if which == "first" else join(*args), fallback_line=self._stline)
+            v = args[0] if which == "first" else (join(*args[:2]) if which == "cmd" else join(*args))
+            self._judge(inv, name, ctx, v, fallback_line=self._stline)
         elif name in SINK_SOFT:
             ctx, types = SINK_SOFT[name]
             if rtype is None or rtype in types:

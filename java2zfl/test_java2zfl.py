@@ -43,6 +43,10 @@ EXPECT = {
     "f34_senderror.java":      ["OPEN"],     # sendError: container-dependent, soft
     "f35_matcher_guard.java":  [],           # P.matcher(x).matches() + early return is a whitelist guard
     "f36_process_stream.java": ["OPEN"],     # getInputStream on a Process is not a request source
+    "f37_iface_impls.java":    ["REFUTED"],  # interface call: implementations vote, the bodiless declaration does not
+    "f38_anon_impl.java":      ["OPEN"],     # an anonymous implementation is a candidate too: disagreement -> OPEN
+    "f39_exec_dir.java":       ["REFUTED"],  # exec: command + envp carry the payload, the working dir does not
+    "f40_lib_constant.java":   ["REFUTED","OPEN"],  # Locale.US is clean; an unknown lower-case field stays OPEN
 }
 def main():
     fails=[]

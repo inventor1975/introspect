@@ -8,7 +8,7 @@ place where the walk wrote F for "don't know": a summary that kept only T return
 method with an empty summary; `new C().m(..)` read as `new C()`; an uninitialised local; an unwalked
 `switch`; `add()` into a container not tracked. The contract (INTROSPECT-SEMANTICS §1) says the
 opposite: when unsure, OPEN. Slice 6 fixes each at its cause (list in the java2zfl.py docstring) and
-pins each with a fixture (f15–f36; 19 of the 22 fail on the old engine, 11 of them by staying silent
+pins each with a fixture (f15–f40; 19 of the 22 fail on the old engine, 11 of them by staying silent
 where the answer is REFUTED or OPEN).
 
 **Labelled denominator: NIST Juliet for Java, servlet-source variants** — CWE78/89/80/83/81 whose source
@@ -38,8 +38,29 @@ the `bad*` methods and in the `good*` methods.
   before). `CommandInject.codeInjectSec` is no longer accused: its `cmdFilter` is a
   `P.matcher(x).matches()` whitelist with an early return (the old engine said REFUTED here; this file
   claimed OPEN, which was stale).
-- NOT measured yet: the OWASP Benchmark itself with this engine (needs a local clone; the harness on
-  the bench branch reads the old engine's internals and needs adapting).
+
+**OWASP Benchmark v1.2** (sqli / cmdi / xss — the 1 210 of 2 740 tests whose sink java2zfl models),
+`python3 java2zfl/bench/owasp_score.py <engine> <clone> [--project]`, the report's scoring rule
+(REFUTED = reported; TPR - FPR). The script reproduces the report's old-engine row exactly.
+
+| engine | vuln: REFUTED / OPEN / silent | safe: REFUTED / OPEN / silent | score |
+|---|---|---|---:|
+| slices 1-5 (report, 2026-09-27 12:18) | 12 / 114 / 518 | 5 / 110 / 451 | 1.0 |
+| slice 6 as pushed in 5fbd0c3 | 558 / 86 / 0 | 0 / 166 / 400 | 86.6 |
+| slice 6, final (case and project mode alike) | **644 / 0 / 0** | **0** / 34 / 532 | 100.0 |
+
+**Read this before quoting the 100.** It is NOT a held-out result. The slice was designed from the
+report's miss mechanisms, and four changes after 5fbd0c3 were made while looking at OWASP cases:
+an interface's bodiless declaration no longer votes against its implementations (`ThingInterface`,
+with anonymous `new I(){..}` classes registered as implementations so none is left out); exec's third
+argument, the working directory, is not a command; library UPPER_CASE constants (`Locale.US`) are
+clean; an untyped receiver asks the library catalogue before every user class that defines
+`toString()` (project mode had turned 27 xss hits into OPEN that way). Each is a general rule with a
+fixture (f37–f40), and none moved Juliet — but OWASP is now a training set for this engine, and its
+score says the tool fits the Benchmark's shapes, not that it finds 100% of real injections. The
+34 safe-cmdi OPEN are commands read from a resource file (`Utils.getInsecureOSCommandString`) whose
+content the analysis cannot see — honest, left alone. The other 8 categories (pathtraver, ldapi,
+xpathi, trustbound, crypto, hash, weakrand, securecookie) are not modelled.
 
 ## 2026-09-12 — calibration on real Java apps (MEASURED)
 
