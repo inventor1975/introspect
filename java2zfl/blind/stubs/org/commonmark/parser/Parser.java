@@ -1,0 +1,1 @@
+package org.commonmark.parser; public class Parser { public static Builder builder(){return new Builder();} public org.commonmark.node.Node parse(String input){return null;} public static class Builder { public Parser build(){return new Parser();} } }
