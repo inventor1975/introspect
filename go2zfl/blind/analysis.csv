@@ -1,0 +1,81 @@
+file,stage,cause
+file/attachment_download.go,sink,"gin c.FileAttachment(full, ..) is not a file sink (PKG_SINKS: os.Open/OpenFile/ReadFile/Create/Remove/RemoveAll, ioutil.ReadFile/WriteFile)"
+file/attachment_history.go,propagation,"second order (expected OPEN): os.Open IS judged, but storedName comes from QueryRow(..).Scan(&storedName); the out-parameter write of Scan(&x) is not modelled: `var x string` keeps its Go zero value F, so the sink is judged F (EARNED) instead of Z"
+file/config_save.go,sink,os.WriteFile is not in PKG_SINKS (only ioutil.WriteFile); the ShouldBindJSON field req.Name would read Z
+file/contract_preview.go,guard,validation is inside the cross-file helper pathutil.Contained and signalled by its error; `if err != nil { return }` is not a guard and the returned path carries T
+file/export_fetch.go,sink,gin c.File(..) is not a file sink (PKG_SINKS are os./ioutil. package functions only)
+file/fixture_load.go,guard,"`if !filepath.IsLocal(name) { return }` is not a guard (_guard: x == ""lit"" / allow[x] / ok-idiom only)"
+file/gallery_image.go,sink,gin c.File(..) is not a file sink; html.EscapeString is correctly transparent for file (T)
+file/glossary_entry.go,sanitiser,"url.PathEscape is credited only for the context `url` (CTX_SANITIZERS), which no sink uses; it stays T for file"
+file/invoice_archive.go,sanitiser,"filepath.Base is in PKG_TRANSPARENT (carries T), and the rejection `name == ""."" || name == "".."" || ..` then return is not a guard"
+file/label_template.go,sink,"template.ParseFiles(path) is not a file sink (PKG_SINKS has only template.HTML/JS/URL, as xss)"
+file/print_queue.go,sanitiser,filepath.Base (PKG_TRANSPARENT) plus the helper's dot-name rejection and !allowedSpoolExt[..] check are not credited; jobPath's result carries T
+file/project_file.go,guard,the filepath.Rel check is inside the helper resolve and signalled by its error; `if err != nil { return }` is not a guard
+file/shipping_label.go,guard,`if !trackingPattern.MatchString(tracking) { return }` is not a guard
+file/snapshot_prune.go,guard,validation helper snapshotName returns an error; `if err := snapshotName(name); err != nil { return }` is not a guard
+file/snippet_library.go,guard,"`if name == """" || strings.Contains(name, "".."") { return }` is not a guard"
+file/tenant_exports.go,guard,"`if !strings.HasPrefix(full, base+sep) { return }` is not a guard"
+file/tenant_header.go,sink,os.ReadDir is not in PKG_SINKS
+file/upload_rename.go,sink,"os.Rename is not in PKG_SINKS; the only record is a REFUTED under xss (line 27, see score.py section 6)"
+sqli/archive_gorm_exec.go,propagation,"tx.Exec sits inside the closure passed to a.DB.Transaction(func(tx) ..): goast encodes a function literal as {k: other}, so its body is never walked; no sink is judged (had it been walked, the ShouldBind struct field req.Project reads Z, i.e. OPEN)"
+sqli/column_pattern.go,guard,"`if !identRe.MatchString(column) { return }` is not a guard: _guard knows only x == ""lit"", allow[x] and the ok-idiom (and their negation)"
+sqli/device_sqlx_get.go,sink,"sqlx d.DB.Get(&dev, q) is not a sql sink (SQL_METHODS: Query/Exec/QueryRow/Prepare[+Context]); the bare name Get instead resolves to 5 unrelated `Get` summaries and yields an OPEN under the file context (from file/blob_backend.go diskBackend.Get)"
+sqli/dynamic_field_filter.go,sink,"gorm .Where(field+"" = ?"", value) is not a sql sink (SQL_METHODS has no Where); the only sql record is c.Query(""value"") matched by name as db.Query with a literal arg (F)"
+sqli/inline_route.go,propagation,"the handler is a closure passed to r.HandleFunc: goast encodes a function literal as {k: other}, so its body is never walked; db.QueryRow and mux.Vars inside it are never seen"
+sqli/inventory_select.go,sink,"sqlx api.DB.Select(&items, q) is not a sql sink (SQL_METHODS has no Select); q is T through buildInventoryQuery (append + strings.Join)"
+sqli/member_lookup_gorm.go,sink,"gorm s.orm.Where(""username = '"" + username + ""'"") is not a sql sink (SQL_METHODS has no Where)"
+sqli/order_id_check.go,guard,"`if _, err := strconv.Atoi(orderID); err != nil { return }` is not a guard (_guard: x == ""lit"" / allow[x] / ok-idiom only)"
+sqli/prepared_lookup.go,sink,"d.byDept.Query(dept) is on a *sql.Stmt held in a struct field, prepared in another function; prepared-statement awareness covers only local idents assigned from .Prepare in the same function, so the bound parameter is judged as SQL text"
+sqli/report_sorting.go,sink,gorm rc.db.Order(sortBy) is not a sql sink (SQL_METHODS has no Order)
+sqli/saved_filter_run.go,propagation,"second order (expected OPEN): expression comes from QueryRow(..).Scan(&expression); the out-parameter write of Scan(&x) is not modelled: `var x string` keeps its Go zero value F, so the sink is judged F (EARNED) instead of Z"
+sqli/sqlite_quoted.go,sanitiser,"custom escaper quoteLiteral (strings.ReplaceAll quote doubling) is not credited: ReplaceAll is in PKG_TRANSPARENT and carries T (expected OPEN, got REFUTED)"
+sqli/ticket_status_raw.go,sink,gorm DB.Raw(sqlText) is not a sql sink (SQL_METHODS has no Raw); sqlText is T (concat and +=)
+ssrf/batch_fetch.go,propagation,"http.Get(u) sits in a `go func(i, u) {..}(i, u)` literal: goast encodes a function literal as {k: other}, so its body is never walked; no sink is judged"
+ssrf/blob_download.go,guard,`if !blobID.MatchString(id) { return }` is not a guard
+ssrf/callback_header.go,sink,http.NewRequest(..) + notifier.Do(req) is not an ssrf sink (PKG_SINKS ssrf: http.Get/Post/Head/PostForm package functions only)
+ssrf/callback_registry.go,guard,"`if !slices.Contains(registeredCallbacks, cb) { return }` is not a guard (allow-lists are recognised only as map index allow[x])"
+ssrf/debug_fetch.go,propagation,"the branch under the constant-false `if allowCustomEndpoint` is walked and joined (conditions are not evaluated), so endpoint reads T"
+ssrf/endpoint_checker.go,sink,http.NewRequestWithContext(..) + http.DefaultClient.Do(req) is not an ssrf sink (http.Get/Post/Head/PostForm only)
+ssrf/fetch_chain.go,sink,"http.NewRequest + http.DefaultClient.Do in proxyTo is not an ssrf sink, so proxyTo's summary carries no sink effect for Relay"
+ssrf/geocode_address.go,sanitiser,"url.QueryEscape is credited only for the context `url` (CTX_SANITIZERS), which no sink uses; the escaped values stay T for ssrf although the host is fixed"
+ssrf/image_thumb.go,sink,http.NewRequest(..) + httpClient.Do(req) is not an ssrf sink
+ssrf/invoice_pdf.go,sink,"the cross-package helper fetch.Download issues NewRequestWithContext + client.Do, not an ssrf sink, so its summary has no sink effect"
+ssrf/mirror_index.go,sanitiser,"url.PathEscape(pkg) is credited only for `url`, not ssrf, so pkg stays T; the Atoi'd index into the constant list is correctly F"
+ssrf/mirror_probe.go,sink,"client.Get(..) on a *http.Client value is not an ssrf sink (only the package function http.Get); r.Form[""mirror""] would read Z"
+ssrf/oembed_lookup.go,sink,client.Get(..) on a package-level *http.Client is not an ssrf sink; the ShouldBindJSON field req.Provider would read Z
+ssrf/port_check.go,sink,net.DialTimeout is not an ssrf sink
+ssrf/prefetch_queue.go,propagation,"state through a package-level slice (expected OPEN): http.Get(u) in drain() IS judged, but `pending` is F (writes to package vars are not tracked; its initial nil is F), so it reads clean (EARNED)"
+ssrf/remote_loader.go,sink,"l.client.Get(location) on a struct-field *http.Client is not an ssrf sink, so load's summary carries no sink effect"
+ssrf/routing_director.go,sink,"a ReverseProxy Director assigning req.URL.Host is not an ssrf sink; the Director is also a function literal, never walked"
+ssrf/service_health.go,sink,client.Get(endpoint) on a local http.Client value is not an ssrf sink
+ssrf/shadowed_target.go,propagation,"block scope: `target := ..` inside the if shadows the outer target, but the environment is keyed by name, so the inner T joins into the outer target"
+ssrf/signed_fetch.go,guard,"`if !validSignature(target, sig) { return }` (HMAC helper returning bool) is not a guard (expected OPEN, got REFUTED)"
+ssrf/status_echo.go,guard,"`if page != primaryStatus && page != secondaryStatus { return }` is not a guard: _guard knows only == (and !(==)), with a LITERAL operand; named constants are idents"
+ssrf/tenant_discovery.go,sink,client.Get(wellKnown) on a local *http.Client is not an ssrf sink
+ssrf/upstream_switch.go,sink,httputil.NewSingleHostReverseProxy(target) / proxy.ServeHTTP is not an ssrf sink (url.Parse would read Z)
+ssrf/webhook_store.go,sink,"h.Client.Post(hookURL, ..) on a struct-field client is not an ssrf sink (expected OPEN); and hookURL comes from rows.Scan(&hookURL), which reads F"
+xss/account_header.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); user.DisplayName from an unresolved package would read Z (expected OPEN)"
+xss/article_slug_page.go,sink,"gin c.String(code, format, slug) is not an xss sink; the preset text/html Content-Type is not modelled either"
+xss/color_swatch.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); and html.EscapeString is credited for the whole xss context (CTX_SANITIZERS), including an unquoted attribute, so the value would be F even with Fprintf as a sink"
+xss/coupon_code_check.go,sink,"io.WriteString(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL)"
+xss/dashboard_card.go,sink,"io.WriteString(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); also `q := r.URL.Query(); q.Get(..)` is not a recognised source (only the inline X.Query().Get form) and reads Z"
+xss/email_template_preview.go,sink,tainted template SOURCE: template.New(..).Parse(src) / t.Execute are not xss sinks
+xss/export_format_switch.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); the branch join itself is correct (rendered = T)"
+xss/forum_signature.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); html.UnescapeString is an unknown call and reads Z"
+xss/guestbook_entry.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); the ReplaceAll blacklist is transparent (T), so only the sink is missing"
+xss/homepage_link_card.go,sink,"w.Write is judged but F: html.EscapeString is credited for the whole xss context (CTX_SANITIZERS / _ctx_taint) although the value lands in an href, where javascript: survives"
+xss/invoice_note_render.go,sink,"text/template noteTmpl.Execute(w, view) is not an xss sink (no template-engine sinks; view is T)"
+xss/locale_greeting.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); and the handler is a closure returned by makeGreetingHandler: goast encodes a function literal as {k: other}, so its body is never walked"
+xss/member_profile_route.go,sink,"io.WriteString(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL)"
+xss/nickname_input.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); pagekit.StripAngles is transparent (T), so only the sink is missing"
+xss/notice_fragment.go,sink,"gin c.Data(code, ""text/html"", []byte(body)) is not an xss sink"
+xss/quantity_update.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); and err from `qty, err := strconv.Atoi(..)` is F (Atoi is NUMERIC_RESULT and the single rhs taint is spread to both lhs), so the NumError text would read clean"
+xss/recent_searches.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); the package-level slice `recent` is F (writes to package vars are not tracked; its initial nil is F); the copy append([]string(nil), recent...) reads Z only because the ident nil is unknown (expected OPEN)"
+xss/recipe_reviews.go,propagation,"stored XSS (expected OPEN): template.HTML(body) IS judged, but body comes from rows.Scan(&author, &body); the out-parameter write of Scan(&x) is not modelled: `var x string` keeps its Go zero value F, so the sink is judged F (EARNED) instead of Z"
+xss/report_async_render.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); the channel hop would read Z"
+xss/support_ticket_form.go,sink,gin c.Writer.WriteString(..) is not an xss sink; the ShouldBind struct field f.Subject would read Z
+xss/tag_filter_list.go,sink,"bytes.Buffer buf.WriteTo(w) is not an xss sink (buf itself is Z from r.URL.Query()[""tag""])"
+xss/tracking_snippet.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL); strconv.Quote is in PKG_TRANSPARENT (T), so only the sink is missing"
+xss/unsubscribe_confirm.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL)"
+xss/welcome_banner.go,sink,"fmt.Fprintf/Fprint(w, ..) is not an xss sink (xss sinks: w.Write on a var typed http.ResponseWriter, template.HTML/JS/URL)"
+xss/wiki_preview.go,propagation,"bare-name summary collision: blackfriday.Run(..) resolves to the summary of FilterAPI.Run in sqli/saved_filter_run.go (returns nothing -> F), so w.Write(rendered) is judged F; analysed alone the file gives Z (OPEN)"
