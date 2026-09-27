@@ -1,5 +1,23 @@
 # js2zfl — calibration
 
+## 2026-09-27 night — blind ROUND 2 (cloud, PR #7) on slice 4 (`b49bb74`), then slice 5 (MEASURED)
+A new corpus by new authors: 252 cases, sqli 66, xss 68, file 66, **cmdi 73 — the first blind measure of SQL and
+command injection for JS** (the round-1 authors of those were stopped by the filter; these were not), committed
+at `0f38ea0` before the run. **Blind: 62.7% found, 11.4% false alarms, 22 silent** of 126 decided vulnerable
+(sqli 67.7/3.2, xss 56.7/9.1, file 65.5/21.4, cmdi 61.1/12.9). Reproduced here exactly.
+Causes, fixed (fixtures y08–y10, all fail on b49bb74): SQL APIs beyond .query/.execute (prisma $queryRawUnsafe,
+knex whereRaw/raw, sequelize literal, sqlite3 db.all/prepare, string where(..)); shell sinks judged on their argv
+and options — a shell's `-c` script is a hard sink, other argv is argument injection (OPEN), stdin only for a
+shell; execa, promisify aliases, require('child_process').x; a sink inside a callback (a Promise executor in a
+helper) is walked where the callback is passed, with that scope's variables; Map.forEach binds the receiver;
+res.locals is Z; a NestJS handler's returned string is the body (option b for unknown values); 'use server'
+parameters are input; ParseXPipe validates; guards: `||` of negated checks, uuid/validator functions, the
+program's own boolean validators; a [^..] strip cleans every context whose metacharacters it removes; mysql2
+conn.escape; ejs.render no longer resolves to an unrelated user `render` (bare-name collision); the handler's
+own content type travels with its callback. Also caught before shipping: `$` (jQuery) had become a shell sink.
+Fitted afterwards: round 2 81.7 / 3.3 / 0 silent (sqli 100/0, cmdi 91.7/3.2), round 1 66.7 / 3.3 / 0.
+NodeGoat 5 REFUTED (same) + 5 honest OPEN (a fetched body written as HTML, request values into templates).
+
 ## 2026-09-27 night — the first BLIND measure (cloud, PR #4) and what it changed (MEASURED)
 Fresh authors who saw neither the analyzer nor its fixtures wrote a corpus committed before the analyzer ran.
 On `e37a0c1`, blind: xss 42.9/32.3, file 48.3/13.8 — all **45.6% found, 23.3% false alarms, 18 silent** of 57 decided vulnerable (133 cases; sqli, code and cmdi refused by the filter). Until this, every claim for js2zfl rested on fixtures its author wrote.

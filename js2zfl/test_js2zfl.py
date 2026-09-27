@@ -37,6 +37,10 @@ EXPECT = {
     "y05_callbacks.js":     ["REFUTED"],   # filter(guard), map(escaper), map(-> array) as JSON; map(concat) is not
     "y06_sources.ts":       ["REFUTED","REFUTED","OPEN"],  # @Query(), destructured req, req.<custom> unknown
     "y07_class_scope.ts":   ["REFUTED"],   # class-property handler; a block-scoped const does not leak out
+    # slice 5 (2026-09-28 night, from the cloud's blind round 2, PR #7)
+    "y08_sql_libs.ts":      ["REFUTED","REFUTED","REFUTED","REFUTED"],  # prisma/knex raw, sqlite3 db.all, literal; escape
+    "y09_shell_forms.js":   ["REFUTED","OPEN","REFUTED","REFUTED"],  # sh -c argv, argv injection, promisify, require()
+    "y10_callbacks_nest.ts":["OPEN","REFUTED","REFUTED"],  # Promise executor seen by the caller; Nest body; || guards
 }
 def main():
     fails = []

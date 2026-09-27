@@ -36,6 +36,18 @@ FILE_M = {"readFile", "readFileSync", "writeFile", "writeFileSync",
           "unlink", "unlinkSync", "rm", "rmSync", "rmdir", "rmdirSync", "copyFile", "copyFileSync", "rename",
           "renameSync", "readdir", "readdirSync", "stat", "statSync", "open", "openSync", "mkdir", "mkdirSync",
           "access", "accessSync", "cp", "cpSync", "readlink", "symlink", "truncate"}
+# SQL APIs beyond .query/.execute (blind round 2): raw-SQL entry points by name
+SQL_RAW_M = {"$queryRawUnsafe", "$executeRawUnsafe", "whereRaw", "orWhereRaw", "andWhereRaw", "havingRaw",
+             "orderByRaw", "joinRaw", "groupByRaw", "fromRaw", "literal"}
+SQL_STRING_WHERE = {"where", "andWhere", "orWhere", "having"}          # a string argument is SQL (TypeORM / knex)
+DB_BASES = {"db", "database", "sqlite", "conn", "connection", "client", "pool", "knex", "sequelize", "prisma", "pg",
+            "mysql", "trx", "tx"}
+DB_BASE_M = {"all", "get", "run", "each", "prepare", "exec", "raw", "unsafe"}   # db.all(sql) (sqlite3) / db.prepare
+SHELLS = {"sh", "bash", "zsh", "/bin/sh", "/bin/bash", "/usr/bin/bash", "cmd", "cmd.exe", "powershell", "pwsh"}
+SHELL_IDENT_EXTRA = {"execa", "execaSync", "execaCommand", "execaCommandSync"}   # not `$`: jQuery
+VALIDATOR_FNS = {"validate", "isUUID", "isInt", "isNumeric", "isAlphanumeric", "isAlpha", "isHexadecimal",
+                 "isMongoId", "isSlug", "isPort", "isIP", "isFQDN", "isBase64"}   # uuid.validate / validator.isX
+NEST_ROUTE = {"Get", "Post", "Put", "Patch", "Delete", "All", "Head", "Options"}
 FS_MODULES = {"fs", "node:fs", "fs/promises", "node:fs/promises", "fs-extra", "graceful-fs"}
 ESCAPER_MODULES = {"escape-html": "html_full", "he": "html_full", "html-escaper": "html_full",
                    "lodash.escape": "html_full", "xss": "html_full"}
@@ -249,7 +261,11 @@ class Engine:
         self.fs_objs, self.fs_funcs, self.escapers = set(), {}, {}   # per file, from imports / require
         self.owner_tree = {}
         self.fidmap, self.regexes, self.tmpl_fns, self.top_names, self.koa_send = {}, {}, set(), set(), set()
+        self.modnames, self.cp_objs, self.shell_alias = set(), set(), {}
+        self.validators, self.sql_funcs = set(), set()
         self._nonhtml = None
+        self._cb_stack = set()
+        self._ret_sink = False
         self.unjudged = []
 
     def _join(self, a, b): return join(a, b)
@@ -265,6 +281,21 @@ class Engine:
                         and _base_ident(x.get("callee")) in REQUEST_NAMES | {"process", "ctx"}:
                     return True                          # ctx.throw(400) / process.exit()
         return False
+
+    def _guards(self, test):
+        """(narrowed in THEN, narrowed in ELSE): `a && b` -> positives hold in THEN; `a || b` -> ELSE means all
+        false, so every negated guard holds there (typeof x !== 'string' || !RE.test(x))."""
+        def flat(n, op):
+            if isinstance(n, dict) and n.get("k") == "bin" and n.get("op") == op:
+                return flat(n.get("x"), op) + flat(n.get("y"), op)
+            return [n]
+        if isinstance(test, dict) and test.get("k") == "bin" and test.get("op") == "&&":
+            return [v for v, n in map(self._guard, flat(test, "&&")) if v and not n], []
+        if isinstance(test, dict) and test.get("k") == "bin" and test.get("op") == "||":
+            return [], [v for v, n in map(self._guard, flat(test, "||")) if v and n]
+        v, n = self._guard(test)
+        if not v: return [], []
+        return ([], [v]) if n else ([v], [])
 
     def _guard(self, test):
         """(var, negated) if the test validates one variable, else (None, False).
@@ -287,6 +318,19 @@ class Engine:
                     pat = r.get("value") if r.get("k") == "lit" else self.regexes.get(r.get("name"))
                     if not _anchored(pat): return (None, False)
                 return (args[0].get("name"), neg)            # ALLOWED.has(x) / /^[a-z]+$/.test(x)
+            nm = _callee_name(callee)
+            if (nm in VALIDATOR_FNS or nm in self.validators) and args and isinstance(args[0], dict) \
+                    and args[0].get("k") == "ident":
+                return (args[0].get("name"), neg)            # uuid.validate(x) / validator.isUUID(x)
+            if callee.get("k") == "ident" and nm in self.funcs and len(self.funcs[nm]) == 1 and args:
+                f = self.funcs[nm][0]                         # the program's own isPlainFileName(x)
+                body = f.get("body") or []
+                if len(body) == 1 and body[0].get("k") == "return":
+                    iv, ineg = self._guard(body[0].get("argument"))
+                    ps = f.get("params") or []
+                    if iv in ps and not ineg:
+                        a = args[ps.index(iv)] if ps.index(iv) < len(args) else None
+                        if isinstance(a, dict) and a.get("k") == "ident": return (a.get("name"), neg)
         return (None, False)
 
     # ---------- taint ----------
@@ -323,6 +367,9 @@ class Engine:
             if p is not None and p in env: return env[p]      # a field this code stored into
             if _prop_name(n) in REQ_SOURCE_PROPS and _base_ident(n) in REQUEST_NAMES: return T
             obj = n.get("object", {})
+            if isinstance(obj, dict) and obj.get("k") == "member" and _prop_name(obj) == "locals" \
+                    and _base_ident(obj) in RESPONSE_NAMES:
+                return Z                                  # res.locals.x: a middleware put it there — unknown
             if isinstance(obj, dict) and obj.get("k") == "ident" and obj.get("name") in REQUEST_NAMES \
                     and not n.get("computed"):
                 pn = _prop_name(n)
@@ -333,6 +380,37 @@ class Engine:
             return self.taint(n.get("object"), env)      # propagate: req.query.name -> object req.query = T
         if k in ("call", "new"): return self._call_taint(n, env)
         return Z                                          # funcref, other, anything not modelled: unknown
+
+    ITER_CB = {"forEach", "each", "map", "flatMap", "filter", "find", "some", "every", "reduce", "findIndex"}
+
+    def _inline_cb(self, fid, call, env):
+        """Walk a callback where it is passed: new Promise((res, rej) => exec(cmd, ..)) in a helper, or
+        m.forEach((v, k) => ..) — judged apart with its parameters F, its closure variables read as unknown."""
+        fn = self.fidmap.get(fid)
+        if not fn or fid in self._cb_stack or len(self._cb_stack) > 4: return
+        callee = call.get("callee") or {}
+        cn = _callee_name(callee)
+        e = dict(env)
+        ps = fn.get("params") or []
+        if call.get("k") == "new" and cn == "Promise": seed = [F, F]           # resolve, reject
+        elif callee.get("k") == "member" and cn in self.ITER_CB:
+            recv = self.taint(callee.get("object"), env)
+            seed = [recv, recv] if cn in ("forEach", "each") else [recv]      # Map.forEach((v, k) => ..)
+        else: seed = []
+        for i, p in enumerate(ps):
+            if p: e[p] = seed[i] if i < len(seed) else Z
+        self._cb_stack.add(fid)
+        saved = (self._rets, self._nonhtml, self._ret_sink)
+        self._rets = None if saved[0] is None else []     # the callback's returns are not the function's
+        own = self._content_kind(fn)                      # the handler's own res.type('text/plain')
+        if own is not None: self._nonhtml = own
+        self._ret_sink = False
+        try:
+            self._walk(fn.get("body"), e, scoped=True)
+        finally:
+            self._cb_stack.discard(fid); self._rets, self._nonhtml, self._ret_sink = saved
+        for k in env:                                     # what the callback stored into outer locals
+            if k in e and k not in ps: env[k] = join(env[k], e[k])
 
     def _callback_value(self, fid, arg, env):
         fn = self.fidmap.get(fid)
@@ -365,6 +443,10 @@ class Engine:
         var, neg = self._guard(fn["body"][0].get("argument"))
         return bool(var) and not neg and var == (fn.get("params") or [None])[0]
 
+    def _is_require(self, n, mod):
+        return isinstance(n, dict) and n.get("k") == "call" and _callee_name(n.get("callee")) == "require" \
+            and (n.get("args") or [{}])[0].get("value") in (mod, "node:" + mod)
+
     def _replace_chain(self, n):
         chain = []
         while isinstance(n, dict) and n.get("k") == "call" and isinstance(n.get("callee"), dict) \
@@ -384,7 +466,7 @@ class Engine:
             val = str(a[1].get("value", ""))
             for ch in "<>&\"'":
                 if key in (ch, "[" + ch + "]"): m[ch] = val
-        if all(m.get(ch, "").lower().startswith("\\u") for ch in "<>&"): return "js_json"   # JSON in <script>
+        if m.get("<", "").lower().startswith("\\u"): return "js_json"   # JSON in <script>: < as \u003c is enough
         if not all(m.get(ch, "").startswith("&") for ch in "<>&"): return None
         dq, sq = m.get('"', "").startswith("&"), m.get("'", "").startswith("&")
         return "html_full" if (dq and sq) else ("html_nosq" if dq else "html_text")
@@ -440,6 +522,8 @@ class Engine:
         if callee.get("k") == "ident" and cn in CONV_IDENTS:
             if cn != "String": return F                   # Number(x) / Boolean(x): not a string
             return self.taint(args[0], env) if args else F
+        if cn == "escape" and callee.get("k") == "member" and _base_ident(callee) in DB_BASES:
+            return _clean_for(join(*[self.taint(a, env) for a in args]), "sql")   # mysql2 conn.escape(x)
         if cn in CTX_SANITIZERS and not (callee.get("k") == "ident" and self._sums(cn)):   # own function wins
             return _clean_for(join(*[self.taint(a, env) for a in args]), CTX_SANITIZERS[cn], ESC_FAMILY.get(cn))
         fam = self._replace_family(n)
@@ -450,12 +534,18 @@ class Engine:
             recv = self.taint(callee.get("object"), env)
             keep = _kept_by_strip(pat)
             if keep is not None and rep_.get("k") == "lit" and not rep_.get("value"):
-                v = recv if (keep & set("<>\"'&`=")) else _clean_for(recv, "xss", "strip")
-                return v                                   # s.replace(/[^\w\s-]/g, ''): a whitelist
+                v = recv                                   # s.replace(/[^\w\s-]/g, ''): a whitelist — clean for
+                if not keep & set("<>\"'&`="): v = _clean_for(v, "xss", "strip")      # every context it
+                if not keep & set("'\"\\;"): v = _clean_for(v, "sql")                # leaves no metacharacter of
+                if not keep & set(";&|$`\\\"'<>()*?![]{}~ \n\t"): v = _clean_for(v, "shell")
+                if not keep & set("/\\.") : v = _clean_for(v, "file")
+                return v
             if pat.startswith("[") and all(ch in pat for ch in "<>&") and rep_.get("k") != "lit":
                 dq, sq = '"' in pat, "'" in pat            # s.replace(/[&<>"']/g, c => MAP[c])
                 return _clean_for(recv, "xss", "html_full" if (dq and sq) else ("html_nosq" if dq else "html_text"))
         sums = self._sums(cn)
+        if sums is not None and callee.get("k") == "member" and _base_ident(callee) in self.modnames:
+            sums = None                                   # a library module's method, not a user one
         if sums is not None and (callee.get("k") == "ident" or cn not in TRANSPARENT_M | PURE_CLEAN_M):
             return self._apply(sums, args, env)
         if cn in PURE_CLEAN_M: return F
@@ -514,7 +604,10 @@ class Engine:
                 if nm in self.fs_funcs and self.fs_funcs[nm] in FILE_M and args and nm not in env:
                     self._judge(c, nm, "file", self.taint(args[0], env)); continue     # import { readFile }
                 if nm in CODE_IDENTS and args: self._judge(c, nm, "code", self.taint(args[0], env)); continue
-                if nm in SHELL_M and args: self._judge(c, nm, "shell", self.taint(args[0], env)); continue
+                if nm in self.sql_funcs and args and nm not in env:
+                    self._judge(c, nm, "sql", self.taint(args[0], env)); continue   # literal('..' + x)
+                if (nm in SHELL_M or nm in SHELL_IDENT_EXTRA or nm in self.shell_alias) and args and nm not in env:
+                    self._shell_sink(c, self.shell_alias.get(nm, nm), args, env); continue
                 if nm in SSRF_IDENTS and args: self._judge(c, nm, "ssrf", self.taint(args[0], env)); continue
                 if self._sums(nm): self._apply_summary(c, nm, args, env)
                 continue
@@ -524,10 +617,17 @@ class Engine:
                     self._judge(c, base + "." + prop, "ssrf", self.taint(args[0], env))
                 elif prop in REDIRECT_M and base in RESPONSE_NAMES and args:
                     self._judge(c, prop, "redirect", self.taint(args[-1], env))
-                elif prop in SHELL_M and args and base in CHILD_PROC_BASES:
-                    self._judge(c, prop, "shell", self.taint(args[0], env))
+                elif prop in SHELL_M and args and (base in CHILD_PROC_BASES or base in self.cp_objs or
+                                                   self._is_require(callee.get("object"), "child_process")):
+                    self._shell_sink(c, prop, args, env)
                 elif prop in SQL_M and args:
                     self._judge(c, prop, "sql", self.taint(args[0], env))
+                elif prop in SQL_RAW_M and args:                   # prisma $queryRawUnsafe / knex whereRaw / literal
+                    self._judge(c, prop, "sql", self.taint(args[0], env))
+                elif prop in SQL_STRING_WHERE and args and args[0].get("k") in ("template", "bin"):
+                    self._judge(c, prop, "sql", self.taint(args[0], env))    # .where(`id = ${x}`): a SQL string
+                elif prop in DB_BASE_M and args and base in DB_BASES:
+                    self._judge(c, prop, "sql", self.taint(args[0], env))    # db.all(sql) / db.prepare(sql)
                 elif prop in XSS_M and args and base in RESPONSE_NAMES:
                     if isinstance(args[0], dict) and args[0].get("k") in ("object", "array"): continue   # JSON
                     if self._json_map(args[0]): continue                # xs.map(k => [k, v]): an array: JSON
@@ -539,15 +639,42 @@ class Engine:
                     v = self._ctx_taint(args[1], env, "xss")           # template engines escape by default:
                     if v == T: self._judge(c, prop, "xss", Z)         # a request value in the data is OPEN
                 elif prop in RESPONSE_FILE_M and args and base in RESPONSE_NAMES:
-                    opts = args[1] if len(args) > 1 else {}
+                    opts = next((a for a in args[1:] if isinstance(a, dict) and a.get("k") == "object"), {})
                     keys = opts.get("keys") or [] if isinstance(opts, dict) else []
                     rv = (opts.get("props") or [])[keys.index("root")] if "root" in keys else None
                     if rv is None or (rv.get("k") == "lit" and rv.get("value") == "/"):   # root: '/' confines nothing
                         self._judge(c, "res." + prop, "file", self.taint(args[0], env))
                 elif prop in FILE_M and args and (base in FILE_OBJS or base in self.fs_objs):
                     self._judge(c, prop, "file", self.taint(args[0], env))
-                elif self._sums(prop) and prop not in TRANSPARENT_M | PURE_CLEAN_M | MUTATORS:
+                elif self._sums(prop) and prop not in TRANSPARENT_M | PURE_CLEAN_M | MUTATORS \
+                        and base not in self.modnames:                # ejs.render(..) is not a user `render`
                     self._apply_summary(c, prop, args, env)
+
+    def _opt(self, a, key):
+        """The value node of `key` in an object-literal argument, or None."""
+        if not (isinstance(a, dict) and a.get("k") == "object"): return None
+        keys = a.get("keys") or []
+        return (a.get("props") or [])[keys.index(key)] if key in keys else None
+
+    def _shell_sink(self, c, name, args, env):
+        """exec(cmd): the command. spawn/execFile(file, argv, opts): the argv is a shell script when the file is a
+        shell (sh -c ..) or opts.shell is true (hard); otherwise a tainted argv is argument injection (OPEN)."""
+        opts = next((a for a in args[1:] if isinstance(a, dict) and a.get("k") == "object"), None)
+        inp = self._opt(opts, "input") if opts else None
+        first0 = args[0] if args else {}
+        shell_first = first0.get("k") == "lit" and str(first0.get("value", "")).split(" ")[0] in SHELLS
+        # stdin is a script only for a shell (bash -s); for `sort` it is data
+        extra = [self.taint(inp, env)] if (inp is not None and shell_first) else []
+        if name in ("exec", "execSync", "execaCommand", "execaCommandSync", "$"):
+            self._judge(c, name, "shell", join(self.taint(args[0], env), *extra)); return
+        first = args[0]
+        sh = self._opt(opts, "shell") if opts else None
+        is_shell = (first.get("k") == "lit" and str(first.get("value")) in SHELLS) or \
+                   (sh is not None and not (sh.get("k") == "lit" and sh.get("value") in ("false", "False")))
+        rest = [a for a in args[1:] if a is not opts]
+        v = join(self.taint(first, env), *[self.taint(a, env) for a in rest], *extra)
+        if not is_shell and _at(v, "shell") == T and self.taint(first, env) != T: v = Z
+        self._judge(c, name, "shell", v)
 
     def _judge(self, call, name, ctx, st):
         st = _at(st, ctx)
@@ -580,6 +707,8 @@ class Engine:
             if node.get("k") in ("call", "new"):
                 for a in node.get("args", []): self._effects(a, env)
                 callee = node.get("callee", {})
+                for a in node.get("args", []):                # a callback runs with THIS scope's variables
+                    if isinstance(a, dict) and a.get("k") == "funcref": self._inline_cb(a.get("fid"), node, env)
                 if isinstance(callee, dict) and callee.get("k") == "member":
                     self._effects(callee.get("object"), env)
                     obj = callee.get("object", {})
@@ -639,18 +768,17 @@ class Engine:
             if k == "block": self._walk(st.get("body"), env, scoped=True); continue
             if k == "if":
                 self._leaf_sinks(st.get("test"), env); self._effects(st.get("test"), env)
-                var, neg = self._guard(st.get("test"))
+                pos, negs = self._guards(st.get("test"))
                 then_term = self._terminates(st.get("body"))
                 else_term = bool(st.get("els")) and self._terminates(
                     st["els"].get("body") if st["els"].get("k") == "block" else [st["els"]])
                 e1 = dict(env); e2 = dict(env)
-                if var and not neg: e1[var] = F               # positive guard narrows the THEN branch
-                if var and neg: e2[var] = F                   # !ALLOWED.has(x) is false in ELSE: validated
+                for v_ in pos: e1[v_] = F                    # guard(s) that hold in THEN
+                for v_ in negs: e2[v_] = F                   # !guard(s) all false in ELSE: validated
                 self._walk(st.get("body"), e1, scoped=True)
                 if st.get("els"): self._walk([st["els"]], e2, scoped=True)
                 if then_term and not else_term:
                     _set_env(env, e2)                         # continuation follows else/fallthrough
-                    if var and neg: env[var] = F              # !guard { return } -> validated after
                 elif else_term and not then_term:
                     _set_env(env, e1)
                 else:
@@ -709,6 +837,12 @@ class Engine:
                     elif v == Z: self.unjudged.append((st.get("line", 0), "ctx.body"))
             elif k in ("return", "throw", "exprstmt"):
                 self._effects(st.get("argument") if k != "exprstmt" else st.get("x"), env)
+                if k == "return" and self._rets is None and self._ret_sink:
+                    a = st.get("argument") or {}
+                    if a.get("k") not in ("object", "array", "nil"):   # a returned string IS the body (Express)
+                        v = _at(self.taint(a, env), "xss")
+                        if v == T: self._judge(st, "return (response body)", "xss", T)
+                        elif v == Z: self.unjudged.append((st.get("line", 0), "return (response body)"))
                 if k == "return" and self._rets is not None:
                     self._rets.append(self.taint(st.get("argument"), env) if st.get("argument", {}).get("k") != "nil" else F)
             self._leaf_sinks(st, env)
@@ -767,6 +901,8 @@ class Engine:
     def _file_context(self, tree):
         """fs objects / functions and escaper functions bound by import or require in this file."""
         self.fs_objs, self.fs_funcs, self.escapers = set(), {}, {}
+        self.modnames, self.cp_objs, self.shell_alias = set(), set(), {}
+        self.validators, self.sql_funcs = set(), set()
         self.fidmap = {f["fid"]: f for f in tree.get("funcs", []) if "fid" in f}
         self.regexes, self.tmpl_fns, self.top_names, self.koa_send = {}, set(), set(), set()
         def scan(n):
@@ -795,6 +931,31 @@ class Engine:
                         if not raw: self.tmpl_fns.add(d["name"])   # Handlebars.compile(src): escapes {{ }}
             if st.get("k") == "import" and st.get("source") == "koa-send":
                 for sp in st.get("specs", []): self.koa_send.add(sp["local"])
+            if st.get("k") == "import":
+                for sp in st.get("specs", []):
+                    if st.get("source") in ("uuid", "validator") and sp["imported"] in VALIDATOR_FNS:
+                        self.validators.add(sp["local"])          # import { validate as isUuid } from 'uuid'
+                    if sp["imported"] in SQL_RAW_M: self.sql_funcs.add(sp["local"])   # import { literal }
+                    if sp["imported"] in ("default", "*") and not str(st.get("source", "")).startswith((".", "/")):
+                        self.modnames.add(sp["local"])                # a package, not the project's own module
+                    if st.get("source") in ("child_process", "node:child_process"):
+                        if sp["imported"] in ("default", "*"): self.cp_objs.add(sp["local"])
+                        else: self.shell_alias[sp["local"]] = sp["imported"]
+            if st.get("k") == "vardecl":
+                for d in st.get("decls", []):
+                    init = d.get("init") or {}
+                    if init.get("k") == "call" and _callee_name(init.get("callee")) == "require" and init.get("args"):
+                        src = init["args"][0].get("value")
+                        if d.get("name") and not str(src or "").startswith((".", "/")): self.modnames.add(d["name"])
+                        if src in ("child_process", "node:child_process"):
+                            if d.get("name"): self.cp_objs.add(d["name"])
+                            for nm in d.get("names") or []:
+                                if not d.get("name"): self.shell_alias[nm] = nm
+                    # const run = util.promisify(cp.exec) / promisify(exec)
+                    if init.get("k") == "call" and _callee_name(init.get("callee")) == "promisify" and init.get("args"):
+                        a0 = init["args"][0]
+                        tgt = _prop_name(a0) if a0.get("k") == "member" else a0.get("name")
+                        if tgt in SHELL_M and d.get("name"): self.shell_alias[d["name"]] = tgt
         for st in top.get("body") or []:
             if st.get("k") == "import":
                 src = st.get("source", "")
@@ -851,10 +1012,17 @@ class Engine:
         env = {p: F for p in fn.get("params", []) if p}
         for i, p in enumerate(fn.get("params", [])):
             decos = (fn.get("pdeco") or [[]] * (i + 1))[i] if i < len(fn.get("pdeco") or []) else []
-            if p and any(d in ("Query", "Param", "Body", "Headers", "Cookies", "Req") for d in decos): env[p] = T
+            dn = [d.split(":")[0] for d in decos]
+            if p and any(d in ("Query", "Param", "Body", "Headers", "Cookies", "Req") for d in dn):
+                env[p] = F if any("Parse" in d for d in decos) else T      # @Param('id', ParseUUIDPipe): validated
             pairs = (fn.get("ppat") or [])[i] if i < len(fn.get("ppat") or []) else []
             for key, nm in pairs:
                 env[nm] = T if key in REQ_SOURCE_PROPS else Z
+        if "use server" in (fn.get("directives") or []) + (fn.get("filedirectives") or []) and fn.get("name") != "<top>":
+            for p in fn.get("params", []):                       # a server action: its arguments come from the client
+                if p: env[p] = T
+            for pairs in fn.get("ppat") or []:
+                for _k, nm in pairs: env[nm] = T
         return env
 
     def judge(self, tree):
@@ -865,6 +1033,9 @@ class Engine:
         for fn in tree.get("funcs", []):
             env = self._seeds(fn)
             self._nonhtml = self._content_kind(fn)
+            md = [d.split(":")[0] for d in fn.get("mdeco") or []]
+            self._ret_sink = any(d in NEST_ROUTE for d in md) and self._nonhtml is None \
+                and not any(d in ("Render", "Redirect") for d in md)
             self._rets = None
             self._walk(fn.get("body"), env)
         best, order = {}, []

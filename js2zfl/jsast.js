@@ -33,16 +33,29 @@ function patPairs(p) {
   return out;
 }
 
-function addFunc(node, name) {
+// "Name" or "Name:Arg1,Arg2" for a decorator: @Param('id', ParseUUIDPipe) -> "Param:ParseUUIDPipe"
+function decoStr(d) {
+  const e = d.expression || {};
+  const name = e.callee ? (e.callee.name || (e.callee.property && e.callee.property.name)) : e.name;
+  const args = (e.arguments || []).map(a => a.type === "Identifier" ? a.name :
+    (a.type === "StringLiteral" ? JSON.stringify(a.value) : (a.type === "NewExpression" && a.callee ? a.callee.name : ""))).filter(Boolean);
+  return args.length ? name + ":" + args.join(",") : name;
+}
+let FILE_DIRECTIVES = [];
+
+function addFunc(node, name, owner) {
   const params = (node.params || []).map(paramName);
   const pdeco = (node.params || []).map(p => ((p.decorators || (p.parameter && p.parameter.decorators) || [])
-    .map(d => d.expression && (d.expression.callee ? d.expression.callee.name : d.expression.name)).filter(Boolean)));
+    .map(decoStr).filter(Boolean)));
+  const mdeco = ((owner && owner.decorators) || node.decorators || []).map(decoStr).filter(Boolean);
+  const directives = ((node.body && node.body.directives) || []).map(d => d.value && d.value.value).filter(Boolean);
   const ppat = (node.params || []).map(patPairs);
   let body;
   if (node.body && node.body.type === "BlockStatement") body = node.body.body.map(encStmt);
   else if (node.body) body = [{ k: "return", argument: enc(node.body), line: line(node.body) }]; // arrow expr
   else body = [];
-  funcs.push({ k: "func", fid: funcs.length, name: name || "", params, pdeco, ppat, body, line: line(node) });
+  funcs.push({ k: "func", fid: funcs.length, name: name || "", params, pdeco, ppat, mdeco, directives,
+               filedirectives: FILE_DIRECTIVES, body, line: line(node) });
   return funcs.length - 1;
 }
 
@@ -171,7 +184,7 @@ function encStmt(s) {
     case "ClassDeclaration": case "ClassExpression":
       (s.body.body || []).forEach(m => {
         if ((m.type === "ClassMethod" || m.type === "ClassPrivateMethod") && m.body)
-          addFunc(m, m.key && (m.key.name || m.key.value));
+          addFunc(m, m.key && (m.key.name || m.key.value), m);
         // show = (req, res) => { .. }: a class property holding a function is a method too
         if ((m.type === "ClassProperty" || m.type === "ClassPrivateProperty") && m.value &&
             (m.value.type === "ArrowFunctionExpression" || m.value.type === "FunctionExpression"))
@@ -204,6 +217,7 @@ function main() {
     process.stdout.write(JSON.stringify({ k: "file", error: String(e), funcs: [] }));
     return;
   }
+  FILE_DIRECTIVES = (ast.program.directives || []).map(d => d.value && d.value.value).filter(Boolean);
   const topBody = (ast.program.body || []).map(encStmt);
   funcs.push({ k: "func", name: "<top>", params: [], body: topBody, line: 0 });
   process.stdout.write(JSON.stringify({ k: "file", funcs }));
