@@ -1,0 +1,1 @@
+package org.springframework.web.servlet; public class ModelAndView { public ModelAndView(){} public ModelAndView(String viewName){} public ModelAndView(String viewName, String modelName, Object modelObject){} public ModelAndView addObject(String n, Object v){return this;} public void setViewName(String v){} public String getViewName(){return null;} }

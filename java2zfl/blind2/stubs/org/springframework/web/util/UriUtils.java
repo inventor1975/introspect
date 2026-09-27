@@ -1,0 +1,1 @@
+package org.springframework.web.util; public abstract class UriUtils { public static String encode(String s, String enc){return s;} public static String encodeQueryParam(String s, String enc){return s;} }

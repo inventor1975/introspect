@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <title>Search</title>
+</head>
+<body>
+  <form action="/search" method="get">
+    <input type="search" name="q">
+    <button>Search</button>
+  </form>
+  <p class="summary" th:utext="${summary}">Showing results</p>
+  <ul>
+    <li th:each="hit : ${hits}" th:text="${hit.title}">Result</li>
+  </ul>
+</body>
+</html>

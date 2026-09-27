@@ -1,0 +1,27 @@
+file,stage,cause
+sqli/AdminActionServlet.java,propagation,"Method.invoke(actions, login): the reflective callee is unknown (Z) and the sink inside it is never attributed; nothing is reported in any file"
+sqli/BulkArchiveController.java,source,@RequestParam List<Long> is a T source: the numeric element type of a collection is not considered (a scalar Long is F)
+sqli/HashtagServlet.java,guard,the program's own validator `!isPlainWord(tag)` + sendError/return is not recognised as a guard
+sqli/LoyaltyPointsServlet.java,guard,`!StringUtils.isNumeric(x)` + return (a static predicate taking the variable) is not recognised as a guard
+sqli/MaintenanceListServlet.java,propagation,"the literal-only lookup table is reached through an overridden accessor (sortColumns().get(k)), not a static field: `get` stays transparent and passes the tainted key"
+sqli/PropertyListingController.java,propagation,"OPEN is raised in the helper (ListingService:21), not here: the @ModelAttribute bean's getter getSortBy() returns a field, which reads Z for ANY receiver, so the service's sink is OPEN with and without taint and its summary attributes nothing to the caller"
+sqli/ReceiptServlet.java,guard,"validation by exception — Long.parseLong(x) in try, catch returns 400 — is not a guard; the original string stays T"
+sqli/TenantReportServlet.java,source,"req.getAttribute(..) is catalogued transparent: over a clean request parameter it reads F, so a request attribute set elsewhere (a binder, from a header) is judged clean (EARNED) instead of Z"
+xss/spring/AdvancedSearchController.java,propagation,"the @ModelAttribute bean's getters read fields -> Z (the bean's taint does not reach its getters); + the handler returns HTML with no `produces` (the 'soft' Spring sink); java2zfl judges a soft return only when the value is T and stays silent on Z (documented trade-off, java2zfl.py: 'an unknown value into a maybe-sink is not reported')"
+xss/spring/AliasController.java,propagation,"Optional.ofNullable(..) is not catalogued (-> Z; `of` is, `ofNullable` is not); + the handler returns HTML with no `produces` (the 'soft' Spring sink); java2zfl judges a soft return only when the value is T and stays silent on Z (documented trade-off, java2zfl.py: 'an unknown value into a maybe-sink is not reported')"
+xss/spring/LegacyAccountController.java,sink,a view/template sink (Model attribute rendered by a JSP with raw EL) is not modelled: nothing is judged
+xss/spring/ResultsPageController.java,sink,a view/template sink (Model attribute rendered by Thymeleaf th:utext) is not modelled: nothing is judged
+xss/spring/SkuController.java,sink,an @ExceptionHandler method is not an entry point and its exception parameter reads F: the message carrying the path variable reaches a text/html body judged clean
+xss/spring/VenuePageController.java,propagation,"in the helper EscapingTemplate.fill the map's KEY is the search string of replace(""{{""+key+""}}"", Encode.forHtml(v)); replace is transparent over all its arguments, so the key's taint enters the result although only escaped values are inserted"
+xss/spring/WizardController.java,source,"session.getAttribute(..) is catalogued transparent: over a clean HttpSession parameter it reads F, so a value stored by another handler is judged clean (EARNED) instead of Z"
+xss/web/AddressLabelServlet.java,sanitiser,"a hand-written escaper (TextUtil.escape: five replace calls) is read as a transparent chain -> T; the author expected OPEN, the analyzer ACCUSES"
+xss/web/BackLinkServlet.java,guard,"the URL-scheme check `next == null || !next.startsWith(""/"") || next.startsWith(""//"") || ..` + reset to a constant is not recognised; forHtmlAttribute alone is (correctly) not credited in an href"
+xss/web/CouponServlet.java,guard,`!StringUtils.isAlphanumeric(code)` + return is not recognised as a guard
+xss/web/FilterChipsServlet.java,sanitiser,"the escaper arrives as a method reference in a stream (.map(Encode::forHtml)); a method reference evaluates to Z/transparent, not to the escaper"
+xss/web/ForumSignatureServlet.java,propagation,"Markup.fragment(x, true) escapes only when its flag is true; the summary is not specialised on constant arguments, so the raw branch (flag false) taints every call"
+xss/web/GuestNoteServlet.java,sanitiser,"a hand-written & < > replace chain in element text is read as transparent -> T (expected OPEN, got REFUTED)"
+xss/web/HandleNormalizerServlet.java,sanitiser,"a hand-written loop keeping only [A-Za-z0-9_.] (StringBuilder append of chosen chars) is read as transparent -> T (expected OPEN, got REFUTED)"
+xss/web/RichTitleServlet.java,propagation,"unescapeHtml4 is catalogued transparent: it keeps the escaper's 'clean for xss' tag, so escapeHtml4 undone by unescapeHtml4 is still credited as escaped"
+xss/web/SharedLinkServlet.java,propagation,`byte[] decoded` is typed as the scalar `byte` (the array dimension is dropped) and byte is a clean numeric type: the decoded payload reads F
+xss/web/SortOrderServlet.java,guard,"`dir == null || !(dir.equalsIgnoreCase(""asc"") || dir.equalsIgnoreCase(""desc""))` + reset: a negated parenthesised OR of equalities is not recognised"
+xss/web/StatusPageServlet.java,propagation,`byte[] bytes = html.getBytes(..)`: byte[] read as the scalar byte -> F; os.write(bytes) judged clean (write(html.getBytes()) inline IS refuted)

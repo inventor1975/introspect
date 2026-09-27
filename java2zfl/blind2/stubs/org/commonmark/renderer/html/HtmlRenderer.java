@@ -1,0 +1,1 @@
+package org.commonmark.renderer.html; public class HtmlRenderer { public static Builder builder(){return null;} public String render(org.commonmark.node.Node node){return null;} public static class Builder { public Builder escapeHtml(boolean b){return this;} public Builder sanitizeUrls(boolean b){return this;} public HtmlRenderer build(){return null;} } }

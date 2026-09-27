@@ -1,0 +1,1 @@
+package org.jsoup.safety; public class Safelist { public static Safelist none(){return null;} public static Safelist basic(){return null;} public static Safelist relaxed(){return null;} public Safelist addTags(String... tags){return this;} }

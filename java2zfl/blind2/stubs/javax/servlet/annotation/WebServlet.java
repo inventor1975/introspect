@@ -1,0 +1,1 @@
+package javax.servlet.annotation; import java.lang.annotation.*; @Retention(RetentionPolicy.RUNTIME) @Target(ElementType.TYPE) public @interface WebServlet { String[] value() default {}; String[] urlPatterns() default {}; String name() default ""; }
