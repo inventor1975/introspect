@@ -1,0 +1,1 @@
+package javax.servlet; public abstract class ServletOutputStream extends java.io.OutputStream { public void print(String s) throws java.io.IOException {} public void println(String s) throws java.io.IOException {} }

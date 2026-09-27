@@ -1,0 +1,1 @@
+package org.owasp.esapi; public interface Encoder { String encodeForHTML(String s); String encodeForHTMLAttribute(String s); String encodeForJavaScript(String s); String encodeForSQL(Object codec, String s); String encodeForOS(Object codec, String s); String encodeForURL(String s) throws Exception; }

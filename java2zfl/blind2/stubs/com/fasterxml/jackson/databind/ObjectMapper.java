@@ -1,0 +1,1 @@
+package com.fasterxml.jackson.databind; public class ObjectMapper { public ObjectMapper(){} public String writeValueAsString(Object value) throws com.fasterxml.jackson.core.JsonProcessingException {return null;} }

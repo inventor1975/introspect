@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <title>Product</title>
+</head>
+<body>
+  <div id="product" th:attr="data-id=${productId}">
+    <h1>Product details</h1>
+    <p th:if="${highlight}">Matches for <mark th:text="${highlight}">term</mark></p>
+    <a th:if="${ref}" th:href="@{/products(ref=${ref})}">Back to results</a>
+  </div>
+</body>
+</html>

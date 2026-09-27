@@ -1,0 +1,1 @@
+package org.springframework.web.util; public abstract class HtmlUtils { public static String htmlEscape(String s){return s;} public static String htmlEscape(String s, String enc){return s;} public static String htmlUnescape(String s){return s;} }
