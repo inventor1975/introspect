@@ -57,6 +57,13 @@ EXPECT = {
     "f47_plaintext.java":      [],           # text/plain + nosniff is not HTML
     "f48_append_chain.java":   ["REFUTED"],  # PrintWriter.append returns the writer: the chain is a sink
     "f49_lambda_store.java":   ["OPEN"],     # a lambda's store into an outer builder is kept
+    # slice 8 (2026-09-27, from the cloud's blind round 2, PR #3)
+    "f50_byte_array.java":     ["REFUTED"],  # byte[] holds text (was read as the clean scalar byte)
+    "f51_attributes_unescape.java": ["OPEN","REFUTED"],  # getAttribute is unknown; unescape undoes the escaper
+    "f52_exception_handler.java": ["OPEN"],  # @ExceptionHandler: an entry point, its exception unknown
+    "f53_validators.java":     ["REFUTED"],  # isNumeric / own validator / parse-in-try / !(a||b) reset are guards
+    "f54_escaper_shapes.java": ["REFUTED"],  # a full replace-chain escaper and .map(Encode::forHtml) are clean
+    "f55_optional_whitelist.java": ["REFUTED"],  # ofNullable passes taint; a whitelist inside the map lambda holds
 }
 def main():
     fails=[]

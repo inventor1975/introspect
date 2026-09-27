@@ -91,6 +91,9 @@ RETURNS = {"getWriter":"PrintWriter","getOutputStream":"ServletOutputStream","ge
            "getConnection":"Connection","createStatement":"Statement","prepareStatement":"PreparedStatement",
            "prepareCall":"CallableStatement","command":"ProcessBuilder","redirectErrorStream":"ProcessBuilder"}
 SANITIZERS = set()
+# undo an escaper: the result is as tainted as what went in, with no escaper's credit
+UNESCAPERS = {"unescapeHtml", "unescapeHtml3", "unescapeHtml4", "unescapeXml", "unescapeJava", "unescapeEcmaScript",
+              "htmlUnescape", "unescapeJson", "decodeForHTML"}
 # CONTEXT-AWARE sanitizers (like php2zfl): an escaper neutralises ONE context, not all. The value it returns
 # is tagged clean for that context and stays tainted for the others.
 CTX_SANITIZERS = {"escapeHtml":"xss","escapeHtml4":"xss","escapeHtml3":"xss","htmlEscape":"xss",
@@ -121,15 +124,14 @@ TRANSPARENT = {"substring","subSequence","trim","strip","stripLeading","stripTra
                "toUpperCase","concat","replace","replaceAll","replaceFirst","split","toCharArray","getBytes",
                "charAt","toString","valueOf","copyValueOf","intern","format","formatted","join","repeat",
                "append","insert","reverse","decode","encode","decodeBase64","encodeBase64","encodeBase64String",
-               "encodeBase64URLSafe","encodeBase64URLSafeString","encodeToString","unescapeHtml","unescapeHtml4",
-               "unescapeJava","get","getOrDefault","getValue","getKey","getName","getComment","next","nextElement",
+               "encodeBase64URLSafe","encodeBase64URLSafeString","encodeToString","get","getOrDefault","getValue","getKey","getName","getComment","next","nextElement",
                "nextToken","previous","iterator","listIterator","elements","keys","keySet","values","entrySet",
                "toArray","asList","of","copyOf","copyOfRange","subList","singletonList","singleton",
                "unmodifiableList","unmodifiableMap","unmodifiableSet","list","stream","collect","map","filter",
                "findFirst","orElse","orElseGet","peek","poll","pop","remove","firstElement","lastElement",
                "getFirst","getLast","elementAt","readLine","lines","requireNonNull","requireNonNullElse",
                "toPath","getPath","getAbsolutePath","getCanonicalPath","normalize","resolve","getFileName",
-               "getAttribute","getInitParameter","getString"}
+               "getString","ofNullable","ofEntries","orElseThrow"}
 # results that are numbers or booleans: clean whatever went in
 NUMERIC_RESULT = {"length","size","isEmpty","hashCode","equals","equalsIgnoreCase","contains","containsKey",
                   "containsValue","startsWith","endsWith","indexOf","lastIndexOf","compareTo","compareToIgnoreCase",
@@ -137,6 +139,9 @@ NUMERIC_RESULT = {"length","size","isEmpty","hashCode","equals","equalsIgnoreCas
                   "parseBoolean","hasNext","hasMoreElements","hasMoreTokens","countTokens","nextInt","nextLong",
                   "nextBoolean","nextDouble","nextFloat","intValue","longValue","doubleValue","booleanValue"}
 # factories whose (argument-free) result is not data
+# stream collectors are functions, not data: .collect(Collectors.joining(" ")) passes the stream's taint
+COLLECTORS = {"joining", "toList", "toSet", "toCollection", "toUnmodifiableList", "toUnmodifiableSet",
+              "counting", "toMap", "groupingBy", "summingInt", "summingLong", "averagingInt"}
 CLEAN_FACTORY = {"getDecoder","getEncoder","getUrlDecoder","getUrlEncoder","getMimeDecoder","getMimeEncoder",
                  "getRuntime","encoder","getWriter","getOutputStream","getInstance","getLogger"}
 # calls on a local that fold the argument into it (the container / builder now holds the taint)
@@ -144,7 +149,9 @@ MUTATORS = {"append","insert","add","addAll","addElement","put","putAll","push",
             "offerLast","addFirst","addLast","set","setCharAt","putIfAbsent"}
 LIST_TYPES = {"ArrayList","LinkedList","Vector","List","Stack","ArrayDeque","Deque","Queue"}
 MAP_TYPES = {"HashMap","LinkedHashMap","TreeMap","Hashtable","Map","ConcurrentHashMap"}
-GUARD_ARG  = {"contains","containsKey","containsValue"}   # validated var is the ARGUMENT
+GUARD_ARG  = {"contains","containsKey","containsValue",     # validated var is the ARGUMENT
+              "isNumeric","isAlphanumeric","isAlpha","isDigits","isAlphanumericSpace","isAlphaSpace",
+              "isNumericSpace","isAsciiAlphanumeric"}
 GUARD_RECV = {"equals","equalsIgnoreCase","matches"}      # validated var is the QUALIFIER
 _NC = object()     # "not a constant"
 
@@ -261,7 +268,10 @@ def _is_spring_source(param):
 def _anno(a): return (getattr(a, 'name', None) or "").split(".")[-1]
 
 def _is_handler(meth):
-    return any(_anno(a) in MAPPING_ANNOS for a in (getattr(meth,'annotations',None) or []))
+    return any(_anno(a) in MAPPING_ANNOS | {"ExceptionHandler"} for a in (getattr(meth,'annotations',None) or []))
+
+def _is_exception_handler(meth):
+    return any(_anno(a) == "ExceptionHandler" for a in (getattr(meth,'annotations',None) or []))
 
 def _type_args(ty):
     """Generic arguments of the innermost type: ResponseEntity<String> -> ['String']."""
@@ -293,12 +303,45 @@ def _typename(ty):
         n = getattr(sub,'name',n) or n; sub = getattr(sub,'sub_type',None)
     return n
 
+def _clean_type(ty):
+    """A declared type whose values cannot carry text: numbers, booleans, and collections of them.
+    NOT byte[] (the bytes of a string: blind round 2, a Base64 payload held in a byte[] read clean)."""
+    if ty is None: return False
+    n = _typename(ty)
+    if n in ("byte", "Byte") and getattr(ty, 'dimensions', None): return False
+    if n in CLEAN_TYPES: return True
+    if n in ("List", "Set", "Collection", "Iterable", "Optional", "ArrayList", "LinkedList", "HashSet",
+             "SortedSet", "TreeSet", "Stream"):
+        args = _type_args(ty)
+        return bool(args) and all(a in CLEAN_TYPES for a in args)
+    return False
+
+def _immutable_type(ty):
+    """A parameter the callee cannot change so that the caller sees it (arrays and builders can be)."""
+    if ty is None: return False
+    if getattr(ty, 'dimensions', None): return False
+    return _typename(ty) in IMMUTABLE_TYPES
+
 def _line(node):
     p = getattr(node, 'position', None)
     return p.line if p else None
 
 class _Ch(str):
     """A Java char constant (compares with char literals, adds to ints by code point)."""
+
+_ESC = {'"': '"', "'": "'", "\\": "\\", "n": "\n", "t": "\t", "r": "\r", "0": "\0", "b": "\b", "f": "\f"}
+
+def _unescape(s):
+    """A Java string literal body with its simple escapes resolved (\\u.. and octal: not a constant)."""
+    if "\\" not in s: return s
+    out, i = [], 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s):
+            if s[i + 1] not in _ESC: return _NC
+            out.append(_ESC[s[i + 1]]); i += 2
+        else:
+            out.append(s[i]); i += 1
+    return "".join(out)
 
 def _lit(node):
     v = node.value
@@ -307,9 +350,10 @@ def _lit(node):
         if v in ("true", "false"): return v == "true"
         if v == "null": return _NC
         if v.startswith('"') and v.endswith('"') and len(v) >= 2:
-            s = v[1:-1]
-            return _NC if "\\" in s else s
-        if v.startswith("'") and v.endswith("'") and len(v) == 3: return _Ch(v[1])
+            return _unescape(v[1:-1])
+        if v.startswith("'") and v.endswith("'") and len(v) >= 3:
+            c = _unescape(v[1:-1])
+            return _Ch(c) if isinstance(c, str) and len(c) == 1 else _NC
         t = v.rstrip("lL")
         if t.lower().startswith("0x"): return int(t, 16)
         if t.isdigit(): return int(t, 8) if (len(t) > 1 and t.startswith("0")) else int(t)
@@ -388,6 +432,39 @@ def _kept_by_strip(pattern):
         keep.add(c); i += 1
     return keep
 
+PARSE_CLASSES = {"Integer", "Long", "Short", "Byte", "Double", "Float", "UUID", "BigInteger", "BigDecimal"}
+
+def _parse_validated(stmts):
+    """Variables a try block parses as a number / UUID unconditionally (its top-level statements)."""
+    out = []
+    for st in stmts:
+        exprs = []
+        if isinstance(st, J.StatementExpression): exprs.append(st.expression)
+        elif isinstance(st, J.LocalVariableDeclaration): exprs += [d.initializer for d in st.declarators]
+        for e in exprs:
+            if isinstance(e, J.Assignment): e = e.value
+            if isinstance(e, J.MethodInvocation) and e.member in ("parseInt", "parseLong", "parseShort", "parseByte",
+                    "parseDouble", "parseFloat", "valueOf", "fromString") and (e.qualifier or "").split(".")[-1] in PARSE_CLASSES \
+                    and e.arguments and isinstance(e.arguments[0], J.MemberReference) \
+                    and not e.arguments[0].qualifier and not e.arguments[0].selectors:
+                out.append(e.arguments[0].member)
+    return out
+
+def _replace_family(calls):
+    """A hand-written HTML escaper: a run of replace(lit, lit) mapping < > & to entities -> its family."""
+    m = {}
+    for c in calls:
+        a = c.arguments or []
+        if c.member not in ("replace", "replaceAll") or len(a) != 2 or not all(isinstance(x, J.Literal) for x in a):
+            return None
+        k, v = _lit(a[0]), _lit(a[1])
+        if not isinstance(k, str) or not isinstance(v, str): return None
+        m[str(k)] = str(v)
+    if not (m.get("<", "").startswith("&") and m.get(">", "").startswith("&") and m.get("&", "").startswith("&")):
+        return None
+    dq, sq = m.get('"', "").startswith("&"), m.get("'", "").startswith("&")
+    return "html_full" if (dq and sq) else ("html_nosq" if dq else "html_text")
+
 def _jumps(stmts):
     """How a statement list ends: 'term' (return/throw/continue), 'break', or None (falls through)."""
     if not stmts: return None
@@ -428,12 +505,14 @@ class Engine:
         self.decls = []       # every indexed MethodDeclaration
         self.cur = None       # qname of the class being walked
         self.alloc = {}       # per-method: local -> exact class it was allocated as
+        self.cleanvars, self.immutvars = set(), set()
         self._rets = None     # collecting return values (summary walk)
         self._dirty = False
         self._fam = {}
         self._esc = []        # stack (one per enclosing loop/switch) of environments leaving by break/continue
         self._wtail = ""      # the constant text this method has written to a response so far (HTML context)
         self._ret_sink = None # a Spring handler whose returned String IS the response body: "hard" / "soft"
+        self.unjudged = []    # (line, sink) of maybe-sinks deliberately not judged for an unknown value
         self._nonhtml = None  # the method set a non-HTML content type: "nosniff" (not a sink) / "plain" (soft)
 
     # ---------------------------------------------------------------- the class index
@@ -588,12 +667,13 @@ class Engine:
         params = [p.name for p in (meth.parameters or [])]
         if meth.body is None:
             return {"body": False, "base": Z, "ret": [Z] * len(params), "sinks": {}}
-        clean_ret = _typename(meth.return_type) in CLEAN_TYPES if meth.return_type is not None else True
-        saved = (self.sinks, self.vt, self.cur, self._rets, self.alloc, self._wtail, self._ret_sink, self._nonhtml)
+        clean_ret = _clean_type(meth.return_type) if meth.return_type is not None else True
+        saved = (self.sinks, self.vt, self.cur, self._rets, self.alloc, self._wtail, self._ret_sink, self._nonhtml,
+                 self.cleanvars, self.immutvars)
         self.cur = self.owner.get(id(meth))
         self.vt = self._types_of(meth)
         self._ret_sink = None; self._nonhtml = self._content_kind(meth)
-        mutable = [i for i, p in enumerate(meth.parameters or []) if _typename(p.type) not in IMMUTABLE_TYPES]
+        mutable = [i for i, p in enumerate(meth.parameters or []) if not _immutable_type(p.type)]
         def run(env):
             self.sinks, self._rets, self._wtail = [], [], ""
             self._walk(meth.body, env)
@@ -612,7 +692,7 @@ class Engine:
                 if bend.get(names[j], F) != F: summ["argbase"][j] = bend[names[j]]
             for i, p in enumerate(meth.parameters or []):
                 env = dict(base_env)
-                env[p.name] = F if _typename(p.type) in CLEAN_TYPES else T
+                env[p.name] = F if _clean_type(p.type) else T
                 r, psinks, pend = run(env)
                 for j in mutable:                          # a helper that appends param i to the caller's builder j
                     if j != i and _RANK[_at(pend.get(names[j], F), None)] > _RANK[_at(bend.get(names[j], F), None)]:
@@ -626,19 +706,25 @@ class Engine:
                 if eff: summ["sinks"][i] = eff
             return summ
         finally:
-            self.sinks, self.vt, self.cur, self._rets, self.alloc, self._wtail, self._ret_sink, self._nonhtml = saved
+            (self.sinks, self.vt, self.cur, self._rets, self.alloc, self._wtail, self._ret_sink, self._nonhtml,
+             self.cleanvars, self.immutvars) = saved
 
     def _types_of(self, meth):
         """Var -> simple type name for one method: params, locals, for-each vars, resources, catch params.
         Also self.alloc: locals initialised by `new C(..)` and never reassigned -> their exact class C."""
         vt = {}
         self.alloc = {}
-        for p in (meth.parameters or []): vt[p.name] = _typename(p.type)
+        self.cleanvars, self.immutvars = set(), set()      # by declared type (byte[] is neither)
+        def note(name, ty):
+            vt[name] = _typename(ty)
+            (self.cleanvars.add if _clean_type(ty) else self.cleanvars.discard)(name)
+            (self.immutvars.add if _immutable_type(ty) else self.immutvars.discard)(name)
+        for p in (meth.parameters or []): note(p.name, p.type)
         if meth.body is None: return vt
         for st in meth.body:
             for _, d in st.filter(J.VariableDeclaration):
-                for x in d.declarators: vt[x.name] = _typename(d.type)
-            for _, r in st.filter(J.TryResource): vt[r.name] = _typename(r.type)
+                for x in d.declarators: note(x.name, d.type)
+            for _, r in st.filter(J.TryResource): note(r.name, r.type)
         reassigned = set()
         for st in meth.body:
             for _, d in st.filter(J.VariableDeclaration):
@@ -801,11 +887,15 @@ class Engine:
             c = self._const(node.condition, env)
             if c is True: return self._ev(node.if_true, env)
             if c is False: return self._ev(node.if_false, env)
-            return join(self.taint(node.if_true, env), self.taint(node.if_false, env)), None
+            pos, neg = self._guards(node.condition)            # SET.contains(c) ? c : "DEFAULT"
+            e1, e2 = dict(env), dict(env)
+            for v_ in pos: e1[v_] = F
+            for v_ in neg: e2[v_] = F
+            return join(self.taint(node.if_true, e1), self.taint(node.if_false, e2)), None
         if isinstance(node, J.Cast):
             v, _ = self._ev(node.expression, env)
             ty = _typename(node.type)
-            return (F if ty in CLEAN_TYPES else v), ty
+            return (F if _clean_type(node.type) else v), ty
         if isinstance(node, J.ArrayCreator):
             ini = getattr(node, 'initializer', None)
             for d in (node.dimensions or []): self.taint(d, env)
@@ -838,6 +928,19 @@ class Engine:
             for a in (node.arguments or []): self.taint(a, env)
             return F, None
         return Z, None
+
+    def _lambda_value(self, lam, arg, env):
+        """The value an expression lambda returns for an argument of taint `arg` (a block lambda: unknown)."""
+        if isinstance(lam.body, list): return join(arg, Z) if arg != F else Z
+        e = dict(env)
+        ps = [getattr(p, 'name', None) or getattr(p, 'member', None) for p in (lam.parameters or [])]
+        for i, nm in enumerate(ps):
+            if nm: e[nm] = arg if i == 0 else Z
+        saved = self.sinks; self.sinks = []                # the body's sinks were judged when the lambda was
+        try:                                               # evaluated as an argument; this pass only reads its value
+            return self.taint(lam.body, e)
+        finally:
+            self.sinks = saved
 
     def _memberref(self, node, env):
         q = node.qualifier
@@ -873,7 +976,7 @@ class Engine:
         v = self.taint(node.value, env)
         if isinstance(lhs, J.MemberReference) and not lhs.qualifier:
             name = lhs.member
-            if self.vt.get(name) in CLEAN_TYPES: v = F
+            if name in self.cleanvars: v = F
             if lhs.selectors:                                     # a[i] = v: the array now holds v too
                 env[name] = join(env.get(name, Z), v)
             elif node.type != "=":                                # x += v
@@ -964,6 +1067,13 @@ class Engine:
             m = self._model_get(q, node, env)
             if m is not None: v = m
         v, ty = self._chain(v, ty, node.selectors, env, node)
+        calls = [node] + [x for x in (node.selectors or []) if isinstance(x, J.MethodInvocation)]
+        run = []
+        for c in reversed(calls):                                 # the trailing run of replace(lit, lit) calls
+            if c.member in ("replace", "replaceAll"): run.insert(0, c)
+            else: break
+        fam = _replace_family(run) if len(run) >= 3 else None
+        if fam: v = _clean_for(v, "xss", fam)                     # s.replace("&","&amp;").replace("<","&lt;")...
         if q and "." not in q and q in env and node.member in ("append", "insert") and node.selectors:
             env[q] = join(env[q], v)                              # sb.append(a).append(b): sb holds b too
         return v, ty
@@ -1044,6 +1154,12 @@ class Engine:
         if name in ("map", "mapToObj", "mapToLong", "mapToInt") and nodes and isinstance(nodes[0], J.MethodReference) \
                 and getattr(nodes[0].method, 'member', None) in NUMERIC_RESULT:
             return F, None                                        # .map(Long::parseLong): numbers
+        if name in ("map", "flatMap") and nodes and isinstance(nodes[0], J.LambdaExpression) and env is not None:
+            return self._lambda_value(nodes[0], recv_val, env), None   # .map(c -> ALLOWED.contains(c) ? c : "X")
+        if name == "map" and nodes and isinstance(nodes[0], J.MethodReference) \
+                and getattr(nodes[0].method, 'member', None) in CTX_SANITIZERS:
+            mr = nodes[0].method.member                           # .map(Encode::forHtml): each element escaped
+            return _clean_for(recv_val, CTX_SANITIZERS[mr], ESC_FAMILY.get(mr)), None
         if name in ("replaceAll", "replace") and len(nodes) == 2 and isinstance(nodes[0], J.Literal) \
                 and isinstance(nodes[1], J.Literal) and _lit(nodes[1]) == "":
             keep = _kept_by_strip(_lit(nodes[0]))
@@ -1063,6 +1179,8 @@ class Engine:
         if name in CTX_SANITIZERS and not own:                # the program's own escapeHtml(..) wins
             return _clean_for(join(*args), CTX_SANITIZERS[name], ESC_FAMILY.get(name)), "String"
         if name in SANITIZERS: return F, None
+        if name in UNESCAPERS:                                # unescapeHtml4(escapeHtml4(x)) is x again
+            return join(*[_parts(a)[0] for a in args]) if args else F, "String"
         # an unknown receiver (a chain after a library call, an untyped name): a catalogued library name answers
         # first — otherwise every user class in the project that happens to define toString() is a candidate
         known_lib = name in TRANSPARENT or name in NUMERIC_RESULT or (name in CLEAN_FACTORY and not args)
@@ -1072,10 +1190,14 @@ class Engine:
             ty = rtypes.pop() if len(rtypes) == 1 else None
             self._summary_sinks(inv, cands, args)
             self._arg_effects(inv, cands, args, env)
-            if ty in CLEAN_TYPES: return F, ty
-            return self._apply(cands, args), ty
+            if all(m.return_type is not None and _clean_type(m.return_type) for m in cands): return F, ty
+            v = self._apply(cands, args)
+            if not args and (name.startswith("get") or name.startswith("is")) and recv_val != F:
+                v = join(v, recv_val)                     # form.getSortBy() of a @ModelAttribute bean
+            return v, ty
         if name in NUMERIC_RESULT: return F, None
         if name in CLEAN_FACTORY and not args: return F, RETURNS.get(name)
+        if name in COLLECTORS: return join(*args) if args else F, None
         if name in TRANSPARENT:
             keep = rtype if (name in ("append", "insert", "format", "printf") and rtype in
                              WRITER_TYPES | {"StringBuilder", "StringBuffer"}) else RETURNS.get(name)
@@ -1084,7 +1206,7 @@ class Engine:
         if env is not None and any(a != F for a in args):
             for j, node in enumerate(nodes):
                 if isinstance(node, J.MemberReference) and not node.qualifier and not node.selectors \
-                        and node.member in env and self.vt.get(node.member) not in IMMUTABLE_TYPES \
+                        and node.member in env and node.member not in self.immutvars \
                         and any(a != F for k, a in enumerate(args) if k != j):
                     env[node.member] = join(env[node.member], Z)
         return Z, RETURNS.get(name)
@@ -1177,6 +1299,18 @@ class Engine:
             if isinstance(a, J.MemberReference) and not a.qualifier and not a.selectors: return (a.member, neg)
             return (None, False)
         if cond.selectors: return (None, False)
+        # the program's own validator: boolean isPlainWord(String s) { return P.matcher(s).matches(); }
+        if not cond.qualifier and cond.arguments:
+            for m in self.meths.get((self.cur, cond.member), []):
+                body = m.body or []
+                if len(body) == 1 and isinstance(body[0], J.ReturnStatement) and body[0].expression is not None \
+                        and _typename(m.return_type) in ("boolean", "Boolean"):
+                    inner, ineg = self._guard(body[0].expression)
+                    pnames = [p.name for p in (m.parameters or [])]
+                    if inner in pnames and not ineg:
+                        a = cond.arguments[pnames.index(inner)]
+                        if isinstance(a, J.MemberReference) and not a.qualifier and not a.selectors:
+                            return (a.member, neg)
         if cond.member in GUARD_ARG:
             for a in (cond.arguments or []):
                 if isinstance(a, J.MemberReference) and not a.qualifier and not a.selectors: return (a.member, neg)
@@ -1187,10 +1321,23 @@ class Engine:
     def _guards(self, cond):
         """(narrowed in THEN, narrowed in ELSE). `a && b`: every positive guard holds in THEN;
         `a || b`: in ELSE every part is false, so every negated guard holds there (x == null || !ok(x))."""
+        def flat_raw(n, op):
+            if isinstance(n, J.BinaryOperation) and n.operator == op and not (getattr(n, "prefix_operators", None) or []):
+                return flat_raw(n.operandl, op) + flat_raw(n.operandr, op)
+            return [n]
         def flat(n, op):
             if isinstance(n, J.BinaryOperation) and n.operator == op and not (getattr(n, "prefix_operators", None) or []):
                 return flat(n.operandl, op) + flat(n.operandr, op)
             return [n]
+        negated = "!" in (getattr(cond, "prefix_operators", None) or [])
+        if isinstance(cond, J.BinaryOperation) and cond.operator in ("&&", "||") and negated:
+            # !(a || b): ELSE means one of them holds — a validation only if they all guard ONE variable;
+            # !(a && b): ELSE means all hold
+            gs = [self._guard(x) for x in flat_raw(cond.operandl, cond.operator) + flat_raw(cond.operandr, cond.operator)]
+            if cond.operator == "||":
+                vs = {v for v, n in gs}
+                return [], (list(vs) if len(vs) == 1 and all(v and not n for v, n in gs) else [])
+            return [], [v for v, n in gs if v and not n]
         if isinstance(cond, J.BinaryOperation) and cond.operator == "&&":
             return [v for v, n in map(self._guard, flat(cond, "&&")) if v and not n], []
         if isinstance(cond, J.BinaryOperation) and cond.operator == "||":
@@ -1265,6 +1412,8 @@ class Engine:
                     if kind == "html" or (kind == "soft" and _at(vv, "xss") == T):
                         self._judge(st, "return (response body)", "xss", vv,
                                     soft=(kind != "html"), fallback_line=self._stline)
+                    elif kind == "soft" and _at(vv, "xss") == Z:  # not judged — so it must not read as clean
+                        self.unjudged.append((_line(st) or self._stline, "return (response body)"))
                 continue
             if isinstance(st, J.StatementExpression):
                 self.taint(st.expression, env); continue
@@ -1291,7 +1440,7 @@ class Engine:
         tn = _typename(decl.type)
         for d in decl.declarators:
             v = self.taint(d.initializer, env) if d.initializer is not None else Z
-            if tn in CLEAN_TYPES: v = F
+            if _clean_type(decl.type): v = F
             env[d.name] = v
             c = self._const(d.initializer, env) if d.initializer is not None else _NC
             if c is _NC: env.pop("#c:" + d.name, None)
@@ -1305,7 +1454,7 @@ class Engine:
             if isinstance(ctl, J.EnhancedForControl):
                 v = self.taint(ctl.iterable, e)
                 for d in ctl.var.declarators:
-                    e[d.name] = F if _typename(ctl.var.type) in CLEAN_TYPES else v
+                    e[d.name] = F if _clean_type(ctl.var.type) else v
                     e.pop("#c:" + d.name, None)
             elif isinstance(ctl, J.ForControl):
                 if ctl.condition is not None: self.taint(ctl.condition, e)
@@ -1400,6 +1549,8 @@ class Engine:
             self._walk(c.block or [], ec)
             if _jumps(c.block or []) != "term": outs.append(ec)
         new = _ejoin(*outs) if outs else e_try
+        if st.catches and all(_jumps(c.block or []) == "term" for c in st.catches):
+            for x in _parse_validated(st.block or []): new[x] = F   # past the try only if it parsed
         if st.finally_block: self._walk(st.finally_block, new)
         _set_env(env, new)
 
@@ -1414,6 +1565,7 @@ class Engine:
     def judge(self, tree):
         if self._dirty: self._summarize_all()
         self.sinks = []
+        self.unjudged = []
         for path, m in tree.filter(J.MethodDeclaration):
             self._judge_method(m)
         for path, m in tree.filter(J.ConstructorDeclaration):
@@ -1438,10 +1590,13 @@ class Engine:
         # Spring-annotated params, and (on a @*Mapping handler) BARE simple-type params, which Spring
         # auto-binds from the request (implicit @RequestParam). Complex/annotated params stay clean.
         handler = _is_handler(m)
+        exh = _is_exception_handler(m)
         def _src(p):
-            if _typename(p.type) in CLEAN_TYPES: return F
+            if _clean_type(p.type): return F
+            if exh and (_typename(p.type) or "").endswith(("Exception", "Throwable", "Error")):
+                return Z                                  # its message may carry request data: unknown, not clean
             if _is_spring_source(p): return T
-            if handler and not (getattr(p,'annotations',None)) and _typename(p.type) in SIMPLE_TYPES: return T
+            if handler and not exh and not (getattr(p,'annotations',None)) and _typename(p.type) in SIMPLE_TYPES: return T
             return F
         env = {p.name: _src(p) for p in (m.parameters or [])}
         self._rets = None
@@ -1468,10 +1623,13 @@ class Engine:
 
 def analyze(code): return Engine().run(javalang.parse.parse(code))
 UNPARSED = []     # files the last analyze_app could not parse: NOT analysed, NOT clean (introspect lists them)
+# maybe-sinks the last analyze_app did not judge (a Spring String body with no declared content type and an
+# unknown value): NOT judged, NOT clean — introspect prints their count so the silence is visible
+UNJUDGED = []
 
 def analyze_app(paths):
     e=Engine(); trees=[]
-    del UNPARSED[:]
+    del UNPARSED[:]; del UNJUDGED[:]
     for p in paths:
         try: t=javalang.parse.parse(open(p,encoding="utf-8",errors="replace").read())
         except Exception as ex:
@@ -1480,6 +1638,7 @@ def analyze_app(paths):
     out=[]
     for p,t in trees:
         for rec in e.judge(t): out.append((p,)+rec)
+        UNJUDGED.extend((p,) + u for u in e.unjudged)
     return out
 
 if __name__=="__main__":

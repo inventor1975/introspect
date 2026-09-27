@@ -1,5 +1,41 @@
 # java2zfl — calibration
 
+## 2026-09-27 night — blind ROUND 2 (cloud, PR #3) on slice 7, then slice 8 (MEASURED)
+
+A new corpus by new authors who saw neither the analyzer nor round 1 (221 cases, sqli 111 / xss 110;
+cmdi again stopped by the safety filter, not worked around), committed at `4f0624c` before the run.
+**On `4cb8988` (slice 7), blind: TPR 76.7%, FPR 11.8%, 6 decided silences (+6 expect_open)** — sqli
+87.5 / 10.4, xss 64.3 / 13.3. Reproduced here exactly. This is the first honest number AFTER a fix;
+round 1 (54.3 / 15.7 / 32) was a different corpus, so the pair is two measurements, not a growth curve.
+
+Six of the twelve silences were "unknown written as clean" again — each a place I had put in myself:
+`byte[]` read as the numeric scalar `byte`; `getAttribute` catalogued as transparent (an attribute is
+whatever someone stored — now unknown); `unescapeHtml4` kept the credit of the escaper it undoes; an
+`@ExceptionHandler`'s exception parameter read clean (now an entry point, its exception Z). Also fixed:
+`Optional.ofNullable`, getters of a request-bound bean carry the bean's taint. Not modelled, named as
+limits: reflection (`Method.invoke`), view templates (JSP raw EL, Thymeleaf `th:utext`).
+
+The curator's decision on the soft Spring sink (option b): an undeclared-content-type String body
+holding an UNKNOWN value stays unjudged, but is no longer silent — introspect prints
+"N NOT JUDGED — ... NOT 'safe'" (java-sec-code: 62).
+
+Precision (slice 8): StringUtils.isNumeric/isAlphanumeric/.. and the program's own boolean validators
+(`return P.matcher(s).matches()`) are guards; a parse in a try whose catch returns validates; `!(a || b)`
+over one variable validates it in ELSE; a hand-written escaper (replace chain covering < > &) carries a
+family; `.map(Encode::forHtml)`; `c -> SET.contains(c) ? c : "X"` (ternaries narrow by guards, map
+lambdas are evaluated with their argument); collections of numbers are clean. Fixtures f50–f55, all 6
+fail on `4cb8988`; stand 56.
+
+| engine / corpus | round 1 (`9c110c2`) TPR / FPR / silent | round 2 (`4f0624c`) TPR / FPR / silent |
+|---|---|---|
+| `a9695f2` | **54.3 / 15.7 / 32** (blind) | — |
+| `4cb8988` slice 7 | 79.3 / 7.9 / 2 (fitted) | **76.7 / 11.8 / 6** (blind) |
+| slice 8 | 82.6 / 7.9 / 2 (fitted) | 83.3 / 7.5 / 0 (fitted) |
+
+Bold = blind. The fitted rows say only that the fixes hold and did not undo the other round.
+Unchanged by slice 8 (measured on the final engine): OWASP 644/644 0 FP both modes, Juliet 918/0/0, petclinic
+0/0, java-sec-code 7 REFUTED / 20 OPEN (+62 NOT JUDGED listed).
+
 ## 2026-09-27 evening — slice 7: the BLIND corpus (cloud, PR #2) and what it changed (MEASURED)
 
 **The honest number came from outside.** Three fresh cloud sub-agents that had seen neither the code nor the

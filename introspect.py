@@ -129,6 +129,7 @@ def run_language(moddir, files):
                              "ctx": t[3], "disp": _norm(t[4])})
     # files the parser could not read: NOT analysed — they must not pass as clean in silence
     run_language.unparsed = [p for p, _why in getattr(mod, "UNPARSED", [])]
+    run_language.unjudged = [(u[0], u[1]) for u in getattr(mod, "UNJUDGED", [])]
     return findings
 
 
@@ -163,7 +164,8 @@ def main():
             counts[f["disp"]] = counts.get(f["disp"], 0) + 1
         report["languages"][moddir] = {"files": len(files), "counts": counts,
                                        "findings": findings,
-                                       "unparsed": list(getattr(run_language, "unparsed", []))}
+                                       "unparsed": list(getattr(run_language, "unparsed", [])),
+                                       "unjudged": list(getattr(run_language, "unjudged", []))}
 
     total_refuted = sum(v["counts"].get("REFUTED", 0) for v in report["languages"].values())
     report["total_refuted"] = total_refuted
@@ -195,6 +197,9 @@ def _print(report, show_open=False, quiet=False):
                 shown = ", ".join(os.path.relpath(p, report["project"]) for p in v["unparsed"][:5])
                 more = f" (+{len(v['unparsed']) - 5} more)" if len(v["unparsed"]) > 5 else ""
                 print(f"  {'':<8} {len(v['unparsed']):>5} NOT PARSED — not analysed, NOT 'safe': {shown}{more}")
+            if v.get("unjudged"):
+                print(f"  {'':<8} {len(v['unjudged']):>5} NOT JUDGED — a response body of undeclared content type holding "
+                      f"an unknown value (declare `produces` to have them judged), NOT 'safe'")
         for moddir in sorted(skipped):
             s = skipped[moddir]
             # A skip is NOT always a missing parser: a path bug, a timeout or a crash
