@@ -23,8 +23,8 @@ Precision (slice 8): StringUtils.isNumeric/isAlphanumeric/.. and the program's o
 (`return P.matcher(s).matches()`) are guards; a parse in a try whose catch returns validates; `!(a || b)`
 over one variable validates it in ELSE; a hand-written escaper (replace chain covering < > &) carries a
 family; `.map(Encode::forHtml)`; `c -> SET.contains(c) ? c : "X"` (ternaries narrow by guards, map
-lambdas are evaluated with their argument); collections of numbers are clean. Fixtures f50–f55, all 6
-fail on `4cb8988`; stand 56.
+lambdas are evaluated with their argument); collections of numbers are clean. Fixtures f50–f56, all 7
+fail on `4cb8988`; stand 57.
 
 | engine / corpus | round 1 (`9c110c2`) TPR / FPR / silent | round 2 (`4f0624c`) TPR / FPR / silent |
 |---|---|---|

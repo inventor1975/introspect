@@ -64,6 +64,7 @@ EXPECT = {
     "f53_validators.java":     ["REFUTED"],  # isNumeric / own validator / parse-in-try / !(a||b) reset are guards
     "f54_escaper_shapes.java": ["REFUTED"],  # a full replace-chain escaper and .map(Encode::forHtml) are clean
     "f55_optional_whitelist.java": ["REFUTED"],  # ofNullable passes taint; a whitelist inside the map lambda holds
+    "f56_stream_tolist.java":  ["REFUTED"],  # stream.toList() is not Collectors.toList(): it carries the stream
 }
 def main():
     fails=[]

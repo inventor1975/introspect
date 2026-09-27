@@ -7,7 +7,7 @@ names); cross-method and cross-file summaries resolved by class (receiver type, 
 inheritance); guards; context-aware escapers; constant-condition pruning; list/map element models.
 Unknown stays OPEN: a bodiless method, an unknown library call, a value through a field.
 
-Run: `python3 test_java2zfl.py` (56 fixtures + cross-file) ; `python3 java2zfl.py <File.java>`
+Run: `python3 test_java2zfl.py` (57 fixtures + cross-file) ; `python3 java2zfl.py <File.java>`
 Measured: `CALIBRATION.md` — NIST Juliet servlet variants (1 110 cases): 0 misses, 0 false alarms;
 reproduce with `python3 bench/juliet.py <juliet-java/src>`. OWASP Benchmark sqli/cmdi/xss: 644/644, 0 false
 alarms — but tuned on it. BLIND measures (cloud-written corpora, 27.09): round 1 54% found / 16% false alarms;

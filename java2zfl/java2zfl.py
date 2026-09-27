@@ -1197,7 +1197,7 @@ class Engine:
             return v, ty
         if name in NUMERIC_RESULT: return F, None
         if name in CLEAN_FACTORY and not args: return F, RETURNS.get(name)
-        if name in COLLECTORS: return join(*args) if args else F, None
+        if name in COLLECTORS: return join(recv_val, *args), None   # Collectors.toList(): F; stream.toList(): the stream
         if name in TRANSPARENT:
             keep = rtype if (name in ("append", "insert", "format", "printf") and rtype in
                              WRITER_TYPES | {"StringBuilder", "StringBuffer"}) else RETURNS.get(name)
