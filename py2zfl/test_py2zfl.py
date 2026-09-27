@@ -44,6 +44,10 @@ EXPECT = {
     "w04_sql.py":              ["REFUTED","REFUTED"],  # bind params do not clean a tainted text; objects.raw
     "w05_guards.py":           ["REFUTED"],  # isdigit/not in NAMED/fullmatch is None + abort; int() in try
     "w06_templates.py":        ["REFUTED","REFUTED","REFUTED"],  # autoescape off, |safe, escape(quote=False)
+    # slice 6 (2026-09-28 night, from the cloud's blind round 2, PR #6)
+    "w07_sinks_sources2.py":   ["REFUTED","REFUTED","REFUTED"],  # get_json, exec_driver_sql, tempfile prefix, unquote(escape)
+    "w08_helpers.py":          ["REFUTED"],  # call-result receiver; module set guard inside a helper; tuple return; loop guard
+    "w09_annotations.py":      ["REFUTED"],  # UUID param clean; declared-HTML body judged
 }
 def main():
     fails=[]

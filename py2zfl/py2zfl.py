@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import taintjudge
 
 SOURCE_CALLS = {"input"}
-SOURCE_METHS = {"post","json","text","read","form","body"}   # aiohttp + Starlette/FastAPI request methods
+SOURCE_METHS = {"post","json","text","read","form","body","get_json","get_data"}   # aiohttp + Starlette/FastAPI request methods
 SOURCE_ATTRS = {"request.args","request.form","request.values","request.GET","request.POST",
                 "request.data","request.json","request.COOKIES","request.cookies","request.headers","request.files",
                 "request.match_info","request.query","request.rel_url","request.GET",
@@ -39,7 +39,7 @@ SINK_CALLS   = {"os.system":"shell","os.popen":"shell","eval":"code","exec":"cod
                 "Markup":"xss","markupsafe.Markup":"xss","flask.Markup":"xss",
                 }
 SUBPROCESS   = {"subprocess.call","subprocess.run","subprocess.Popen","subprocess.check_output"}
-SQL_METHODS  = {"execute","executemany","executescript"}   # cursor.execute by METHOD NAME (any receiver)
+SQL_METHODS  = {"execute","executemany","executescript","exec_driver_sql"}   # cursor.execute by METHOD NAME (any receiver)
 # values that cannot carry an injection payload whatever went in
 CLEAN_FN     = {"int","float","bool","len","hash","id","abs","round","ord","isinstance","callable"}
 # CONTEXT-AWARE escapers: clean for their own sink context only, transparent for every other
@@ -50,7 +50,13 @@ CTX_SANITIZERS = {"shlex.quote":"shell","pipes.quote":"shell",
                   "os.path.basename":"file","basename":"file",
                   "urllib.parse.quote":"xss","quote":"xss","urllib.parse.quote_plus":"xss","quote_plus":"xss"}
 SANITIZERS   = set(CLEAN_FN)          # kept for callers that read the old name
-UNESCAPERS = {"html.unescape", "unescape", "markupsafe.Markup.unescape", "urllib.parse.unquote_plus_unescape"}
+# decoding AFTER an escaper undoes it: unquote(escape(x)) turns %3C back into <
+UNESCAPERS = {"html.unescape", "unescape", "markupsafe.Markup.unescape", "urllib.parse.unquote",
+              "urllib.parse.unquote_plus", "urllib.parse.unquote_to_bytes"}
+TEMPFILE_FN = {"tempfile.NamedTemporaryFile", "tempfile.TemporaryFile", "tempfile.mkstemp", "tempfile.mkdtemp",
+               "tempfile.TemporaryDirectory", "tempfile.SpooledTemporaryFile"}
+CLEAN_ANNOTATIONS = {"int", "float", "bool", "UUID", "uuid.UUID", "Decimal", "datetime", "date", "time",
+                     "conint", "confloat", "PositiveInt", "NonNegativeInt", "StrictInt", "StrictBool"}
 TRANSPARENT_FN = {"Context","RequestContext","str","bytes","bytearray","base64.b64decode","base64.b64encode",
                 "base64.urlsafe_b64decode","base64.standard_b64decode","urllib.parse.unquote",
                 "urllib.parse.unquote_plus","urllib.parse.unquote_to_bytes","json.loads"}
@@ -266,6 +272,8 @@ class Engine:
         self.unjudged = []           # (line, sink) of maybe-sinks deliberately not judged for an unknown value
         self.autoesc = {}            # names bound to a jinja2 Environment: autoescape on?
         self.pathvars = set()        # locals bound to a pathlib Path
+        self.owner_tree = {}         # id(FunctionDef) -> its module (summaries need that file's context)
+        self._rets_t = []
         self.str_consts = {}         # module-level names bound once to a string literal
         self.markupvars = set()      # names bound to a markupsafe.Markup template
         self.tmplvars = {}           # names bound to a compiled template: autoescape on?
@@ -273,6 +281,8 @@ class Engine:
     # ---------- pass 1: register; summaries to a fixpoint once everything is registered ----------
     def index(self, tree):
         """Pass 1 (global): register functions/methods/classes across ALL files."""
+        for n in ast.walk(tree):
+            if isinstance(n, FUNC): self.owner_tree[id(n)] = tree
         for n in tree.body:
             if isinstance(n, FUNC):
                 self.funcs.setdefault(n.name, []).append(n)
@@ -293,7 +303,10 @@ class Engine:
         self._dirty = False                      # summaries read summaries: no re-entry
         for _ in range(4):
             before = dict(self.fsum)
-            for fn in self._all_defs(): self.fsum[id(fn)] = self._summ_of(fn)
+            for fn in self._all_defs():
+                t = self.owner_tree.get(id(fn))
+                if t is not None: self._file_context(t)     # imports, constant sets, templates of ITS file
+                self.fsum[id(fn)] = self._summ_of(fn)
             if self.fsum == before: break
         self.summaries = {n: self.fsum[id(ds[-1])] for n, ds in self.funcs.items()}
         self.msums = {(c, m): self.fsum[id(fn)] for c, ms in self.classes.items() for m, fn in ms.items()}
@@ -303,23 +316,29 @@ class Engine:
         """Walk the body with every parameter clean (BASE: what the function returns / sinks on its own),
         then once per parameter with that one T. Returns are captured where they happen."""
         names, npos, va, kw = _params(fn)
-        saved = (self.sinks, self.vtype, self.cur, self._rets)
+        saved = (self.sinks, self.vtype, self.cur, self._rets, self._rets_t)
         self.cur = self.owner.get(id(fn))
         def run(env):
-            self.sinks, self.vtype, self._rets = [], {}, []
+            self.sinks, self.vtype, self._rets, self._rets_t = [], {}, [], []
             self._walk(fn.body, env, report_earned=True)
             got = {}
             for (l, c, ctx, d, _w) in self.sinks:
                 k = (l, c, ctx)
                 if _DRANK[d] > _DRANK.get(got.get(k), -1): got[k] = d
-            return (join(*self._rets) if self._rets else F), got
+            rt = self._rets_t
+            tup = None                                      # every return a tuple of one length: per position
+            if rt and all(isinstance(x, list) for x in rt) and len({len(x) for x in rt}) == 1:
+                tup = [join(*[x[k] for x in rt]) for k in range(len(rt[0]))]
+            return (join(*self._rets) if self._rets else F), got, tup
         try:
-            base, bs = run({p: F for p in names})
+            base, bs, base_t = run({p: F for p in names})
             summ = {"params": names, "npos": npos, "vararg": va, "kwarg": kw,
-                    "base": base, "ret": [], "sinks": {}, "passes": set()}
+                    "base": base, "ret": [], "sinks": {}, "passes": set(), "ret_t": None}
+            per_t = []
             for i, p in enumerate(names):
                 env = {q: F for q in names}; env[p] = T
-                r, ps = run(env)
+                r, ps, pt = run(env)
+                per_t.append(pt)
                 summ["ret"].append(r)
                 if _at(r, None) == T: summ["passes"].add(i)
                 eff = {}
@@ -327,9 +346,11 @@ class Engine:
                     if _DRANK[d] > _DRANK.get(bs.get(k), 0) and _DRANK[d] > _DRANK.get(eff.get(k[2]), -1):
                         eff[k[2]] = d
                 if eff: summ["sinks"][i] = eff
+            if base_t is not None and all(pt is not None and len(pt) == len(base_t) for pt in per_t):
+                summ["ret_t"] = {"base": base_t, "param": per_t}
             return summ
         finally:
-            self.sinks, self.vtype, self.cur, self._rets = saved
+            self.sinks, self.vtype, self.cur, self._rets, self._rets_t = saved
 
     def _bind(self, s, call, env, off=0):
         """(param index, argument value) for every argument of a call; None index = no parameter takes it."""
@@ -375,6 +396,14 @@ class Engine:
                 return [self.fsum.get(id(self.classes[cls][f.attr]))], 1
             if recv in self.classes and f.attr in self.classes[recv]:
                 return [self.fsum.get(id(self.classes[recv][f.attr]))], 0
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Call) and f.attr not in PATH_METHODS \
+                and f.attr not in {"save", "raw", "extra", "extractall", "extract"}:
+            # repository().search(q): a method on a CALL's result resolves by name when only a few user classes
+            # define it (a plain variable of unknown type is usually a library object: Path, a cursor)
+            if f.attr not in TRANSPARENT_METH | PURE_CLEAN_METH | MUTATORS | SQL_METHODS | {"format", "join", "get"}:
+                owners = [c for c, ms in self.classes.items() if f.attr in ms]
+                if 0 < len(owners) <= 3:
+                    return [self.fsum.get(id(self.classes[c][f.attr])) for c in owners], 1
         return None, 0
 
     # ---------- statement stream WITH guard narrowing ----------
@@ -412,7 +441,7 @@ class Engine:
         if isinstance(t, ast.Compare) and len(t.ops) == 1 and isinstance(t.left, ast.Name) \
                 and isinstance(t.ops[0], (ast.In, ast.NotIn)):
             c = t.comparators[0]
-            if literal_collection(c) or (isinstance(c, ast.Name) and c.id in self.const_coll):
+            if literal_collection(c) or (dotted(c) in self.const_coll):
                 return (t.left.id, neg != isinstance(t.ops[0], ast.NotIn))
         if isinstance(t, ast.Call) and isinstance(t.func, ast.Attribute):
             if t.func.attr in VALIDATING_METHODS and isinstance(t.func.value, ast.Name) and not t.args:
@@ -456,6 +485,8 @@ class Engine:
 
     def _sink_ctx(self, call):
         callee = dotted(call.func)
+        canon = self._canon(callee)
+        if canon in SINK_CALLS: callee = canon
         if callee in SINK_CALLS: return SINK_CALLS[callee]
         last = (callee or "").split(".")[-1]
         if last in XSS_RESPONSE:                               # Response(body, mimetype=..) / HTMLResponse(..)
@@ -527,6 +558,10 @@ class Engine:
             return self.taint(node.value, env)
         if isinstance(node, ast.Call):
             callee=dotted(node.func)
+            canon = self._canon(callee)
+            if canon != callee and (canon in CLEAN_FN or canon in CTX_SANITIZERS or canon in TRANSPARENT_FN
+                                    or canon in UNESCAPERS or canon in TRANSPARENT_ARG):
+                callee = canon                           # from urllib.parse import unquote
             if callee in CLEAN_FN: return F
             if callee in CTX_SANITIZERS and not (isinstance(node.func, ast.Name) and node.func.id in self.funcs):
                 fam = ESC_FAMILY.get(callee)
@@ -646,7 +681,19 @@ class Engine:
                 return args if (unsafe or not auto) else _clean_for(args, "xss")
         return None
 
+    _CTX_FIELDS = ("imports", "const_coll", "autoesc", "str_consts", "markupvars", "tmplvars", "int_params", "fw")
+
     def _file_context(self, tree):
+        """The file's context, computed once per module (summaries ask for it once per function per pass)."""
+        memo = self.__dict__.setdefault("_ctx_memo", {})
+        got = memo.get(id(tree))
+        if got is not None and got[0] is tree:
+            for k, v in got[1].items(): setattr(self, k, v)
+            return
+        self._file_context0(tree)
+        memo[id(tree)] = (tree, {k: getattr(self, k) for k in self._CTX_FIELDS})
+
+    def _file_context0(self, tree):
         self.imports, self.const_coll, self.autoesc = {}, set(), {}
         self.str_consts = {}
         for st in tree.body:                                   # PAGE = "<p>{{ bio|safe }}</p>"
@@ -701,6 +748,15 @@ class Engine:
                 ints = set(_re.findall(r"<(?:int|float|uuid):(\w+)>", n.args[0].value))
                 view = n.args[1] if len(n.args) > 1 else None
                 if ints and isinstance(view, ast.Name): self.int_params.setdefault(view.id, set()).update(ints)
+        for cd in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:   # pages = ("a", "b") on a class
+            for st in cd.body:
+                v = st.value if isinstance(st, (ast.Assign, ast.AnnAssign)) else None
+                if isinstance(v, ast.Call) and dotted(v.func) in ("frozenset", "set", "tuple", "list") and v.args:
+                    v = v.args[0]                            # pages = frozenset({"terms", "privacy"})
+                if isinstance(st, ast.Assign) and isinstance(v, (ast.Tuple, ast.List, ast.Set, ast.Dict)) and \
+                        all(isinstance(e, ast.Constant) for e in (v.elts if not isinstance(v, ast.Dict) else v.keys)):
+                    for t in st.targets:
+                        if isinstance(t, ast.Name): self.const_coll |= {"self." + t.id, cd.name + "." + t.id}
         mods = set(m.split(".")[0] for m in self.imports.values())
         self.fw = "fastapi" if "fastapi" in mods else ("flask" if "flask" in mods else
                   ("django" if "django" in mods or "rest_framework" in mods else ("aiohttp" if "aiohttp" in mods else None)))
@@ -738,7 +794,8 @@ class Engine:
                 if (ann and ann.split(".")[-1] == "Literal") or (isinstance(x.annotation, ast.Subscript) and
                             (dotted(x.annotation.value) or "").split(".")[-1] == "Literal"):
                     continue                                      # Literal["a", "b"]: validated by the framework
-                env[x.arg] = F if (ann in ("int", "float", "bool") or (ann or "").startswith(("int", "float"))) else T
+                env[x.arg] = F if ((ann or "").split(".")[-1] in CLEAN_ANNOTATIONS or
+                                   (ann or "").startswith(("int", "float"))) else T
             if self.fw == "fastapi":
                 kws = {k.arg: dotted(k.value) for k in (route.keywords if isinstance(route, ast.Call) else [])}
                 html_body = (kws.get("response_class") or "").split(".")[-1] == "HTMLResponse"
@@ -789,18 +846,27 @@ class Engine:
                     if l == T and not all(cx in {c_ for e in s["sinks"].values() for c_ in e} for s in known):
                         l = Z
                     label = f"{name}()->sink" if isinstance(c.func, ast.Name) else \
-                        f"{(self.vtype.get(c.func.value.id) or self.cur or c.func.value.id)}.{c.func.attr}()->sink"
+                        f"{(self.vtype.get(getattr(c.func.value, 'id', None)) or self.cur or dotted(c.func.value) or '?')}.{c.func.attr}()->sink"
                     self._judge(c, label, cx, l, parameterised=False, report_earned=report_earned)
                 if isinstance(c.func, ast.Attribute): continue     # a resolved method is not a bare-name sink
             callee=dotted(c.func); ctx=self._sink_ctx(c)
             first = c.args[0] if c.args else next((k.value for k in c.keywords
-                                                   if k.arg in ("query", "sql", "operation", "content", "body")), None)
+                                                   if k.arg in ("query", "sql", "operation", "content", "body",
+                                                                "text", "html")), None)
             if ctx and first is not None:
                 # a query with bind parameters is still injectable when its TEXT is tainted (was: any second
                 # argument -> "parameterised" -> clean, an unverified clean)
                 self._judge(c, callee, ctx, self.taint(first, env), False, report_earned)
                 continue
             self._more_sinks(c, callee, env, report_earned)
+
+    def _canon(self, callee):
+        """unquote -> urllib.parse.unquote when imported so: catalogue names are the dotted ones."""
+        if not callee: return callee
+        head, _, rest = callee.partition(".")
+        full = self.imports.get(head)
+        if not full: return callee
+        return full + ("." + rest if rest else "")
 
     def _is_markup(self, node):
         return isinstance(node, ast.Call) and (dotted(node.func) or "").split(".")[-1] == "Markup" or \
@@ -815,6 +881,10 @@ class Engine:
     def _more_sinks(self, c, callee, env, report_earned):
         """File, template and ORM sinks the blind corpus showed missing (2026-09-27)."""
         callee = callee or ""
+        if self._canon(callee) in TEMPFILE_FN or callee in TEMPFILE_FN:      # prefix="../x" leaves dir
+            vals = [self.taint(k.value, env) for k in c.keywords if k.arg in ("prefix", "suffix", "dir")]
+            if vals: self._judge(c, callee, "file", join(*vals), False, report_earned)
+            return
         for name, idx in FILE_FN.items():
             if callee == name or (("." not in name) and callee.split(".")[-1] == name):
                 vals = [self.taint(c.args[i], env) for i in idx if i < len(c.args)]
@@ -844,6 +914,19 @@ class Engine:
             if cls: self.vtype[tgt.id] = cls
             elif tgt.id in self.vtype: del self.vtype[tgt.id]
         elif isinstance(tgt, (ast.Tuple, ast.List)):
+            if isinstance(val, ast.Call) and not any(isinstance(e, ast.Starred) for e in tgt.elts):
+                sums, off = self._callee_sums(val)            # sql, params = build(..): per position
+                if sums and all(x is not None and x.get("ret_t") and len(x["ret_t"]["base"]) == len(tgt.elts)
+                                for x in sums):
+                    for k, e in enumerate(tgt.elts):
+                        vals = []
+                        for x in sums:
+                            v = x["ret_t"]["base"][k]
+                            for i, a in self._bind(x, val, env, off):
+                                if i is not None: v = join(v, _compose(a, x["ret_t"]["param"][i][k]))
+                            vals.append(v)
+                        self._assign(e, vals[0] if all(v == vals[0] for v in vals) else Z, env)
+                    return
             if isinstance(val, (ast.Tuple, ast.List)) and len(val.elts) == len(tgt.elts) \
                     and not any(isinstance(e, ast.Starred) for e in tgt.elts):
                 for e, v in zip(tgt.elts, val.elts): self._assign(e, self.taint(v, env), env, v)   # a, b = x, 1
@@ -948,6 +1031,8 @@ class Engine:
                 if r is not None: env[r] = join(env.get(r, Z), sv)
             elif isinstance(st, ast.Return) and self._rets is not None:
                 self._rets.append(self.taint(st.value, env) if st.value is not None else F)
+                self._rets_t.append([self.taint(e, env) for e in st.value.elts]
+                                    if isinstance(st.value, ast.Tuple) else None)
             elif isinstance(st, ast.Return) and self._ret_sink and st.value is not None:
                 body = st.value.elts[0] if isinstance(st.value, ast.Tuple) and st.value.elts else st.value
                 built = isinstance(body, ast.Call) and (dotted(body.func) or "").split(".")[-1] in RESPONSE_BUILDERS \
@@ -966,6 +1051,12 @@ class Engine:
 
     def _loop(self, st, env, report_earned):
         """Zero or more iterations: join(before, after one, after two)."""
+        checked = []
+        if isinstance(st, ast.For) and isinstance(st.target, ast.Name) and isinstance(st.iter, (ast.Tuple, ast.List)) \
+                and all(isinstance(e, ast.Name) for e in st.iter.elts) and st.body and isinstance(st.body[0], ast.If):
+            _pos, neg = self._guards(st.body[0].test)
+            if st.target.id in neg and self._terminates(st.body[0].body):
+                checked = [e.id for e in st.iter.elts]           # each one passed the check or we left
         def head(e):
             if isinstance(st, ast.While):
                 self._sinks_in(st.test, e, report_earned); self._effects(st.test, e)
@@ -977,6 +1068,7 @@ class Engine:
         e2 = _ejoin(e0, e1)
         e3 = dict(e2); head(e3); self._walk(st.body, e3, report_earned)
         out = _ejoin(e2, e3)
+        for nm in checked: out[nm] = F
         self._walk(st.orelse, out, report_earned)
         _set_env(env, out)
 
