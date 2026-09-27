@@ -29,6 +29,14 @@ EXPECT = {
     "u12_escape_ctx.js":    ["REFUTED"],   # an html escaper is clean for xss only
     "u13_field_store.js":   ["OPEN"],      # a field store makes the object Z, not T
     "u14_slice_index.js":   [],            # slice's argument is an index, not content
+    # slice 4 (2026-09-27, from the cloud's blind corpus, PR #4)
+    "y01_file_sinks.js":    ["REFUTED","REFUTED","REFUTED"],  # fs imported by name, sendFile (root confines), koa-send
+    "y02_koa_body.js":      ["REFUTED"],   # ctx.body = html; text/plain+nosniff and JSON are not HTML
+    "y03_subcontext.js":    ["REFUTED"],   # escapeHtml in href does not stop javascript:
+    "y04_guards.js":        ["REFUTED"],   # reset-to-constant and anchored .test are guards; unanchored is not
+    "y05_callbacks.js":     ["REFUTED"],   # filter(guard), map(escaper), map(-> array) as JSON; map(concat) is not
+    "y06_sources.ts":       ["REFUTED","REFUTED","OPEN"],  # @Query(), destructured req, req.<custom> unknown
+    "y07_class_scope.ts":   ["REFUTED"],   # class-property handler; a block-scoped const does not leak out
 }
 def main():
     fails = []

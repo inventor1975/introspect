@@ -30,9 +30,21 @@ SHELL_M = {"exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync",
 # RegExp.prototype.exec, NOT command execution (the bare-method-name collision lesson).
 CHILD_PROC_BASES = {"cp", "child_process", "childProcess", "child", "proc", "execa", "shelljs", "sh"}
 SQL_M = {"query", "execute"}                          # db.query(sql) (call form; req.query is a member, not a call)
-XSS_M = {"send", "write", "end", "render", "sendfile", "sendFile"}   # res.<m>(x)
+XSS_M = {"send", "write", "end"}                     # res.<m>(x); render judges its data; sendFile is a file sink
 FILE_M = {"readFile", "readFileSync", "writeFile", "writeFileSync",
-          "createReadStream", "createWriteStream", "appendFile", "appendFileSync"}
+          "createReadStream", "createWriteStream", "appendFile", "appendFileSync",
+          "unlink", "unlinkSync", "rm", "rmSync", "rmdir", "rmdirSync", "copyFile", "copyFileSync", "rename",
+          "renameSync", "readdir", "readdirSync", "stat", "statSync", "open", "openSync", "mkdir", "mkdirSync",
+          "access", "accessSync", "cp", "cpSync", "readlink", "symlink", "truncate"}
+FS_MODULES = {"fs", "node:fs", "fs/promises", "node:fs/promises", "fs-extra", "graceful-fs"}
+ESCAPER_MODULES = {"escape-html": "html_full", "he": "html_full", "html-escaper": "html_full",
+                   "lodash.escape": "html_full", "xss": "html_full"}
+RESPONSE_FILE_M = {"sendFile", "download", "sendfile"}   # res.sendFile(path): a path from the request = traversal
+# request properties: attacker-controlled / framework-set clean / anything else a middleware set: unknown
+REQ_CLEAN_PROPS = {"method", "route", "app", "res", "xhr", "secure", "fresh", "stale", "baseUrl"}
+REQ_EXTRA_SOURCES = {"url", "path", "ip", "ips", "subdomains", "files", "file", "signedCookies", "host", "href",
+                     "querystring", "search", "request"}
+TERMINATING_CALLS = {"throw", "exit", "redirect"}
 FILE_OBJS = {"fs", "fsp", "fsPromises", "fse"}
 # SSRF: outbound-request clients. member form gated on a known client base (avoids req.get() collision);
 # bare-ident form for fetch()/axios()/request(url)/got()/superagent().
@@ -44,7 +56,10 @@ CODE_IDENTS = {"eval"}
 CONV_IDENTS = {"String", "Number", "Boolean"}        # String(x) conversion: transparent
 # context-aware escapers: neutralise ONE context, transparent for others
 CTX_SANITIZERS = {"escape": "xss", "escapeHtml": "xss", "escapeHTML": "xss", "sanitize": "xss",
-                  "encode": "xss", "encodeURIComponent": "url", "encodeURI": "url"}
+                  "encode": "xss", "encodeURIComponent": "xss", "encodeURI": "url",
+                  "basename": "file"}                  # path.basename(x): no directory part survives
+ESC_FAMILY = {"escape": "html_full", "escapeHtml": "html_full", "escapeHTML": "html_full", "sanitize": "html_full",
+              "encode": "html_full", "encodeURIComponent": "url"}
 
 
 def _prop_name(member):
@@ -52,8 +67,8 @@ def _prop_name(member):
     return p.get("name") if isinstance(p, dict) else None
 
 def _base_ident(n):
-    while isinstance(n, dict) and n.get("k") == "member":
-        n = n.get("object", {})
+    while isinstance(n, dict) and n.get("k") in ("member", "call"):     # res.status(400).send -> res
+        n = n.get("object", {}) if n.get("k") == "member" else n.get("callee", {})
     return n.get("name") if isinstance(n, dict) and n.get("k") == "ident" else None
 
 def _path(n):
@@ -108,8 +123,113 @@ def join(*vs):
     if not vs: return F
     return _lj(*vs) if all(isinstance(v, str) for v in vs) else _pc(lambda *ls: _lj(*ls), *vs)
 def _compose(a, r): return _pc(lambda x, y: F if x == F else (y if x == T else (Z if y != F else F)), a, r)
-def _clean_for(v, ctx):
-    d, over = _parts(v); over[ctx] = F; return _mk(d, over)
+def _clean_for(v, ctx, fam=None):
+    d, over = _parts(v); over[ctx] = F
+    if fam: over["~" + fam] = F
+    return _mk(d, over)
+
+# ---- HTML sub-contexts: the same rules as java2zfl
+CTX_ALLOWED = {"text":      {"html_nosq", "html_full", "html_text", "html_attr", "esapi_attr", "url", "strip"},
+               "dq_attr":   {"html_nosq", "html_full", "html_attr", "esapi_attr", "url", "strip"},
+               "sq_attr":   {"html_full", "html_attr", "esapi_attr", "url", "strip"},
+               "uq_attr":   {"esapi_attr", "url"},
+               "url_start": {"url"},
+               "js_str":    {"js"},
+               "event": set(), "tag": set(), "css": set(), "js": set()}
+URL_ATTRS = {"href", "src", "action", "formaction", "background", "poster", "data", "codebase", "cite",
+             "xlink:href", "srcset", "ping", "manifest"}
+def _html_ctx(prefix):
+    """The HTML sub-context at the end of the text emitted so far."""
+    p = prefix[-600:].lower()
+    so, sc = p.rfind("<script"), p.rfind("</script")
+    if so > sc:                                        # inside <script>: in a JS string or bare code
+        body = p[p.find(">", so) + 1:] if p.find(">", so) >= 0 else ""
+        q = None; i = 0
+        while i < len(body):
+            ch = body[i]
+            if ch == "\\": i += 2; continue
+            if q is None and ch in "'\"`": q = ch
+            elif q == ch: q = None
+            i += 1
+        if not q: return "js"
+        import re as _re2
+        before = body[:body.rfind(q)] if q in body else body
+        if _re2.search(r"(location(\.href)?|\.href|\.src|\.action)\s*=\s*$|(window\.open|location\.(assign|replace))\s*\(\s*$",
+                       before.rstrip()):
+            return "url_start"                        # a JS string that becomes a URL: javascript: survives
+        return "js_str"
+    st, stc = p.rfind("<style"), p.rfind("</style")
+    if st > stc: return "css"
+    lt, gt = p.rfind("<"), p.rfind(">")
+    if lt <= gt: return "text"
+    tag = p[lt + 1:]
+    q = None; name = ""; start = 0; i = 0
+    import re as _re
+    while i < len(tag):
+        ch = tag[i]
+        if q is None and ch in "'\"":
+            m = _re.search(r"([\w:-]+)\s*=\s*$", tag[:i])
+            name = m.group(1) if m else ""; q = ch; start = i + 1
+        elif q == ch: q = None
+        i += 1
+    if q is None:
+        return "uq_attr" if _re.search(r"=\s*$", tag) else "tag"
+    if name.startswith("on"): return "event"
+    if name == "style": return "css"
+    if name in URL_ATTRS and tag[start:].strip() == "": return "url_start"
+    return "dq_attr" if q == '"' else "sq_attr"
+
+def _adjust(v, prefix):
+    """An escaped value keeps its xss credit only where its escaper family is safe."""
+    if isinstance(v, str) or _at(v, "xss") != F: return v
+    d, over = _parts(v)
+    if d == F: return v
+    fams = {k[1:] for k, l in over.items() if k.startswith("~") and l == F}
+    if fams & CTX_ALLOWED.get(_html_ctx(prefix), set()): return v
+    over["xss"] = d                                    # wrong sub-context: the escaper does not protect here
+    for k in [k for k in over if k.startswith("~")]: del over[k]
+    return _mk(d, over)
+
+
+# ---------------------------------------------------------------- AST helpers
+def _is_spring_source(param):
+    return any(_anno(a) in SPRING_SOURCES for a in (getattr(param,'annotations',None) or []))
+
+for _c in ("js", "js_str", "text"): CTX_ALLOWED[_c] = set(CTX_ALLOWED[_c]) | {"js_json"}   # JSON with <>& as \\u..
+CTX_ALLOWED["text"] = set(CTX_ALLOWED["text"]) | {"strip"}
+TEMPLATE_LIBS = {"Handlebars", "handlebars", "hbs", "pug", "ejs", "Mustache", "nunjucks"}
+
+def _kept_by_strip(pattern):
+    """What a [^...] (+) strip leaves: \\w \\d \\s understood; None if not that shape."""
+    import re as _re
+    m = _re.fullmatch(r"\[\^([^\]]+)\][+*]?", pattern or "")
+    if not m: return None
+    body, keep, i = m.group(1), set(), 0
+    while i < len(body):
+        c = body[i]
+        if c == "\\" and i + 1 < len(body):
+            nx = body[i + 1]
+            keep |= {"w": set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"),
+                     "d": set("0123456789"), "s": set(" \t\n\r")}.get(nx, {nx}); i += 2; continue
+        if i + 2 < len(body) and body[i + 1] == "-":
+            keep |= {chr(x) for x in range(ord(c), ord(body[i + 2]) + 1)}; i += 3; continue
+        keep.add(c); i += 1
+    return keep
+
+def _anchored(pattern):
+    p = pattern or ""
+    return p.startswith("^") and (p.endswith("$") or p.endswith("\\z"))
+
+def _render(n):
+    """The constant text an expression contributes (unknown pieces -> NUL)."""
+    if isinstance(n, dict):
+        if n.get("k") == "lit" and n.get("kind") == "STRING": return str(n.get("value", ""))
+        if n.get("k") == "bin" and n.get("op") == "+": return _render(n.get("x")) + _render(n.get("y"))
+        if n.get("k") == "template":
+            q = n.get("quasis") or []
+            return "\x00".join(q) if q else "\x00"
+    return "\x00"
+
 def _ejoin(*envs):
     out, keys = {}, set()
     for e in envs: keys |= set(e)
@@ -126,13 +246,24 @@ class Engine:
         self._rets = None
         self._esc = []
         self._dirty = False
+        self.fs_objs, self.fs_funcs, self.escapers = set(), {}, {}   # per file, from imports / require
+        self.owner_tree = {}
+        self.fidmap, self.regexes, self.tmpl_fns, self.top_names, self.koa_send = {}, {}, set(), set(), set()
+        self._nonhtml = None
+        self.unjudged = []
 
     def _join(self, a, b): return join(a, b)
 
     def _terminates(self, body):
         if isinstance(body, list) and body:
             last = body[-1]
-            return isinstance(last, dict) and last.get("k") in ("return", "throw")
+            if isinstance(last, dict) and last.get("k") in ("return", "throw", "break", "continue"): return True
+            if isinstance(last, dict) and last.get("k") == "exprstmt":
+                x = last.get("x") or {}
+                if x.get("k") == "await": x = x.get("x") or {}
+                if x.get("k") == "call" and _callee_name(x.get("callee")) in TERMINATING_CALLS \
+                        and _base_ident(x.get("callee")) in REQUEST_NAMES | {"process", "ctx"}:
+                    return True                          # ctx.throw(400) / process.exit()
         return False
 
     def _guard(self, test):
@@ -149,9 +280,13 @@ class Engine:
         if isinstance(n, dict) and n.get("k") == "call":
             callee = n.get("callee", {}); args = n.get("args", [])
             if isinstance(callee, dict) and callee.get("k") == "member" \
-                    and _prop_name(callee) in ("includes", "has") and args \
+                    and _prop_name(callee) in ("includes", "has", "test") and args \
                     and isinstance(args[0], dict) and args[0].get("k") == "ident":
-                return (args[0].get("name"), neg)
+                if _prop_name(callee) == "test":             # only an ANCHORED pattern validates the whole value
+                    r = callee.get("object") or {}
+                    pat = r.get("value") if r.get("k") == "lit" else self.regexes.get(r.get("name"))
+                    if not _anchored(pat): return (None, False)
+                return (args[0].get("name"), neg)            # ALLOWED.has(x) / /^[a-z]+$/.test(x)
         return (None, False)
 
     # ---------- taint ----------
@@ -164,8 +299,18 @@ class Engine:
             if n.get("op") in ("==", "===", "!=", "!==", "<", ">", "<=", ">=", "instanceof", "in",
                                "-", "*", "/", "%", "**", "&", "|", "^", "<<", ">>", ">>>"):
                 return F                                  # a boolean or a number
-            return join(self.taint(n.get("x"), env), self.taint(n.get("y"), env))   # + && || ??
-        if k == "template": return join(*[self.taint(e, env) for e in n.get("exprs", [])])
+            if n.get("op") == "+":                        # "<a href='" + esc(x): judged in its sub-context
+                l = self.taint(n.get("x"), env)
+                if not (isinstance(n.get("x"), dict) and n["x"].get("k") == "bin" and n["x"].get("op") == "+"):
+                    l = _adjust(l, "")
+                return join(l, _adjust(self.taint(n.get("y"), env), _render(n.get("x"))))
+            return join(self.taint(n.get("x"), env), self.taint(n.get("y"), env))   # && || ??
+        if k == "template":
+            q, out, pre = n.get("quasis") or [], [], ""
+            for i, e in enumerate(n.get("exprs", [])):
+                pre += q[i] if i < len(q) else ""
+                out.append(_adjust(self.taint(e, env), pre)); pre += "\x00"
+            return join(*out)
         if k == "await": return self.taint(n.get("x"), env)
         if k == "seq": return self.taint((n.get("exprs") or [{}])[-1], env)
         if k == "cond": return join(self.taint(n.get("x"), env), self.taint(n.get("y"), env))
@@ -177,10 +322,76 @@ class Engine:
             p = _path(n)
             if p is not None and p in env: return env[p]      # a field this code stored into
             if _prop_name(n) in REQ_SOURCE_PROPS and _base_ident(n) in REQUEST_NAMES: return T
+            obj = n.get("object", {})
+            if isinstance(obj, dict) and obj.get("k") == "ident" and obj.get("name") in REQUEST_NAMES \
+                    and not n.get("computed"):
+                pn = _prop_name(n)
+                if pn in REQ_EXTRA_SOURCES: return T
+                if pn in REQ_CLEAN_PROPS: return F
+                return Z                                  # req.category: set by some middleware — unknown
             if _prop_name(n) == "length" and not n.get("computed"): return F
             return self.taint(n.get("object"), env)      # propagate: req.query.name -> object req.query = T
         if k in ("call", "new"): return self._call_taint(n, env)
         return Z                                          # funcref, other, anything not modelled: unknown
+
+    def _callback_value(self, fid, arg, env):
+        fn = self.fidmap.get(fid)
+        if not fn: return Z
+        e = dict(env)
+        ps = fn.get("params") or []
+        for i, p in enumerate(ps):
+            if p: e[p] = arg if i == 0 else Z
+        saved = (self.sinks, self._rets)
+        self.sinks, self._rets = [], []
+        try:
+            self._walk(fn.get("body"), e)
+            return join(*self._rets) if self._rets else F
+        finally:
+            self.sinks, self._rets = saved
+
+    def _json_map(self, n):
+        """xs.map(cb) whose callback returns only array/object literals: the result is JSON when sent."""
+        if not (isinstance(n, dict) and n.get("k") == "call" and _callee_name(n.get("callee")) in ("map", "flatMap")):
+            return False
+        a = n.get("args") or []
+        fn = self.fidmap.get(a[0].get("fid")) if a and a[0].get("k") == "funcref" else None
+        rets = [st for st in self._iter_stmts((fn or {}).get("body"))
+                if isinstance(st, dict) and st.get("k") == "return"]
+        return bool(rets) and all((r.get("argument") or {}).get("k") in ("array", "object") for r in rets)
+
+    def _callback_guards(self, fid):
+        fn = self.fidmap.get(fid)
+        if not fn or len(fn.get("body") or []) != 1 or fn["body"][0].get("k") != "return": return False
+        var, neg = self._guard(fn["body"][0].get("argument"))
+        return bool(var) and not neg and var == (fn.get("params") or [None])[0]
+
+    def _replace_chain(self, n):
+        chain = []
+        while isinstance(n, dict) and n.get("k") == "call" and isinstance(n.get("callee"), dict) \
+                and n["callee"].get("k") == "member" and _prop_name(n["callee"]) in ("replace", "replaceAll"):
+            chain.append(n); n = n["callee"].get("object")
+        return chain, n
+
+    def _replace_family(self, n):
+        """A hand-written HTML escaper: >= 3 replace calls mapping < > & to entities."""
+        chain, _ = self._replace_chain(n)
+        if len(chain) < 3: return None
+        m = {}
+        for c in chain:
+            a = c.get("args", [])
+            if len(a) < 2 or a[0].get("k") != "lit" or a[1].get("k") != "lit": return None
+            key = str(a[0].get("value", "")).replace("\\", "")
+            val = str(a[1].get("value", ""))
+            for ch in "<>&\"'":
+                if key in (ch, "[" + ch + "]"): m[ch] = val
+        if all(m.get(ch, "").lower().startswith("\\u") for ch in "<>&"): return "js_json"   # JSON in <script>
+        if not all(m.get(ch, "").startswith("&") for ch in "<>&"): return None
+        dq, sq = m.get('"', "").startswith("&"), m.get("'", "").startswith("&")
+        return "html_full" if (dq and sq) else ("html_nosq" if dq else "html_text")
+
+    def _replace_base(self, n, env):
+        _, base = self._replace_chain(n)
+        return self.taint(base, env)
 
     def _is_source(self, call):
         callee = call.get("callee", {})
@@ -208,11 +419,42 @@ class Engine:
         callee = n.get("callee", {}); args = n.get("args", [])
         if n.get("k") == "call" and self._is_source(n): return T
         cn = _callee_name(callee)
+        if callee.get("k") == "ident" and cn in self.tmpl_fns:            # a compiled, escaping template
+            return _clean_for(join(*[self.taint(a, env) for a in args]), "xss", "html_full")
+        if callee.get("k") == "ident" and (cn in env or cn in self.top_names) and cn not in self.escapers:
+            return Z                                      # a local binding shadows any function of that name
+        if callee.get("k") == "member" and args and isinstance(args[0], dict) and args[0].get("k") == "funcref":
+            recv = self.taint(callee.get("object"), env)
+            if cn in ("map", "flatMap"):                  # xs.map(v => esc(v)): the callback's value per element
+                return self._callback_value(args[0].get("fid"), recv, env)
+            if cn in ("filter", "find") and self._callback_guards(args[0].get("fid")):
+                return F                                  # xs.filter(f => ALLOWED.has(f)): only allowed ones
+            if cn in ("filter", "find", "sort", "slice", "reverse"): return recv
+        if callee.get("k") == "ident" and cn in self.escapers:   # const esc = require('escape-html')
+            return _clean_for(join(*[self.taint(a, env) for a in args]), "xss", self.escapers[cn])
+        if callee.get("k") == "member" and cn == "map" and args and isinstance(args[0], dict) \
+                and args[0].get("k") == "ident" and (args[0].get("name") in self.escapers or
+                                                     args[0].get("name") in CTX_SANITIZERS):
+            fam = self.escapers.get(args[0]["name"]) or ESC_FAMILY.get(args[0]["name"])
+            return _clean_for(self.taint(callee.get("object"), env), "xss", fam)     # xs.map(escapeHtml)
         if callee.get("k") == "ident" and cn in CONV_IDENTS:
             if cn != "String": return F                   # Number(x) / Boolean(x): not a string
             return self.taint(args[0], env) if args else F
         if cn in CTX_SANITIZERS and not (callee.get("k") == "ident" and self._sums(cn)):   # own function wins
-            return _clean_for(join(*[self.taint(a, env) for a in args]), CTX_SANITIZERS[cn])
+            return _clean_for(join(*[self.taint(a, env) for a in args]), CTX_SANITIZERS[cn], ESC_FAMILY.get(cn))
+        fam = self._replace_family(n)
+        if fam: return _clean_for(self._replace_base(n, env), "xss", fam)
+        if callee.get("k") == "member" and cn in ("replace", "replaceAll") and len(args) == 2 \
+                and args[0].get("k") == "lit" and args[0].get("kind") == "REGEX":
+            pat, rep_ = str(args[0].get("value")), args[1]
+            recv = self.taint(callee.get("object"), env)
+            keep = _kept_by_strip(pat)
+            if keep is not None and rep_.get("k") == "lit" and not rep_.get("value"):
+                v = recv if (keep & set("<>\"'&`=")) else _clean_for(recv, "xss", "strip")
+                return v                                   # s.replace(/[^\w\s-]/g, ''): a whitelist
+            if pat.startswith("[") and all(ch in pat for ch in "<>&") and rep_.get("k") != "lit":
+                dq, sq = '"' in pat, "'" in pat            # s.replace(/[&<>"']/g, c => MAP[c])
+                return _clean_for(recv, "xss", "html_full" if (dq and sq) else ("html_nosq" if dq else "html_text"))
         sums = self._sums(cn)
         if sums is not None and (callee.get("k") == "ident" or cn not in TRANSPARENT_M | PURE_CLEAN_M):
             return self._apply(sums, args, env)
@@ -262,6 +504,15 @@ class Engine:
                 self._judge(c, "new Function", "code", self._join_args(args, env)); continue
             if callee.get("k") == "ident":
                 nm = callee.get("name")
+                if nm in self.koa_send and len(args) > 1:     # koa-send: send(ctx, path, { root })
+                    opts = args[2] if len(args) > 2 else {}
+                    keys = opts.get("keys") or [] if isinstance(opts, dict) else []
+                    rv = (opts.get("props") or [])[keys.index("root")] if "root" in keys else None
+                    if rv is None or (rv.get("k") == "lit" and rv.get("value") == "/"):
+                        self._judge(c, "send", "file", self.taint(args[1], env))
+                    continue
+                if nm in self.fs_funcs and self.fs_funcs[nm] in FILE_M and args and nm not in env:
+                    self._judge(c, nm, "file", self.taint(args[0], env)); continue     # import { readFile }
                 if nm in CODE_IDENTS and args: self._judge(c, nm, "code", self.taint(args[0], env)); continue
                 if nm in SHELL_M and args: self._judge(c, nm, "shell", self.taint(args[0], env)); continue
                 if nm in SSRF_IDENTS and args: self._judge(c, nm, "ssrf", self.taint(args[0], env)); continue
@@ -278,8 +529,22 @@ class Engine:
                 elif prop in SQL_M and args:
                     self._judge(c, prop, "sql", self.taint(args[0], env))
                 elif prop in XSS_M and args and base in RESPONSE_NAMES:
-                    self._judge(c, prop, "xss", self._ctx_taint(args[0], env, "xss"))
-                elif prop in FILE_M and args and base in FILE_OBJS:
+                    if isinstance(args[0], dict) and args[0].get("k") in ("object", "array"): continue   # JSON
+                    if self._json_map(args[0]): continue                # xs.map(k => [k, v]): an array: JSON
+                    if self._nonhtml == "nosniff": continue            # declared text/plain or JSON
+                    v = self._ctx_taint(args[0], env, "xss")
+                    if self._nonhtml == "plain" and v == T: v = Z     # text/plain without nosniff: OPEN at worst
+                    self._judge(c, prop, "xss", v)
+                elif prop == "render" and len(args) > 1 and base in RESPONSE_NAMES:
+                    v = self._ctx_taint(args[1], env, "xss")           # template engines escape by default:
+                    if v == T: self._judge(c, prop, "xss", Z)         # a request value in the data is OPEN
+                elif prop in RESPONSE_FILE_M and args and base in RESPONSE_NAMES:
+                    opts = args[1] if len(args) > 1 else {}
+                    keys = opts.get("keys") or [] if isinstance(opts, dict) else []
+                    rv = (opts.get("props") or [])[keys.index("root")] if "root" in keys else None
+                    if rv is None or (rv.get("k") == "lit" and rv.get("value") == "/"):   # root: '/' confines nothing
+                        self._judge(c, "res." + prop, "file", self.taint(args[0], env))
+                elif prop in FILE_M and args and (base in FILE_OBJS or base in self.fs_objs):
                     self._judge(c, prop, "file", self.taint(args[0], env))
                 elif self._sums(prop) and prop not in TRANSPARENT_M | PURE_CLEAN_M | MUTATORS:
                     self._apply_summary(c, prop, args, env)
@@ -349,12 +614,29 @@ class Engine:
                 for c in st.get("cases", []): yield from self._iter_stmts(c.get("body"))
             else: yield st
 
-    def _walk(self, body, env):
+    def _walk(self, body, env, scoped=False):
+        """scoped: a nested block — its let/const bindings end with it (the outer binding comes back)."""
+        _MISSING = object()
+        outer = {}
+        if scoped:
+            for st in (body or []):
+                if isinstance(st, dict) and st.get("k") == "vardecl" and st.get("kind") in ("let", "const"):
+                    for d in st.get("decls", []):
+                        for nm in (d.get("names") or ([d["name"]] if d.get("name") else [])):
+                            outer.setdefault(nm, env.get(nm, _MISSING))
+        try:
+            self._walk0(body, env)
+        finally:
+            for nm, v in outer.items():
+                if v is _MISSING: env.pop(nm, None)
+                else: env[nm] = v
+
+    def _walk0(self, body, env):
         for st in (body or []):
             if not isinstance(st, dict): continue
             k = st.get("k")
             if k == "funcref": continue                  # nested function: judged independently
-            if k == "block": self._walk(st.get("body"), env); continue
+            if k == "block": self._walk(st.get("body"), env, scoped=True); continue
             if k == "if":
                 self._leaf_sinks(st.get("test"), env); self._effects(st.get("test"), env)
                 var, neg = self._guard(st.get("test"))
@@ -363,8 +645,9 @@ class Engine:
                     st["els"].get("body") if st["els"].get("k") == "block" else [st["els"]])
                 e1 = dict(env); e2 = dict(env)
                 if var and not neg: e1[var] = F               # positive guard narrows the THEN branch
-                self._walk(st.get("body"), e1)
-                if st.get("els"): self._walk([st["els"]], e2)
+                if var and neg: e2[var] = F                   # !ALLOWED.has(x) is false in ELSE: validated
+                self._walk(st.get("body"), e1, scoped=True)
+                if st.get("els"): self._walk([st["els"]], e2, scoped=True)
                 if then_term and not else_term:
                     _set_env(env, e2)                         # continuation follows else/fallthrough
                     if var and neg: env[var] = F              # !guard { return } -> validated after
@@ -379,12 +662,12 @@ class Engine:
                     for lv in (self._esc if k == "continue" else self._esc[-1:]): lv.append(dict(env))
                 continue
             if k == "try":
-                e_try = dict(env); self._walk(st.get("body"), e_try)
+                e_try = dict(env); self._walk(st.get("body"), e_try, scoped=True)
                 eh = _ejoin(env, e_try)                       # the throw may come from anywhere in the body
                 for nm in st.get("param") or []: eh[nm] = Z
-                self._walk(st.get("handler"), eh)
+                self._walk(st.get("handler"), eh, scoped=True)
                 new = _ejoin(e_try, eh) if st.get("handler") else e_try
-                self._walk(st.get("finalizer"), new)
+                self._walk(st.get("finalizer"), new, scoped=True)
                 _set_env(env, new); continue
             if k == "switch":
                 self._leaf_sinks(st.get("disc"), env); self._effects(st.get("disc"), env)
@@ -394,7 +677,7 @@ class Engine:
                     for c in st.get("cases", []):
                         if c.get("isdefault"): has_default = True
                         e = dict(env) if fall is None else _ejoin(env, fall)
-                        self._walk(c.get("body"), e)
+                        self._walk(c.get("body"), e, scoped=True)
                         last = (c.get("body") or [{}])[-1] if c.get("body") else {}
                         if isinstance(last, dict) and last.get("k") in ("break", "return", "throw", "continue"):
                             fall = None
@@ -414,6 +697,16 @@ class Engine:
             elif k == "assign":
                 self._effects(st.get("right"), env)
                 self._assign_names(st.get("names"), st.get("left"), self.taint(st.get("right"), env), env, st.get("op"))
+                lp = _path(st.get("left") or {}) or ""
+                if lp in ("ctx.body", "ctx.response.body", "this.body") and self._nonhtml != "nosniff" and \
+                        not (isinstance(st.get("right"), dict) and st["right"].get("k") in ("object", "array")):
+                    v = _at(self.taint(st.get("right"), env), "xss")
+                    html = _render(st.get("right")).lstrip().startswith("<")
+                    if self._nonhtml == "plain" and v != F:    # ctx.type = 'text/plain' without nosniff
+                        self._judge(st, "ctx.body", "xss", Z)
+                    elif html or v == T:                  # Koa: a string starting with "<" is sent as text/html
+                        self._judge(st, "ctx.body", "xss", v if html else (Z if v == T else v))
+                    elif v == Z: self.unjudged.append((st.get("line", 0), "ctx.body"))
             elif k in ("return", "throw", "exprstmt"):
                 self._effects(st.get("argument") if k != "exprstmt" else st.get("x"), env)
                 if k == "return" and self._rets is not None:
@@ -434,9 +727,9 @@ class Engine:
         esc = []; self._esc.append(esc)
         try:
             e0 = dict(env)
-            e1 = dict(env); head(e1); self._walk(st.get("body"), e1); tail(e1)
+            e1 = dict(env); head(e1); self._walk(st.get("body"), e1, scoped=True); tail(e1)
             e2 = _ejoin(e0, e1, *esc)
-            e3 = dict(e2); head(e3); self._walk(st.get("body"), e3); tail(e3)
+            e3 = dict(e2); head(e3); self._walk(st.get("body"), e3, scoped=True); tail(e3)
             _set_env(env, _ejoin(e2, e3, *esc))
         finally:
             self._esc.pop()
@@ -471,26 +764,107 @@ class Engine:
         finally:
             self.sinks, self._rets = saved
 
+    def _file_context(self, tree):
+        """fs objects / functions and escaper functions bound by import or require in this file."""
+        self.fs_objs, self.fs_funcs, self.escapers = set(), {}, {}
+        self.fidmap = {f["fid"]: f for f in tree.get("funcs", []) if "fid" in f}
+        self.regexes, self.tmpl_fns, self.top_names, self.koa_send = {}, set(), set(), set()
+        def scan(n):
+            if isinstance(n, dict):
+                if n.get("k") == "vardecl":
+                    for d in n.get("decls", []):
+                        init = d.get("init") or {}
+                        if d.get("name") and init.get("k") == "lit" and init.get("kind") == "REGEX":
+                            self.regexes[d["name"]] = init.get("value")
+                for v in n.values(): scan(v)
+            elif isinstance(n, list):
+                for x in n: scan(x)
+        scan(tree.get("funcs", []))
+        top = next((f for f in tree.get("funcs", []) if f.get("name") == "<top>"), {"body": []})
+        for st in top.get("body") or []:
+            if st.get("k") == "vardecl":
+                for d in st.get("decls", []):
+                    init = d.get("init") or {}
+                    for nm in d.get("names") or []:
+                        if init.get("k") != "funcref": self.top_names.add(nm)   # a const, not a function
+                    cal = init.get("callee") or {}
+                    if init.get("k") == "call" and cal.get("k") == "member" and _prop_name(cal) == "compile" \
+                            and _base_ident(cal) in TEMPLATE_LIBS and d.get("name"):
+                        src_ = json.dumps(init.get("args") or [])
+                        raw = any(m_ in src_ for m_ in ("!=", "{{{", "<%-", "|safe", "!{"))
+                        if not raw: self.tmpl_fns.add(d["name"])   # Handlebars.compile(src): escapes {{ }}
+            if st.get("k") == "import" and st.get("source") == "koa-send":
+                for sp in st.get("specs", []): self.koa_send.add(sp["local"])
+        for st in top.get("body") or []:
+            if st.get("k") == "import":
+                src = st.get("source", "")
+                for sp in st.get("specs", []):
+                    if src in FS_MODULES:
+                        if sp["imported"] in ("default", "*", "promises"): self.fs_objs.add(sp["local"])
+                        else: self.fs_funcs[sp["local"]] = sp["imported"]
+                    if src in ESCAPER_MODULES and sp["imported"] in ("default", "*", "escape", "encode"):
+                        self.escapers[sp["local"]] = ESCAPER_MODULES[src]
+            if st.get("k") == "vardecl":
+                for d in st.get("decls", []):
+                    init = d.get("init") or {}
+                    req = init if init.get("k") == "call" else (init.get("object") if init.get("k") == "member" else None)
+                    if not (isinstance(req, dict) and req.get("k") == "call" and
+                            _callee_name(req.get("callee")) == "require" and req.get("args")): continue
+                    src = req["args"][0].get("value")
+                    if src in FS_MODULES:
+                        if d.get("name"): self.fs_objs.add(d["name"])          # const fs = require('fs')
+                        else:
+                            for nm in d.get("names", []): self.fs_funcs[nm] = nm   # const { readFile } = ..
+                    if src in ESCAPER_MODULES and d.get("name"): self.escapers[d["name"]] = ESCAPER_MODULES[src]
+                    if src == "koa-send" and d.get("name"): self.koa_send.add(d["name"])
+
     def index(self, tree):
         for fn in tree.get("funcs", []):
             if fn.get("name") and fn["name"] != "<top>": self.funcs.setdefault(fn["name"], []).append(fn)
+            self.owner_tree[id(fn)] = tree
         self._dirty = True
 
     def _summarize_all(self):
         self._dirty = False
+        saved = (self.fs_objs, self.fs_funcs, self.escapers)
         fs = {}
         for _ in range(4):
             before = dict(fs)
             for name, fns in self.funcs.items():
-                for fn in fns: fs[id(fn)] = self._summ_of(fn)
+                for fn in fns:
+                    self._file_context(self.owner_tree.get(id(fn), {"funcs": []}))
+                    fs[id(fn)] = self._summ_of(fn)
                 self.summaries[name] = [fs.get(id(fn)) for fn in fns]
             if fs == before: break
+        self.fs_objs, self.fs_funcs, self.escapers = saved
+
+    def _content_kind(self, fn):
+        """res.type('text/plain') / ctx.type = 'text/plain' / Content-Type headers in this function."""
+        txt = json.dumps(fn.get("body") or []).lower()
+        plain = "text/plain" in txt or "application/json" in txt
+        if not plain or "text/html" in txt: return None
+        return "nosniff" if "nosniff" in txt else "plain"
+
+    def _seeds(self, fn):
+        """Parameters that ARE request input: NestJS @Query()/@Param()/@Body()/@Headers(), and names destructured
+        from a request-shaped parameter ({ query: { name } }, res)."""
+        env = {p: F for p in fn.get("params", []) if p}
+        for i, p in enumerate(fn.get("params", [])):
+            decos = (fn.get("pdeco") or [[]] * (i + 1))[i] if i < len(fn.get("pdeco") or []) else []
+            if p and any(d in ("Query", "Param", "Body", "Headers", "Cookies", "Req") for d in decos): env[p] = T
+            pairs = (fn.get("ppat") or [])[i] if i < len(fn.get("ppat") or []) else []
+            for key, nm in pairs:
+                env[nm] = T if key in REQ_SOURCE_PROPS else Z
+        return env
 
     def judge(self, tree):
         if self._dirty: self._summarize_all()
         self.sinks = []
+        self.unjudged = []
+        self._file_context(tree)
         for fn in tree.get("funcs", []):
-            env = {p: F for p in fn.get("params", []) if p}
+            env = self._seeds(fn)
+            self._nonhtml = self._content_kind(fn)
             self._rets = None
             self._walk(fn.get("body"), env)
         best, order = {}, []
@@ -524,10 +898,11 @@ def parse(path):
 def analyze(path): return Engine().run(parse(path))
 
 UNPARSED = []     # files the last analyze_app could not parse: NOT analysed, NOT clean
+UNJUDGED = []     # Koa bodies holding an unknown value (HTML or text by content): NOT judged, NOT clean
 
 def analyze_app(paths):
     e = Engine(); trees = []
-    del UNPARSED[:]
+    del UNPARSED[:]; del UNJUDGED[:]
     for p in paths:
         t = parse(p)
         if t.get("error"): UNPARSED.append((p, str(t["error"])[:60])); continue
@@ -535,6 +910,7 @@ def analyze_app(paths):
     out = []
     for p, t in trees:
         for rec in e.judge(t): out.append((p,) + rec)
+        UNJUDGED.extend((p,) + u for u in e.unjudged)
     return out
 
 if __name__ == "__main__":

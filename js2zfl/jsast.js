@@ -19,13 +19,31 @@ function paramName(p) {
   return "";
 }
 
+// per parameter: [topKey, boundName] pairs of a destructuring pattern ({ query: { name } } -> [["query","name"]])
+function patPairs(p) {
+  if (!p) return [];
+  if (p.type === "AssignmentPattern") return patPairs(p.left);
+  if (p.type !== "ObjectPattern") return [];
+  const out = [];
+  for (const q of p.properties || []) {
+    if (q.type === "RestElement") continue;
+    const key = q.key && (q.key.name !== undefined ? q.key.name : q.key.value);
+    for (const nm of patNames(q.value)) out.push([key, nm]);
+  }
+  return out;
+}
+
 function addFunc(node, name) {
   const params = (node.params || []).map(paramName);
+  const pdeco = (node.params || []).map(p => ((p.decorators || (p.parameter && p.parameter.decorators) || [])
+    .map(d => d.expression && (d.expression.callee ? d.expression.callee.name : d.expression.name)).filter(Boolean)));
+  const ppat = (node.params || []).map(patPairs);
   let body;
   if (node.body && node.body.type === "BlockStatement") body = node.body.body.map(encStmt);
   else if (node.body) body = [{ k: "return", argument: enc(node.body), line: line(node.body) }]; // arrow expr
   else body = [];
-  funcs.push({ k: "func", name: name || "", params, body, line: line(node) });
+  funcs.push({ k: "func", fid: funcs.length, name: name || "", params, pdeco, ppat, body, line: line(node) });
+  return funcs.length - 1;
 }
 
 // every identifier a binding pattern binds: {a, b: {c}}, [x, ...y], d = 1
@@ -57,7 +75,9 @@ function enc(n) {
     case "NumericLiteral": case "BooleanLiteral": case "BigIntLiteral":
       return { k: "lit", kind: "NUM", value: String(n.value) };
     case "NullLiteral": return { k: "lit", kind: "NULL" };
-    case "TemplateLiteral": return { k: "template", exprs: (n.expressions || []).map(enc) };
+    case "RegExpLiteral": return { k: "lit", kind: "REGEX", value: n.pattern };
+    case "TemplateLiteral": return { k: "template", exprs: (n.expressions || []).map(enc),
+                                     quasis: (n.quasis || []).map(q => (q.value && q.value.cooked) || "") };
     case "TaggedTemplateExpression": return { k: "template", exprs: (n.quasi.expressions || []).map(enc) };
     case "BinaryExpression": case "LogicalExpression":
       return { k: "bin", op: n.operator, x: enc(n.left), y: enc(n.right) };
@@ -74,7 +94,8 @@ function enc(n) {
     case "ArrayExpression":
       return { k: "array", elts: (n.elements || []).map(enc) };
     case "ObjectExpression":
-      return { k: "object", props: (n.properties || []).map(p => (p.value ? enc(p.value) : { k: "nil" })) };
+      return { k: "object", props: (n.properties || []).map(p => (p.value ? enc(p.value) : { k: "nil" })),
+               keys: (n.properties || []).map(p => (p.key ? (p.key.name !== undefined ? p.key.name : p.key.value) : null)) };
     case "SequenceExpression":
       return { k: "seq", exprs: (n.expressions || []).map(enc) };
     case "TSAsExpression": case "TSNonNullExpression": case "TSTypeAssertion":
@@ -86,7 +107,7 @@ function enc(n) {
     case "AssignmentExpression":
       return { k: "assignexpr", op: n.operator, left: enc(n.left), names: patNames(n.left), right: enc(n.right) };
     case "FunctionExpression": case "ArrowFunctionExpression":
-      addFunc(n, n.id ? n.id.name : ""); return { k: "funcref" };
+      return { k: "funcref", fid: addFunc(n, n.id ? n.id.name : "") };
     default: return { k: "other", t: n.type };
   }
 }
@@ -108,7 +129,7 @@ function encStmt(s) {
           funcs[funcs.length - 1].name = d.id.name;
         return { name: d.id && d.id.type === "Identifier" ? d.id.name : null, names: patNames(d.id), init };
       });
-      return { k: "vardecl", decls, line: line(s) };
+      return { k: "vardecl", kind: s.kind, decls, line: line(s) };
     }
     case "ExpressionStatement": {
       const e = s.expression;
@@ -151,8 +172,17 @@ function encStmt(s) {
       (s.body.body || []).forEach(m => {
         if ((m.type === "ClassMethod" || m.type === "ClassPrivateMethod") && m.body)
           addFunc(m, m.key && (m.key.name || m.key.value));
+        // show = (req, res) => { .. }: a class property holding a function is a method too
+        if ((m.type === "ClassProperty" || m.type === "ClassPrivateProperty") && m.value &&
+            (m.value.type === "ArrowFunctionExpression" || m.value.type === "FunctionExpression"))
+          addFunc(m.value, m.key && (m.key.name || m.key.value || (m.key.id && m.key.id.name)));
       });
       return { k: "other" };
+    case "ImportDeclaration":
+      return { k: "import", source: s.source.value, specs: (s.specifiers || []).map(sp => ({
+        local: sp.local.name,
+        imported: sp.type === "ImportSpecifier" ? (sp.imported.name || sp.imported.value) :
+                  (sp.type === "ImportDefaultSpecifier" ? "default" : "*") })) };
     case "ExportNamedDeclaration": case "ExportDefaultDeclaration":
       return s.declaration ? encStmt(s.declaration) : { k: "other" };
     default: return { k: "other", t: s.type };

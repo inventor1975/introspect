@@ -15,6 +15,9 @@ Run:   python3 test_py2zfl.py            # regression gate (31 fixtures + cross-
 Calibration (2026-09-11): pygoat(Django) 3 real REFUTED incl. cross-function; DSVW 9 vuln sinks
 as OPEN; microblog/flask 0 false accusations. NOT yet: full aiohttp/fastapi, file-sink precision.
 
+BLIND (2026-09-27, cloud corpus, CALIBRATION.md): 36% found / 10% false alarms before slice 5 — the first
+outside measure; slice 5 fixed what it showed (handler sources, response/file/template sinks, guards).
+
 Slice 4 (2026-09-27, MEASURED): the java2zfl soundness lesson ported. 14 new fixtures (u01-u14);
 13 of them fail on the slices-1-3 engine, 10 of those by a false EARNED ("clean") on a real flow:
 a Z return read as F, a return before a reassignment lost, except overwriting try, a loop assumed to

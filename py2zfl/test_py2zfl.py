@@ -37,6 +37,13 @@ EXPECT = {
     "u12_safe_int.py":         ["EARNED"],   # int(...) is clean
     "u13_walrus.py":           ["REFUTED"],  # := assigns
     "u14_self_method.py":      ["REFUTED"],  # self.method resolves to the enclosing class
+    # slice 5 (2026-09-27, from the cloud's blind corpus, PR #5)
+    "w01_flask_return.py":     ["REFUTED"],  # a route variable returned as HTML; <int:> and a dict are clean
+    "w02_fastapi.py":          ["REFUTED"],  # FastAPI Query param is input; Literal[...] is validated
+    "w03_file_sinks.py":       ["REFUTED","REFUTED","REFUTED"],  # send_file, Path(..).read_text, os.remove
+    "w04_sql.py":              ["REFUTED","REFUTED"],  # bind params do not clean a tainted text; objects.raw
+    "w05_guards.py":           ["REFUTED"],  # isdigit/not in NAMED/fullmatch is None + abort; int() in try
+    "w06_templates.py":        ["REFUTED","REFUTED","REFUTED"],  # autoescape off, |safe, escape(quote=False)
 }
 def main():
     fails=[]

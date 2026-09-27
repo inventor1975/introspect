@@ -96,6 +96,12 @@ OPEN, never guessed.
   real-app deltas: new findings are real vulnerable sites the old engines passed in silence
   (railsgoat's upload-filename command injection inside a block, govwa's template.HTML flows), and
   no new REFUTED on a clean app.
+- **Blind measures (27.09), the only numbers not fitted by the author.** Cloud-written corpora committed
+  before the analyzer ran: Java round 1 54% found / 16% false alarms, round 2 (after its fixes) 77% / 12%;
+  Python 36% / 10%; JS/TS (xss + file only) 46% / 23%. Each round's fixes are in that module's
+  CALIBRATION.md; after a fix the same corpus only shows the fix holds. SQL, code and command injection in
+  JS, and command injection everywhere, have no blind measure — the corpus authors were stopped by a
+  safety filter.
 - **Bounded by the AST.** Framework-indirected sinks whose payload lives outside the source
   (MyBatis XML mappers, custom framework dispatch, WebForms server-control `.Text`) are a
   different analysis surface and are not modelled. Deep cross-layer flows resolve to **OPEN**,

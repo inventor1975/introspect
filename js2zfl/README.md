@@ -3,6 +3,9 @@
 Fifth language after php2zfl / py2zfl / java2zfl / go2zfl, on the shared contract (../INTROSPECT-SEMANTICS.md).
 Most significant remaining web surface (Node/Express, npm).
 
+BLIND (2026-09-27, cloud corpus, xss + file only, CALIBRATION.md): 46% found / 23% false alarms before
+slice 4 — the first outside measure; slice 4 fixed what it showed.
+
 ## How it parses
 `jsast.js` (@babel/parser -> compact JSON; handles JS/JSX/TS/TSX) + `js2zfl.py` (taint analyzer, same
 F/T/Z zero-trust engine). Every function-like node (incl. Express inline arrow handlers) is collected flat,

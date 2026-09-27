@@ -1,5 +1,12 @@
 # js2zfl — calibration
 
+## 2026-09-27 night — the first BLIND measure (cloud, PR #4) and what it changed (MEASURED)
+Fresh authors who saw neither the analyzer nor its fixtures wrote a corpus committed before the analyzer ran.
+On `e37a0c1`, blind: xss 42.9/32.3, file 48.3/13.8 — all **45.6% found, 23.3% false alarms, 18 silent** of 57 decided vulnerable (133 cases; sqli, code and cmdi refused by the filter). Until this, every claim for js2zfl rested on fixtures its author wrote.
+Causes, fixed: res.sendFile/download are FILE sinks (root: confines unless '/'); fs functions imported by name; koa-send; Koa ctx.body; res.send(object|array) is JSON; the view data of res.render; request properties set by middleware are Z (were F); NestJS @Query/@Param/@Body and destructured request parameters as sources; class-property arrow handlers were never parsed; callbacks are linked to their bodies (filter(guard), map(escaper), map(-> array) as JSON); anchored-only regex guards, reset-to-constant, ctx.throw terminates; compiled Handlebars/Pug templates escape unless the template has a raw marker; hand-written and single-replace escapers, [^..] strips; text/plain; let/const block scope; HTML sub-contexts as in Java. Two of the seven new fixtures (y03, y07) also pass on the old engine by count only — it made one wrong call for one missed one.
+After the fixes, on the SAME corpus (fitted, not a measure): TPR / FPR / silent = 66.7 / 5.0 / 0. A new blind round is
+the only way to get a number again.
+
 ## 2026-09-27 — slice 3: the java2zfl soundness lesson ported (MEASURED)
 14 new fixtures (u01–u14), all 14 fail on the slices-1-2 engine: 9 real flows it was SILENT on (a Z
 helper return read as F, catch overwriting try, switch cases walked in sequence, a loop assumed to

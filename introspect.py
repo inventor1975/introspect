@@ -198,8 +198,8 @@ def _print(report, show_open=False, quiet=False):
                 more = f" (+{len(v['unparsed']) - 5} more)" if len(v["unparsed"]) > 5 else ""
                 print(f"  {'':<8} {len(v['unparsed']):>5} NOT PARSED — not analysed, NOT 'safe': {shown}{more}")
             if v.get("unjudged"):
-                print(f"  {'':<8} {len(v['unjudged']):>5} NOT JUDGED — a response body of undeclared content type holding "
-                      f"an unknown value (declare `produces` to have them judged), NOT 'safe'")
+                print(f"  {'':<8} {len(v['unjudged']):>5} NOT JUDGED — a response body that is HTML or JSON depending on "
+                      f"a value of unknown origin (declare the content type to have it judged), NOT 'safe'")
         for moddir in sorted(skipped):
             s = skipped[moddir]
             # A skip is NOT always a missing parser: a path bug, a timeout or a crash
