@@ -1,0 +1,134 @@
+file,category,vulnerable,expect_open,why
+xss/search-results.js,xss,true,false,Query term interpolated raw into an HTML template literal sent with res.send.
+xss/welcome-banner.js,xss,true,false,Name destructured from req.query in the handler signature is concatenated into HTML.
+xss/tag-cloud.js,xss,true,false,Comma-split query tags are written raw into list items with res.write in a loop.
+xss/notice-format.js,xss,true,false,util.format %s places the raw query message into the HTML notice.
+xss/invite-email-preview.ts,xss,true,false,String.replace of template placeholders inserts raw query values into HTML.
+xss/help-article.js,xss,true,false,Route param and query flow through cross-file layout helpers that concatenate without escaping.
+xss/report-controller.ts,xss,true,false,Query title is stored on a view object field and emitted raw by its toHtml method.
+xss/profile-link.js,xss,true,false,escape-html does not stop a javascript: URL placed in an href attribute.
+xss/theme-picker.ts,xss,true,false,Escaped value lands in an unquoted attribute so a space-separated event handler can be injected.
+xss/pagination-links.js,xss,true,false,"encodeURIComponent leaves quotes and parentheses, so the value breaks out of a single-quoted JS string in an inline script."
+xss/bootstrap-state.js,xss,true,false,JSON.stringify inside a script block lets </script> in a query value close the script and inject markup.
+xss/order-receipt.js,xss,true,false,"In lodash templates <%= %> interpolates without escaping, and customer is a raw query value."
+xss/greeting-card.ts,xss,true,false,EJS <%- %> outputs the query message unescaped.
+xss/announcement.js,xss,true,false,Pug != emits the query value unescaped.
+xss/member-bio.mjs,xss,true,false,Mustache triple braces render the posted bio as raw HTML.
+xss/rich-teaser.jsx,xss,true,false,Query snippet is passed to dangerouslySetInnerHTML during server rendering.
+xss/wiki-heading.js,xss,true,false,Koa body string starting with < is served as text/html and contains the raw route param.
+xss/feedback-thanks.ts,xss,true,false,Posted subject from ctx.request.body is interpolated into an HTML Koa body.
+xss/echo-snippet.js,xss,true,false,"Raw query value becomes the Koa body, which Koa serves as HTML when it starts with <."
+xss/color-swatch.ts,xss,true,false,Unanchored regex accepts any string containing a hex colour so script can follow it.
+xss/contact-card.ts,xss,true,false,Only first name and company are escaped while last name is interpolated raw.
+xss/filter-label.js,xss,true,false,decodeURIComponent after escaping reintroduces angle brackets from a double-encoded value.
+xss/review-widget.js,xss,true,false,Cross-file tidy helper uses non-global replace so only the first < and > are encoded.
+xss/newsletter-preview.ts,xss,true,false,Cross-file stripScripts only removes script blocks and leaves event-handler attributes.
+xss/locale-switch.js,xss,true,false,Exception message built from the query lang is reflected raw in the error response.
+xss/display-name.ts,xss,true,false,The default branch skips escaping so the joined value is tainted at res.send.
+xss/text-renderer.js,xss,true,true,Renderer chosen by query key through a lookup table includes an identity renderer for html mode.
+xss/shared-notes.ts,xss,true,true,Posted note body is stored in a module-level map by one handler and rendered raw by another.
+xss/author-bio.js,xss,true,true,User-editable bio read from the database is rendered raw (stored XSS).
+xss/category-page.js,xss,true,true,router.param copies the route param onto req.category which the handler renders raw.
+xss/markdown-preview.js,xss,true,true,marked passes raw HTML in markdown through and nothing sanitises the output.
+xss/forum-signature.ts,xss,true,false,sanitize-html with allowedAttributes false keeps event-handler attributes on allowed tags.
+xss/greeting-controller.ts,xss,true,false,Nest @Query value is interpolated into HTML sent through the Express response.
+xss/greeting-view.js,xss,true,true,Query message is rendered by an EJS view file that outputs it with <%- %>.
+xss/order-history.js,xss,false,false,Every query value is passed through escape-html in element-text context.
+xss/activity-feed.ts,xss,false,false,lodash escape is applied to each value before it is concatenated into list items.
+xss/team-directory.ts,xss,false,false,Cross-file encodeEntities escapes all five HTML metacharacters for text and double-quoted attribute use.
+xss/sort-toolbar.js,xss,false,false,Sort value is rejected unless it is in a fixed allow-list before being rendered.
+xss/ticket-status.ts,xss,false,false,Route middleware rejects any ticket id not matching an anchored letters-digits pattern before the handler runs.
+xss/quantity-summary.js,xss,false,false,Only parsed numbers reach the response.
+xss/download-counter.js,xss,false,false,util.format %d converts the query value to a number.
+xss/lookup-api.ts,xss,false,false,res.send with an object serialises to application/json so the HTML-looking message is not rendered.
+xss/plain-echo.cjs,xss,false,false,Response type is set to text/plain before sending the echoed value.
+xss/export-preview.ts,xss,false,false,Koa ctx.type is set to text/plain so the reflected columns are not parsed as HTML.
+xss/welcome-mail.js,xss,false,false,EJS <%= %> escapes the query values.
+xss/event-card.ts,xss,false,false,Handlebars double braces escape all interpolated query values.
+xss/alert-box.js,xss,false,false,Pug = and attribute interpolation escape the values and kind is allow-listed.
+xss/speaker-profile.mjs,xss,false,false,Mustache double braces escape the posted fields.
+xss/comment-thread.tsx,xss,false,false,React renderToString escapes text children.
+xss/app-shell.js,xss,false,false,"JSON is serialised with <, > and & escaped as unicode escapes before being placed in the script block."
+xss/share-links.ts,xss,false,false,encodeURIComponent is used inside double-quoted URLs with fixed schemes and the visible title is HTML-escaped.
+xss/page-title.js,xss,false,false,The tainted title is block-scoped and the rendered title is the outer constant.
+xss/forum-post.ts,xss,false,false,sanitize-html with default and empty allow-lists strips scripts and event handlers.
+xss/docs-preview.js,xss,false,false,Markdown output is sanitised with DOMPurify before being sent.
+xss/avatar-fallback.js,xss,false,false,Only a hex digest and a clamped integer derived from input reach the HTML.
+xss/currency-selector.ts,xss,false,false,Currency is replaced by a constant unless it is in a fixed set.
+xss/invoice-controller.ts,xss,false,false,Constructor-stored query values are escaped in the render method.
+xss/welcome-controller.ts,xss,false,false,Nest route param is escaped with escape-html before being sent.
+xss/collection-header.js,xss,false,false,Cross-file toLabel strips everything except word characters spaces and hyphens.
+xss/import-status.ts,xss,false,false,The error message containing the payload is only logged and the response uses a constant message.
+xss/snippet-formatter.js,xss,false,true,Formatter chosen dynamically from a Map but every entry escapes its input.
+xss/profile-view.js,xss,false,true,Query values are rendered by an EJS view file that uses escaping <%= %> output.
+xss/guestbook.js,xss,false,false,Posted values are filtered by the xss library before concatenation.
+xss/ingredient-list.js,xss,false,false,Each list item is escaped inside the loop before res.write.
+xss/plain-greeting.js,xss,false,false,"Koa serves a string body not starting with < as text/plain, so the greeting is not parsed as HTML."
+xss/maintenance-banner.js,xss,false,true,Raw HTML comes from a local config file while the query value is escaped.
+xss/search-box.js,xss,false,false,escape-html encodes single quotes so the single-quoted value attribute cannot be broken.
+xss/homepage-link.ts,xss,false,false,URL is restricted to http(s) and escaped before use in href.
+file/invoice-download.js,file,true,false,req.query.name is joined under the invoice dir with no check and passed to res.download.
+file/avatar-upload.ts,file,true,false,req.body.filename (or the client originalname) is joined into the avatar dir and written with fs.promises.writeFile.
+file/docs-page.js,file,true,false,Koa router decodes ctx.params.page so an encoded ../ reaches fs.createReadStream via a template literal.
+file/theme-assets.ts,file,true,false,Cross-file helper resolveUnder only path.joins without containment so the query path escapes the theme dir.
+file/log-tail.js,file,true,false,Only a leading .. is rejected after normalize but path.resolve honours an absolute path like /etc/passwd.
+file/attachment-remove.ts,file,true,false,Decoded route params are resolved under the attachment dir and unlinked without containment.
+file/export-fetch.js,file,true,false,startsWith(BASE) without a trailing separator lets ../exports-archive/... reach a sibling directory.
+file/template-preview.js,file,true,false,"String replace('../','') removes only the first occurrence so ../../ still traverses into readFileSync."
+file/media-thumb.ts,file,true,false,Non-recursive removal of ../ is bypassed with ....// before fs.readFile.
+file/archive-entry.js,file,true,false,The .. check runs before decodeURIComponent so a double-encoded %2e%2e%2f traverses.
+file/report-controller.ts,file,true,false,Class method buildPath joins query report and year into the root and res.sendFile serves it.
+file/public-files.js,file,true,false,Wildcard param is path.joined (which collapses ..) into an absolute path for res.sendFile with no root option.
+file/workspace-save.js,file,true,false,ctx.request.body dir and filename are joined and used for mkdirSync and writeFileSync.
+file/bundle-zip.js,file,true,false,Each entry of req.body.files is joined under the shared dir and read with readFileSync in a loop.
+file/tenant-config.ts,file,true,false,X-Tenant header is interpolated into a /etc/app/tenants path for readFileSync.
+file/locale-strings.cjs,file,true,false,Cookie lang is joined with a .json suffix and read so any .json file is reachable.
+file/manual-reader.mjs,file,true,false,req.query.section is joined under the manuals dir inside a try and read with readFile.
+file/user-files.js,file,true,false,Route param goes to cross-file helpers that path.join it under ROOT and stat/read it.
+file/note-open.js,file,true,false,HTML escaping is the wrong context and leaves ../ intact before fs.readFile.
+file/statement-pdf.ts,file,true,false,parseInt validates a copy but the raw req.query.id is interpolated into the streamed path.
+file/plugin-install.js,file,true,true,Zip slip: entry names from an uploaded archive are joined and written but the taint passes through the adm-zip library.
+file/mail-template.ts,file,true,false,ctx.query.template flows through a helper into path.resolve and fs.readFile.
+file/snippet-view.mjs,file,true,false,Decoded route params collection and file are joined and read with fs/promises readFile.
+file/gallery-upload.ts,file,true,false,Destructured body folder and name are interpolated into the path for mkdirSync and writeFileSync.
+file/preview-switch.js,file,true,false,In the preview branch of a ternary req.query.file is joined and sent with res.sendFile.
+file/avatar-render.js,file,true,true,Avatar path is stored from req.body via the database and later joined into res.sendFile (second-order).
+file/export-session.ts,file,true,true,Session exportDir set from req.body in one route is joined into the write path in another.
+file/backup-copy.js,file,true,false,req.body.target is the copyFile destination joined under the backup dir so it can write anywhere.
+file/dataset-dir.ts,file,true,false,basename is applied to file but the dir query parameter is joined unchecked.
+file/receipt-lookup.js,file,true,false,Regex lacks an end anchor so a.pdf/../../x passes before readFileSync.
+file/asset-send.js,file,true,false,koa-send with root '/' serves any file named by ctx.query.file.
+file/markdown-page.jsx,file,true,false,Query slug is joined with .md and read with readFileSync for SSR.
+file/invoice-archive.js,file,false,false,path.basename strips directories before joining for res.download.
+file/legal-docs.js,file,false,false,Route param only selects a value from a constant map guarded by Object.hasOwn.
+file/locale-bundle.ts,file,false,false,Constant allow-list includes guard precedes readFileSync.
+file/export-download.js,file,false,false,Resolved path must start with BASE plus path.sep before streaming.
+file/project-files.ts,file,false,false,path.relative check rejects .. and absolute results before readFile.
+file/static-pages.js,file,false,false,res.sendFile with the root option rejects .. segments and keeps the name under root.
+file/order-json.cjs,file,false,false,Only the parsed safe integer id is interpolated into the path.
+file/template-render.js,file,false,false,Fully anchored character-class regex guards the name before readFileSync.
+file/contract-scan.ts,file,false,true,validator.isUUID from an external library guards the id before createReadStream.
+file/report-format.js,file,false,false,Switch maps the format parameter onto constant file names.
+file/upload-store.ts,file,false,false,File name is a server-generated UUID plus an extension from a constant map.
+file/page-cache.mjs,file,false,false,Cache path uses a sha256 hex digest of the user URL.
+file/koa-invoice.js,file,false,false,Digits-only anchored regex guards ctx.params.id before createReadStream.
+file/feedback-log.js,file,false,false,User data is only the appended content while the file path is constant.
+file/settings-read.ts,file,false,false,Constant settings file is read and the query key only indexes the parsed JSON.
+file/share-files.js,file,false,false,Cross-file safeJoin resolves and enforces base plus separator containment or throws.
+file/media-controller.ts,file,false,false,Private sanitize method reduces the param to path.basename before joining.
+file/help-topic.js,file,false,false,Topic outside a constant Set is replaced with a default before readFileSync.
+file/release-notes.ts,file,false,false,Version is matched against a constant manifest whose entry supplies the path.
+file/report-stream.js,file,false,false,Param only looks up a constant Map of report paths.
+file/catalog-page.js,file,false,false,Page is coerced to a number and clamped to 1..50 before interpolation.
+file/attachment-save.js,file,false,true,sanitize-filename (external library) strips separators and dot names before writeFileSync.
+file/docs-browse.ts,file,false,false,Normalized path is rejected if any segment is .. or it is absolute.
+file/koa-files.ts,file,false,true,Middleware validates containment and passes the path through ctx.state to the reading handler.
+file/welcome-letter.js,file,false,false,Template and output paths are constant or timestamp based and user input only fills content.
+file/icon-fetch.ts,file,false,false,Extension allow-list plus path.basename before readFileSync.
+file/upload-serve.js,file,false,true,Served path uses a server-generated storage key read back from the database.
+file/bundle-select.js,file,false,false,Requested files are filtered through a constant Set before reading.
+file/workspace-guard.ts,file,false,false,Cross-file Sandbox.locate throws on escape via path.relative before writeFile.
+file/article-view.tsx,file,false,false,Anchored slug regex guards the SSR file read.
+file/report-attachment.js,file,false,false,User input is only the download filename argument while the served path is constant.
+file/static-assets.js,file,false,false,koa-send with a root rejects traversal outside the assets directory.
+file/gallery-list.mjs,file,false,false,Name must be an exact entry of the directory listing before readFile.

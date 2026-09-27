@@ -1,0 +1,37 @@
+file,stage,cause
+file/asset-send.js,sink,"koa-send `send(ctx, file, {root: '/'})` is not in the catalog"
+file/attachment-remove.ts,sink,fsp.unlink(..): `unlink` is not in FILE_M
+file/avatar-render.js,sink,"res.sendFile is catalogued only as an xss sink (XSS_M), not a file sink: the path is never judged in the file context (second-order DB value; expected OPEN)"
+file/backup-copy.js,sink,fs.copyFile(..): `copyFile` is not in FILE_M
+file/bundle-select.js,guard,the allow-list is applied as `.filter(f => AVAILABLE.has(f))`; `filter` is transparent over its receiver and the callback predicate is not read
+file/export-session.ts,sink,"a function imported by name from fs / fs/promises is called bare (mkdir, writeFile); file sinks are recognised only as member calls on fs/fsp/fse (FILE_M x FILE_OBJS); and req.session.* reads as req's F, not Z (expected OPEN)"
+file/help-topic.js,guard,`if (!TOPICS.has(t)) t = 'default'` (negated check + reset to a constant) is not recognised; the join keeps T
+file/invoice-download.js,sink,res.download(..) is not in the catalog
+file/koa-invoice.js,guard,"`if (!/^\d{1,12}$/.test(id)) ctx.throw(400)`: a regex .test check is not a guard (only ===, includes, has) and ctx.throw is not known to terminate"
+file/manual-reader.mjs,sink,a function imported by name from fs / fs/promises is called bare (readFile); file sinks are recognised only as member calls on fs/fsp/fse (FILE_M x FILE_OBJS)
+file/preview-switch.js,sink,"res.sendFile is catalogued only as an xss sink (XSS_M), not a file sink: the path is never judged in the file context (it IS refuted there, as xss)"
+file/public-files.js,sink,"res.sendFile is catalogued only as an xss sink (XSS_M), not a file sink: the path is never judged in the file context (it IS refuted there, as xss)"
+file/report-controller.ts,sink,"res.sendFile is catalogued only as an xss sink (XSS_M), not a file sink: the path is never judged in the file context"
+file/snippet-view.mjs,sink,a function imported by name from fs / fs/promises is called bare (readFile); file sinks are recognised only as member calls on fs/fsp/fse (FILE_M x FILE_OBJS)
+file/template-render.js,guard,"`if (!NAME_RE.test(name)) return ..`: a regex .test check is not a guard (only ===, includes, has)"
+file/tenant-config.ts,sink,a function imported by name from fs / fs/promises is called bare (readFileSync); file sinks are recognised only as member calls on fs/fsp/fse (FILE_M x FILE_OBJS)
+xss/activity-feed.ts,sanitiser,"escape() is applied inside a `.map(a => ..)` callback; `map` is transparent over its receiver, the callback's escaped result is not read"
+xss/app-shell.js,sanitiser,a hand-written serializer (JSON.stringify + replace of < > & with \u escapes) is read as a transparent chain -> T
+xss/category-page.js,source,"req.category (set by router.param from the route value) is not a catalogued request property; a member of `req` inherits req's F, so it reads CLEAN (EARNED) rather than Z (expected OPEN)"
+xss/collection-header.js,sanitiser,cross-file toLabel strips everything but word characters with replace(); replace is transparent -> T
+xss/currency-selector.ts,guard,`if (!CURRENCIES.has(c)) c = 'USD'` (negated check + reset) is not recognised
+xss/echo-snippet.js,sink,"Koa `ctx.body = ...` is an assignment, not a call: only res.send/write/end/render calls are xss sinks"
+xss/event-card.ts,propagation,"bare-name summary collision: the local `const card = Handlebars.compile(..)` is called as card(..), which resolves to the unrelated, non-escaping `function card` in xss/lib/layout.js"
+xss/feedback-thanks.ts,sink,"Koa `ctx.body = ...` is an assignment, not a call: only res.send/write/end/render calls are xss sinks"
+xss/greeting-controller.ts,source,a NestJS @Query('to') parameter is not a source: every handler parameter is walked as F
+xss/greeting-view.js,sink,"res.render(view, data) judges argument 0 (the view name, a constant), not the data handed to the template (expected OPEN)"
+xss/locale-switch.js,sink,"the reflecting call is `res.status(400).send(..)`: its receiver is a call, not the identifier `res`, so it is not recognised (the catch parameter is correctly Z; only the plain res.send on the success path is judged)"
+xss/lookup-api.ts,sink,res.send({..}) with an OBJECT is serialised as application/json; every res.send argument is judged as HTML
+xss/page-title.js,propagation,"a block-scoped `const title = req.query.from` inside an if shadows the outer constant; the environment is keyed by name, so the inner T joins into the outer `title`"
+xss/profile-link.js,sink,"escapeHtml credited in an href: one `xss` context, no attribute/URL sub-context (a javascript: URL passes)"
+xss/share-links.ts,sanitiser,encodeURIComponent is credited only for the `url` context; inside a double-quoted href with a fixed https:/mailto: prefix its output carries no HTML metacharacters (the visible title IS escaped)
+xss/team-directory.ts,sanitiser,a hand-written cross-file encodeEntities (replace of all five metacharacters) is read as a transparent chain -> T
+xss/theme-picker.ts,sink,"escapeHtml credited in an UNQUOTED attribute: one `xss` context, no sub-contexts"
+xss/ticket-status.ts,guard,the anchored-regex check lives in route middleware (requireTicketId) that runs before the handler; the handler is walked with req.params as a source
+xss/welcome-banner.js,source,"the name is destructured in the handler signature `({ query: { name } }, res)`: a destructured parameter is not a source"
+xss/wiki-heading.js,sink,"Koa `ctx.body = ...` is an assignment, not a call: only res.send/write/end/render calls are xss sinks"
