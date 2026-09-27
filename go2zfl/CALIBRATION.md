@@ -1,4 +1,15 @@
-# go2zfl — calibration on real Go apps (2026-09-12, MEASURED)
+# go2zfl — calibration
+
+## 2026-09-27 — slice 5: the java2zfl soundness lesson ported (MEASURED)
+10 new fixtures (u01–u10); 9 fail on the slices-1-4 engine — 5 real flows it was SILENT on (a Z helper
+return read as F, switch cases walked in sequence, `m[k] = v`, a return before a reassignment, a
+callee defined after its caller), the rest undecided (OPEN) where the answer is known.
+- govwa: 2 REFUTED (same), OPEN 4 -> 10. The six new are REAL vulnerable sites the old engine passed
+  in silence: four `template.HTML(..)` of a term that goes through `removeScriptTag()` (its unknown
+  return used to read F), `csa.go:42` via `ToHTML()`, `sqli.go:49` via `UnsafeQueryGetData(uid)`.
+- gin-examples 0 / 0, go-test-bench 10 OPEN — unchanged. No labelled denominator for Go.
+
+## 2026-09-12 — calibration (MEASURED)
 
 Parser is Go's own go/ast (goast helper) — no API/LLM calls, no token spend.
 Verdicts: REFUTED (tainted reaches sink) / OPEN (не знаю) / clean.

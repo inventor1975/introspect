@@ -66,7 +66,41 @@ end
 
 def add_func(name, params_node, body_node)
   $funcs << { "k" => "func", "name" => name || "", "params" => param_names(params_node),
-              "body" => enc_stmts(body_of(body_node)) }
+              "body" => enc_body(body_node) }
+end
+
+# bodystmt -> encoded statements; rescue / else / ensure become a "try" (they were dropped)
+def enc_body(bodystmt)
+  return enc_stmts(bodystmt) unless bodystmt.is_a?(Array) && bodystmt[0].to_s == "bodystmt"
+  main = enc_stmts(bodystmt[1] || [])
+  resc, elsp, ens = bodystmt[2], bodystmt[3], bodystmt[4]
+  return main if resc.nil? && elsp.nil? && ens.nil?
+  handler = []; pnames = []
+  cur = resc
+  while cur.is_a?(Array) && cur[0].to_s == "rescue"
+    pnames << ident_name(cur[2]) if cur[2]
+    handler += enc_stmts(cur[3] || [])
+    cur = cur[4]
+  end
+  main += enc_stmts(elsp.is_a?(Array) && elsp[0].to_s == "else" ? elsp[1] : elsp) if elsp
+  fin = (ens.is_a?(Array) && ens[0].to_s == "ensure") ? enc_stmts(ens[1] || []) : []
+  [{ "k" => "try", "body" => main, "handler" => handler, "param" => pnames.compact, "finalizer" => fin }]
+end
+
+# the names a block / multiple-assignment binds
+def mlhs_names(n)
+  return [] unless n.is_a?(Array)
+  nm = ident_name(n)
+  return [nm] if nm
+  n.flat_map { |c| c.is_a?(Array) ? mlhs_names(c) : [] }.uniq
+end
+
+def enc_block(b)
+  return nil unless b.is_a?(Array)
+  params = (b[1].is_a?(Array) && b[1][0].to_s == "block_var") ? param_names(b[1][1]) : []
+  body = b[2]
+  body = (body.is_a?(Array) && body[0].to_s == "bodystmt") ? enc_body(body) : enc_stmts(body)
+  { "params" => params, "body" => body }
 end
 
 def body_of(bodystmt)
@@ -104,8 +138,15 @@ def enc(n)
     { "k" => "aref", "object" => enc(n[1]) }             # params[:x] -> taint flows from object
   when "method_add_arg"
     { "k" => "call", "callee" => enc(n[1]), "args" => enc_args(n[2]), "line" => call_line(n[1]) }
-  when "method_add_block"
-    enc(n[1])                                             # ignore block body for slice-1 taint
+  when "method_add_block"                                 # x.each do |e| .. end: the block body is walked
+    c = enc(n[1])
+    c = { "k" => "call", "callee" => c, "args" => [], "line" => (c["line"] || call_line(n[1])) } if c["k"] != "call"
+    c["block"] = enc_block(n[2])
+    c
+  when "mrhs_new_from_args", "mrhs_add", "mrhs_new", "mrhs_add_star"
+    elts = []
+    n[1..].each { |x| next unless x.is_a?(Array); (x[0].is_a?(Array) ? x : [x]).each { |e| elts << enc(e) if e.is_a?(Array) } }
+    { "k" => "array", "elts" => elts }
   when "command"
     { "k" => "call", "callee" => enc(n[1]), "args" => enc_args(n[2]), "line" => call_line(n[1]) }
   when "command_call"
@@ -116,7 +157,9 @@ def enc(n)
     { "k" => "member", "object" => enc(n[1]), "prop" => ident_name(n[3]), "line" => call_line(n) }
   when "fcall"
     enc(n[1])
-  when "aref_field", "field"
+  when "aref_field"                                      # h[:k] = v: an index store
+    { "k" => "aref", "object" => enc(n[1]) }
+  when "field"
     { "k" => "member", "object" => enc(n[1]), "prop" => ident_name(n[3]) }
   when "array"
     elts = []; (n[1] || []).each { |e| elts << enc(e) } if n[1].is_a?(Array)
@@ -157,16 +200,19 @@ def enc_stmt(s)
   when "assign"
     { "k" => "assign", "left" => enc(s[1]), "right" => enc(s[2]), "line" => call_line(s[1]) }
   when "opassign"
-    { "k" => "assign", "left" => enc(s[1]), "right" => enc(s[3]), "line" => call_line(s[1]) }
+    { "k" => "assign", "op" => s[2][1].to_s, "left" => enc(s[1]), "right" => enc(s[3]), "line" => call_line(s[1]) }
   when "massign"
-    { "k" => "assign", "left" => { "k" => "other" }, "right" => enc(s[2]), "line" => 0 }
+    { "k" => "assign", "left" => { "k" => "other" }, "names" => mlhs_names(s[1]), "right" => enc(s[2]),
+      "line" => call_line(s[1]) }
   when "if", "unless", "elsif"
     { "k" => "if", "test" => enc(s[1]), "body" => enc_stmts(s[2]), "els" => else_of(s[3]), "line" => call_line(s[1]) }
   when "if_mod", "unless_mod"
     { "k" => "if", "test" => enc(s[1]), "body" => [enc_stmt(s[2])], "els" => nil, "line" => call_line(s[1]) }
-  when "while", "until", "while_mod", "until_mod", "for"
+  when "for"                                           # for x in arr
+    { "k" => "for", "left" => mlhs_names(s[1]), "iter" => enc(s[2]), "body" => enc_stmts(s[3]), "line" => 0 }
+  when "while", "until", "while_mod", "until_mod"
     body = s[0].end_with?("_mod") ? [enc_stmt(s[2])] : enc_stmts(s[2])
-    { "k" => "for", "body" => body, "line" => 0 }
+    { "k" => "for", "test" => enc(s[1]), "body" => body, "line" => 0 }
   when "case"
     { "k" => "switch", "cases" => enc_cases(s[2]), "line" => 0 }
   when "return", "return0"
@@ -178,7 +224,7 @@ def enc_stmt(s)
   when "class", "module"
     collect_defs(s); { "k" => "other" }
   when "begin"
-    { "k" => "block", "body" => enc_stmts(body_of(s[1])) }
+    { "k" => "block", "body" => enc_body(s[1]) }
   when "void_stmt"
     { "k" => "other" }
   else
@@ -193,7 +239,7 @@ def enc_cases(node)
     cases << { "k" => "case", "body" => enc_stmts(cur[2]) }
     cur = cur[3]
   end
-  cases << { "k" => "case", "body" => enc_stmts(cur[1]) } if cur.is_a?(Array) && cur[0].to_s == "else"
+  cases << { "k" => "case", "isdefault" => true, "body" => enc_stmts(cur[1]) } if cur.is_a?(Array) && cur[0].to_s == "else"
   cases
 end
 

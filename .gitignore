@@ -26,3 +26,5 @@ atomstore_query.tasks/
 _backup_pretab/
 php2zfl/vendor/
 composer.lock
+cs2zfl/csast/bin/
+cs2zfl/csast/obj/

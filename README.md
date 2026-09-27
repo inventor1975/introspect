@@ -89,6 +89,13 @@ OPEN, never guessed.
   recall is evidenced by **true positives verified by hand** on deliberately-vulnerable apps
   (NodeGoat, govwa, railsgoat, java-sec-code) with 0 false positives on their clean
   counterparts — not by a labelled denominator. Treat those as *"promising"*, not *"proven"*.
+- **Unknown is OPEN, never a silent "clean" (2026-09-27).** The Java fix — every place a walk wrote F
+  for "don't know" (a helper's unknown return, a catch overwriting a try, a loop assumed to run, `+=`,
+  container stores, unparsed blocks) — was ported to Python, JS/TS, Go, Ruby and C#. Each module's
+  `CALIBRATION.md` lists the fixtures that pin it (58 new, 56 fail on the previous engines) and the
+  real-app deltas: new findings are real vulnerable sites the old engines passed in silence
+  (railsgoat's upload-filename command injection inside a block, govwa's template.HTML flows), and
+  no new REFUTED on a clean app.
 - **Bounded by the AST.** Framework-indirected sinks whose payload lives outside the source
   (MyBatis XML mappers, custom framework dispatch, WebForms server-control `.Text`) are a
   different analysis surface and are not modelled. Deep cross-layer flows resolve to **OPEN**,

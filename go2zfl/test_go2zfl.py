@@ -17,6 +17,17 @@ EXPECT = {
     "g10_guard_eq.go":     ["REFUTED"],   # equality guard narrows then-branch; unguarded call still fires
     "g11_guard_neg.go":    [],            # negated map-membership + return -> validated after
     "g12_xss_escaped.go":  ["REFUTED"],   # html.EscapeString credited for xss; raw Write REFUTED
+    # slice 5 (2026-09-27): each was silent (or undecided) on the slices-1-4 engine
+    "u01_zreturn.go":       ["OPEN"],      # a helper returning an unknown value: Z, not F
+    "u02_switch.go":        ["REFUTED"],   # switch cases joined, not walked in sequence
+    "u03_loop_zero.go":     ["REFUTED"],   # a range may run zero times
+    "u04_plus_eq.go":       ["REFUTED"],   # += joins
+    "u05_map_store.go":     ["REFUTED"],   # m[k] = v folds into the map
+    "u06_builder.go":       ["REFUTED"],   # b.WriteString(v) folds into the builder
+    "u07_append_join.go":   ["REFUTED"],   # append + strings.Join pass it
+    "u08_return_before.go": ["REFUTED"],   # returns captured where they happen
+    "u09_callee_after.go":  ["REFUTED"],   # summaries to a fixpoint
+    "u10_atoi.go":          [],            # strconv.Atoi / Itoa give numbers
 }
 def main():
     fails = []

@@ -28,6 +28,20 @@ function addFunc(node, name) {
   funcs.push({ k: "func", name: name || "", params, body, line: line(node) });
 }
 
+// every identifier a binding pattern binds: {a, b: {c}}, [x, ...y], d = 1
+function patNames(p) {
+  if (!p) return [];
+  switch (p.type) {
+    case "Identifier": return [p.name];
+    case "AssignmentPattern": return patNames(p.left);
+    case "RestElement": return patNames(p.argument);
+    case "ArrayPattern": return (p.elements || []).flatMap(patNames);
+    case "ObjectPattern": return (p.properties || []).flatMap(q => patNames(q.type === "RestElement" ? q : q.value));
+    case "VariableDeclaration": return (p.declarations || []).flatMap(d => patNames(d.id));
+    default: return [];
+  }
+}
+
 function propName(n) {
   if (n.computed) return enc(n.property);
   const p = n.property;
@@ -70,7 +84,7 @@ function enc(n) {
     case "UnaryExpression":
       return { k: "unary", op: n.operator, x: enc(n.argument) };
     case "AssignmentExpression":
-      return { k: "assignexpr", left: enc(n.left), right: enc(n.right) };
+      return { k: "assignexpr", op: n.operator, left: enc(n.left), names: patNames(n.left), right: enc(n.right) };
     case "FunctionExpression": case "ArrowFunctionExpression":
       addFunc(n, n.id ? n.id.name : ""); return { k: "funcref" };
     default: return { k: "other", t: n.type };
@@ -92,7 +106,7 @@ function encStmt(s) {
         const init = enc(d.init);   // enc() adds any function to `funcs`; patch its name from the var
         if (init.k === "funcref" && funcs.length > before && !funcs[funcs.length - 1].name && d.id && d.id.name)
           funcs[funcs.length - 1].name = d.id.name;
-        return { name: d.id && d.id.type === "Identifier" ? d.id.name : null, init };
+        return { name: d.id && d.id.type === "Identifier" ? d.id.name : null, names: patNames(d.id), init };
       });
       return { k: "vardecl", decls, line: line(s) };
     }
@@ -104,7 +118,7 @@ function encStmt(s) {
         if (right.k === "funcref" && funcs.length > before && !funcs[funcs.length - 1].name
             && e.left.type === "Identifier")
           funcs[funcs.length - 1].name = e.left.name;
-        return { k: "assign", left: enc(e.left), right, line: line(s) };
+        return { k: "assign", op: e.operator, left: enc(e.left), names: patNames(e.left), right, line: line(s) };
       }
       return { k: "exprstmt", x: enc(e), line: line(s) };
     }
@@ -112,16 +126,25 @@ function encStmt(s) {
       return { k: "if", test: enc(s.test), body: blockOf(s.consequent),
                els: s.alternate ? encStmt(s.alternate) : null, line: line(s) };
     case "BlockStatement": return { k: "block", body: s.body.map(encStmt) };
-    case "ForStatement": case "ForInStatement": case "ForOfStatement":
+    case "ForStatement":
+      return { k: "for", pre: s.init ? [s.init.type === "VariableDeclaration" ? encStmt(s.init)
+                                                   : { k: "exprstmt", x: enc(s.init), line: line(s) }] : [],
+               test: enc(s.test), update: enc(s.update), body: blockOf(s.body), line: line(s) };
+    case "ForInStatement": case "ForOfStatement":
+      return { k: "for", left: patNames(s.left), iter: enc(s.right), body: blockOf(s.body), line: line(s) };
     case "WhileStatement": case "DoWhileStatement":
-      return { k: "for", body: blockOf(s.body), line: line(s) };
+      return { k: "for", test: enc(s.test), body: blockOf(s.body), line: line(s) };
+    case "BreakStatement": return { k: "break" };
+    case "ContinueStatement": return { k: "continue" };
     case "ReturnStatement": return { k: "return", argument: enc(s.argument), line: line(s) };
     case "ThrowStatement": return { k: "throw", argument: enc(s.argument), line: line(s) };
     case "TryStatement":
       return { k: "try", body: blockOf(s.block), handler: s.handler ? blockOf(s.handler.body) : [],
+               param: s.handler ? patNames(s.handler.param) : [],
                finalizer: s.finalizer ? blockOf(s.finalizer) : [] };
     case "SwitchStatement":
-      return { k: "switch", cases: (s.cases || []).map(c => ({ k: "case", body: (c.consequent || []).map(encStmt) })) };
+      return { k: "switch", disc: enc(s.discriminant),
+               cases: (s.cases || []).map(c => ({ k: "case", isdefault: !c.test, body: (c.consequent || []).map(encStmt) })) };
     case "FunctionDeclaration":
       addFunc(s, s.id && s.id.name); return { k: "funcref" };
     case "ClassDeclaration": case "ClassExpression":

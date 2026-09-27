@@ -13,6 +13,17 @@ EXPECT = {
     "r6_backtick.rb":      ["REFUTED"],
     "x1_crossmethod.rb":   ["REFUTED"],
     "r7_xss_escaped.rb":   ["REFUTED"],   # ERB::Util.html_escape credited for xss; raw REFUTED
+    # slice 2 (2026-09-27): each was silent (or undecided) on the slice-1 engine
+    "u01_implicit_return.rb": ["REFUTED"],  # the last expression is the return value
+    "u02_block.rb":        ["REFUTED"],   # block bodies are walked (were not parsed)
+    "u03_rescue.rb":       ["REFUTED"],   # rescue bodies are walked (were dropped)
+    "u04_opassign.rb":     ["REFUTED"],   # += joins (was read as =)
+    "u05_massign.rb":      ["REFUTED"],   # a, b = v assigns
+    "u06_shovel.rb":       ["REFUTED"],   # arr << v folds into the array
+    "u07_hash_store.rb":   ["REFUTED"],   # h[:k] = v folds into the hash
+    "u08_case.rb":         ["REFUTED"],   # case/when joined, not walked in sequence
+    "u09_zreturn.rb":      ["OPEN"],      # the program's own `h` wins over the catalogue escaper `h`
+    "u10_to_i.rb":         [],            # to_i gives a number
 }
 def main():
     fails = []

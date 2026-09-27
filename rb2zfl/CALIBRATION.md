@@ -1,4 +1,19 @@
-# rb2zfl — calibration on real Ruby apps (2026-09-13, MEASURED)
+# rb2zfl — calibration
+
+## 2026-09-27 — slice 2: the java2zfl soundness lesson ported (MEASURED)
+10 new fixtures (u01–u10), all fail on the slice-1 engine; 8 were SILENT on a real flow. The parser
+(rbast.rb) now keeps block bodies (`method_add_block` was dropped whole), rescue/ensure, the `+=`
+operator, multiple-assignment names, `for x in`, index stores, `case ... else`. A method's last
+expression is its return value (implicit return was never read). The program's own `h`/`escape` now
+wins over the catalogue escaper of that name.
+- railsgoat: 2 REFUTED (same), OPEN 1 -> 6. The new ones include `app/models/benefits.rb:15` —
+  railsgoat's command injection through an uploaded file name, `system("cp .. #{file.original_filename}")`
+  inside `silence_streams(STDERR) { .. }`: the old engine never parsed that block. OPEN, not REFUTED:
+  the caller `Benefits.save` collides with ActiveRecord's `save` by bare name.
+- sinatra: OPEN 2 -> 17, lib: a config path into File.read, a command into system — neither from the
+  request; the rest in spec/. No labelled denominator for Ruby.
+
+## 2026-09-13 — calibration (MEASURED)
 
 Parser is Ruby's own Ripper (rbast helper) — no API/LLM calls, no token spend.
 Verdicts: REFUTED (tainted reaches sink) / OPEN (не знаю) / clean.

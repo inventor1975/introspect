@@ -1,4 +1,21 @@
-# js2zfl — calibration on real Node apps (2026-09-13, MEASURED)
+# js2zfl — calibration
+
+## 2026-09-27 — slice 3: the java2zfl soundness lesson ported (MEASURED)
+14 new fixtures (u01–u14), all 14 fail on the slices-1-2 engine: 9 real flows it was SILENT on (a Z
+helper return read as F, catch overwriting try, switch cases walked in sequence, a loop assumed to
+run, `c += x` read as `c = x`, `o.cmd = v`, a return before a reassignment, a callee defined after
+its caller) — plus 1 false REFUTED (`Number(x)`), and 4 OPEN that are now decided. Parser (jsast.js)
+now keeps assignment operators, destructuring names, loop heads, break/continue, switch defaults.
+- NodeGoat: 5 REFUTED, 3 OPEN — unchanged.
+- express, outside test/: 6 REFUTED (same set), OPEN 15 -> 16. Two false REFUTED that an early version
+  of this slice raised (`req.pet.name = body..` then `res.redirect('/pet/' + req.pet.id)`) are OPEN:
+  a field store taints that field and makes the object only Z.
+- express test/: +~180 OPEN, nearly all `request(createApp())` — supertest's `request` collides with
+  the bare-name SSRF sink `request`, and `createApp()`'s return used to be read as F (the bug fixed
+  here). A precision issue of the bare-name sink, left open and named, not tuned away.
+- No labelled denominator for JS.
+
+## 2026-09-13 — calibration on real Node apps (MEASURED)
 
 Parser is @babel/parser (jsast helper) — no API/LLM calls, no token spend.
 Verdicts: REFUTED (tainted reaches sink) / OPEN (не знаю) / clean.

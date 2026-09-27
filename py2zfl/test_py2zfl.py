@@ -22,6 +22,21 @@ EXPECT = {
     "c2_name_collision.py":    ["REFUTED"],
     "v1_flask_view.py":        ["REFUTED"],
     "v2_fastapi.py":           ["REFUTED"],
+    # slice 4 (2026-09-27): each was EARNED (a false "clean") or silent on the slices-1-3 engine
+    "u01_zreturn.py":          ["OPEN"],     # a helper returning an unknown value: Z, not F
+    "u02_return_before_reassign.py": ["REFUTED"],  # returns captured where they happen
+    "u03_trycatch.py":         ["REFUTED"],  # except does not overwrite the try path
+    "u04_loop_zero.py":        ["REFUTED"],  # a loop may run zero times
+    "u05_augassign.py":        ["REFUTED"],  # += joins
+    "u06_unpack.py":           ["REFUTED"],  # a, b = v assigns
+    "u07_list_append.py":      ["REFUTED"],  # append folds into the list; " ".join passes it
+    "u08_dict_store.py":       ["REFUTED"],  # d[k] = v folds into the dict
+    "u09_escape_ctx.py":       ["REFUTED"],  # html.escape is clean for xss only
+    "u10_kwargs.py":           ["REFUTED"],  # a keyword argument reaches its parameter
+    "u11_callee_after.py":     ["REFUTED"],  # summaries to a fixpoint: callee defined after the caller
+    "u12_safe_int.py":         ["EARNED"],   # int(...) is clean
+    "u13_walrus.py":           ["REFUTED"],  # := assigns
+    "u14_self_method.py":      ["REFUTED"],  # self.method resolves to the enclosing class
 }
 def main():
     fails=[]

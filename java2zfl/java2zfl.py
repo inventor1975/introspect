@@ -737,7 +737,7 @@ class Engine:
                     if node.member not in MUTATORS and node.member not in NUMERIC_RESULT \
                             and node.member not in TRANSPARENT and node.member not in SOURCE_METHODS \
                             and any(x != F for x in args):
-                        env[parts[0]] = join(env[parts[0]], *args)
+                        env[parts[0]] = join(env[parts[0]], Z)       # it MAY have stored it: unknown, not T
             elif len(parts) == 1 and parts[0] in self.classes.get(self.cur, {}).get("ftypes", {}):
                 rtype = self.classes[self.cur]["ftypes"][parts[0]]
                 recv_val, recv = Z, self._recv_of_type(rtype)
@@ -791,7 +791,10 @@ class Engine:
         """Value (and result type) of a call. Order: source, escaper, user code, library catalogue, Z."""
         if name in SOURCE_METHODS and not (name in SOURCE_ON_REQUEST and rtype and rtype not in REQUEST_TYPES):
             return T, None
-        if name in CTX_SANITIZERS:
+        # the program's own escapeHtml(..) wins — when the call resolves to it by receiver (this / its class),
+        # not when an untyped receiver merely shares the name with some user method
+        own = self._cands(name, len(args), recv) if (name in CTX_SANITIZERS and recv[0] != "any") else None
+        if name in CTX_SANITIZERS and not own:                # the program's own escapeHtml(..) wins
             return _clean_for(join(*args), CTX_SANITIZERS[name]), "String"
         if name in SANITIZERS: return F, None
         # an unknown receiver (a chain after a library call, an untyped name): a catalogued library name answers

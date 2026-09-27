@@ -61,7 +61,7 @@ class CsAst
             case BinaryExpressionSyntax b:
                 return D("k", "bin", "op", b.OperatorToken.Text, "x", Expr(b.Left), "y", Expr(b.Right));
             case AssignmentExpressionSyntax asg:
-                return D("k", "assignexpr", "left", Expr(asg.Left), "right", Expr(asg.Right));
+                return D("k", "assignexpr", "op", asg.OperatorToken.Text, "left", Expr(asg.Left), "right", Expr(asg.Right));
             case InterpolatedStringExpressionSyntax istr:
                 return D("k", "template", "exprs",
                     istr.Contents.OfType<InterpolationSyntax>().Select(i => Expr(i.Expression)).ToList());
@@ -103,7 +103,7 @@ class CsAst
                 return D("k", "vardecl", "decls", decls, "line", Line(s));
             case ExpressionStatementSyntax es:
                 if (es.Expression is AssignmentExpressionSyntax a)
-                    return D("k", "assign", "left", Expr(a.Left), "right", Expr(a.Right), "line", Line(s));
+                    return D("k", "assign", "op", a.OperatorToken.Text, "left", Expr(a.Left), "right", Expr(a.Right), "line", Line(s));
                 return D("k", "exprstmt", "x", Expr(es.Expression), "line", Line(s));
             case IfStatementSyntax iff:
                 var m = D("k", "if", "test", Expr(iff.Condition), "body", Block(iff.Statement), "line", Line(iff));
@@ -111,19 +111,29 @@ class CsAst
                 return m;
             case BlockSyntax bl: return D("k", "block", "body", bl.Statements.Select(Stmt).ToList());
             case ForStatementSyntax f: return D("k", "for", "body", Block(f.Statement), "line", Line(f));
-            case ForEachStatementSyntax fe: return D("k", "for", "body", Block(fe.Statement), "line", Line(fe));
-            case WhileStatementSyntax w: return D("k", "for", "body", Block(w.Statement), "line", Line(w));
-            case DoStatementSyntax dz: return D("k", "for", "body", Block(dz.Statement), "line", Line(dz));
+            case ForEachStatementSyntax fe:
+                return D("k", "for", "left", new List<object> { fe.Identifier.Text }, "iter", Expr(fe.Expression),
+                         "body", Block(fe.Statement), "line", Line(fe));
+            case WhileStatementSyntax w: return D("k", "for", "test", Expr(w.Condition), "body", Block(w.Statement), "line", Line(w));
+            case DoStatementSyntax dz: return D("k", "for", "test", Expr(dz.Condition), "body", Block(dz.Statement), "line", Line(dz));
+            case BreakStatementSyntax: return D("k", "break");
+            case ContinueStatementSyntax: return D("k", "continue");
             case ReturnStatementSyntax r: return D("k", "return", "argument", Expr(r.Expression), "line", Line(r));
             case ThrowStatementSyntax th: return D("k", "throw", "argument", Expr(th.Expression), "line", Line(th));
             case TryStatementSyntax t:
                 var handlers = new List<object>();
-                foreach (var c in t.Catches) handlers.AddRange(c.Block.Statements.Select(Stmt));
-                return D("k", "try", "body", t.Block.Statements.Select(Stmt).ToList(),
+                var cparams = new List<object>();
+                foreach (var c in t.Catches) {
+                    handlers.AddRange(c.Block.Statements.Select(Stmt));
+                    if (c.Declaration != null && c.Declaration.Identifier.Text != "") cparams.Add(c.Declaration.Identifier.Text);
+                }
+                return D("k", "try", "body", t.Block.Statements.Select(Stmt).ToList(), "param", cparams,
                          "handler", handlers, "finalizer", t.Finally != null ? t.Finally.Block.Statements.Select(Stmt).ToList() : new List<object>());
             case SwitchStatementSyntax sw:
-                var cases = sw.Sections.Select(sec => (object)D("k", "case", "body", sec.Statements.Select(Stmt).ToList())).ToList();
-                return D("k", "switch", "cases", cases, "line", Line(sw));
+                var cases = sw.Sections.Select(sec => (object)D("k", "case",
+                    "isdefault", sec.Labels.Any(l => l is DefaultSwitchLabelSyntax),
+                    "body", sec.Statements.Select(Stmt).ToList())).ToList();
+                return D("k", "switch", "disc", Expr(sw.Expression), "cases", cases, "line", Line(sw));
             case LocalFunctionStatementSyntax lf:
                 AddFunc(lf.Identifier.Text, lf.ParameterList, lf.Body, lf.ExpressionBody, Line(lf));
                 return D("k", "funcref");
