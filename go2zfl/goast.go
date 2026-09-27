@@ -4,6 +4,7 @@
 package main
 
 import (
+	"strings"
 	"encoding/json"
 	"go/ast"
 	"go/parser"
@@ -57,6 +58,10 @@ func enc(n ast.Expr) map[string]interface{} {
 		return map[string]interface{}{"k": "typeassert", "x": enc(e.X)}
 	case *ast.SliceExpr:
 		return map[string]interface{}{"k": "slice", "x": enc(e.X)}
+	case *ast.FuncLit:
+		// a closure: HandleFunc(.., func(w, r) {..}), go func() {..}(), Transaction(func(tx) ..)
+		return map[string]interface{}{"k": "funclit", "params": encFields(e.Type.Params), "body": encBlock(e.Body),
+			"line": line(e.Pos())}
 	case nil:
 		return map[string]interface{}{"k": "nil"}
 	default:
@@ -74,6 +79,8 @@ func typeName(e ast.Expr) string {
 		return typeName(t.X)
 	case *ast.ArrayType:
 		return "[]" + typeName(t.Elt)
+	case *ast.MapType:
+		return "map"
 	default:
 		return ""
 	}
@@ -106,7 +113,8 @@ func encStmt(s ast.Stmt) map[string]interface{} {
 	case *ast.ForStmt:
 		return map[string]interface{}{"k": "for", "body": encBlock(st.Body), "line": line(st.For)}
 	case *ast.RangeStmt:
-		m := map[string]interface{}{"k": "range", "x": enc(st.X), "body": encBlock(st.Body), "line": line(st.For)}
+		m := map[string]interface{}{"k": "range", "x": enc(st.X), "body": encBlock(st.Body), "line": line(st.For),
+			"tok": st.Tok.String()}
 		if st.Key != nil {
 			m["key"] = enc(st.Key)
 		}
@@ -140,7 +148,14 @@ func encStmt(s ast.Stmt) map[string]interface{} {
 		}
 		return map[string]interface{}{"k": "var", "vars": vars, "line": line(st.Pos())}
 	case *ast.SwitchStmt:
-		return map[string]interface{}{"k": "switch", "body": encBlock(st.Body), "line": line(st.Switch)}
+		m := map[string]interface{}{"k": "switch", "body": encBlock(st.Body), "line": line(st.Switch)}
+		if st.Tag != nil {
+			m["tag"] = enc(st.Tag)
+		}
+		if st.Init != nil {
+			m["init"] = encStmt(st.Init)
+		}
+		return m
 	case *ast.TypeSwitchStmt:
 		return map[string]interface{}{"k": "switch", "body": encBlock(st.Body), "line": line(st.Switch)}
 	case *ast.CaseClause:
@@ -148,7 +163,11 @@ func encStmt(s ast.Stmt) map[string]interface{} {
 		for _, s2 := range st.Body {
 			body = append(body, encStmt(s2))
 		}
-		return map[string]interface{}{"k": "case", "body": body}
+		list := []interface{}{}
+		for _, e := range st.List {
+			list = append(list, enc(e))
+		}
+		return map[string]interface{}{"k": "case", "body": body, "list": list}
 	case *ast.SelectStmt:
 		return map[string]interface{}{"k": "block", "body": encBlock(st.Body)}
 	case *ast.CommClause:
@@ -161,6 +180,11 @@ func encStmt(s ast.Stmt) map[string]interface{} {
 		return encStmt(st.Stmt)
 	case *ast.DeferStmt:
 		return map[string]interface{}{"k": "exprstmt", "x": enc(st.Call), "line": line(st.Defer)}
+	case *ast.BranchStmt:
+		return map[string]interface{}{"k": "branch", "tok": st.Tok.String(), "line": line(st.Pos())}
+	case *ast.SendStmt:
+		return map[string]interface{}{"k": "assign", "tok": "<-", "lhs": []interface{}{enc(st.Chan)},
+			"rhs": []interface{}{enc(st.Value)}, "line": line(st.Arrow)}
 	case *ast.GoStmt:
 		return map[string]interface{}{"k": "exprstmt", "x": enc(st.Call), "line": line(st.Go)}
 	default:
@@ -186,11 +210,15 @@ func encFields(fl *ast.FieldList) []interface{} {
 	}
 	for _, f := range fl.List {
 		tn := typeName(f.Type)
+		tag := ""
+		if f.Tag != nil {
+			tag = strings.Trim(f.Tag.Value, "`")
+		}
 		if len(f.Names) == 0 {
-			out = append(out, map[string]interface{}{"name": "", "typ": tn})
+			out = append(out, map[string]interface{}{"name": "", "typ": tn, "tag": tag})
 		}
 		for _, nm := range f.Names {
-			out = append(out, map[string]interface{}{"name": nm.Name, "typ": tn})
+			out = append(out, map[string]interface{}{"name": nm.Name, "typ": tn, "tag": tag})
 		}
 	}
 	return out
@@ -208,6 +236,22 @@ func main() {
 		return
 	}
 	globals := []interface{}{}
+	types := []interface{}{}
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			if st, ok := ts.Type.(*ast.StructType); ok {
+				types = append(types, map[string]interface{}{"name": ts.Name.Name, "fields": encFields(st.Fields)})
+			}
+		}
+	}
 	for _, decl := range f.Decls {
 		gd, ok := decl.(*ast.GenDecl)
 		if !ok {
@@ -223,7 +267,8 @@ func main() {
 				if i < len(vs.Values) {
 					val = enc(vs.Values[i])
 				}
-				globals = append(globals, map[string]interface{}{"name": nm.Name, "value": val})
+				globals = append(globals, map[string]interface{}{"name": nm.Name, "value": val,
+					"const": gd.Tok == token.CONST, "typ": typeName(vs.Type)})
 			}
 		}
 	}
@@ -238,12 +283,31 @@ func main() {
 			"name":   fd.Name.Name,
 			"recv":   encFields(fd.Recv),
 			"params": encFields(paramsOf(fd)),
+			"results": encFields(fd.Type.Results),
 			"body":   encBlock(fd.Body),
 			"line":   line(fd.Pos()),
 		}
 		funcs = append(funcs, m)
 	}
-	json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"k": "file", "pkg": f.Name.Name, "funcs": funcs, "globals": globals})
+	imports := []interface{}{}
+	for _, imp := range f.Imports {
+		path := strings.Trim(imp.Path.Value, "\"")
+		segs := strings.Split(path, "/")
+		name := segs[len(segs)-1]
+		if len(segs) > 1 && len(name) > 1 && name[0] == 'v' && strings.Trim(name[1:], "0123456789") == "" {
+			name = segs[len(segs)-2] // .../chi/v5 -> chi
+		}
+		if i := strings.Index(name, ".v"); i > 0 {
+			name = name[:i] // yaml.v3 -> yaml
+		}
+		name = strings.TrimPrefix(name, "go-")
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		imports = append(imports, map[string]interface{}{"name": name, "path": path})
+	}
+	json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"k": "file", "pkg": f.Name.Name, "funcs": funcs,
+		"globals": globals, "imports": imports, "types": types})
 }
 
 func paramsOf(fd *ast.FuncDecl) *ast.FieldList {

@@ -1,5 +1,52 @@
 # go2zfl — calibration
 
+## 2026-09-27 night — the first BLIND measure (cloud, PR #9) and what it changed (MEASURED)
+Fresh authors who saw neither the analyzer nor its fixtures wrote a corpus (net/http, gin, gorilla/mux, gorm,
+sqlx; 260 cases) committed before the analyzer ran. On `b49bb74`, blind (reproduced locally): sqli 51.6,
+xss 19.4, file 51.6, ssrf 38.7 found — all **40.3% found, 17.2% false alarms, 51 silent** of 124 decided
+vulnerable. Until this, every claim for go2zfl rested on fixtures its author wrote.
+Causes, fixed:
+- function literals were not parsed (`goast` encoded them as `other`): inline handlers, gorm `Transaction`
+  callbacks, `go func(..){..}(x)` and proxy `Director`s were invisible. Now walked over the variables they
+  capture; called-in-place literals bind their arguments.
+- sinks: `fmt.Fprint*(w, ..)`, `io.WriteString(w, ..)`, gin `c.Writer.WriteString` / `c.Data` (by its content
+  type) / `c.String` (only under a preset text/html), `buf.WriteTo(w)`, a tainted template SOURCE (`Parse`),
+  `text/template` `Execute` (unless every action pipes `| html`), gorm `Where/Order/Raw/Having/Joins/Select`,
+  sqlx `Get/Select(&dest, q)`, `Queryx`, `NamedExec`, `os.WriteFile/ReadDir/Rename/Mkdir*`, `http.ServeFile`,
+  gin `c.File/FileAttachment/SaveUploadedFile`, `template.ParseFiles`, `http.NewRequest[WithContext]`,
+  `Get/Post/Head` on an `*http.Client` (local, package var or struct field, via declared struct types),
+  `httputil.NewSingleHostReverseProxy`, a Director's `req.URL.Host = ..`, `net.Dial*`.
+- sources: gin `ShouldBind*/Bind*(&x)` (per field: `binding:"alphanum|oneof=.."` and numeric fields are
+  bounded), `r.Form["x"]`, `q := r.URL.Query(); q.Get`, `r.PathValue`, `r.Host`, `r.URL.Path` (file: Z — ServeMux
+  cleans `..`, other routers may not), `json.NewDecoder(r.Body).Decode(&x)`.
+- honest unknowns: `Scan(&x)` (read back from the DB) and a package var written by a handler are Z, not F.
+- a declared non-HTML Content-Type (text/plain, application/json, text/csv) silences xss for that handler.
+- escapers by position, as in Java: `html.EscapeString` does not protect an href START, an unquoted
+  attribute, an event attribute or a script; `url.QueryEscape` protects any HTML position and ssrf after a
+  fixed `scheme://host/` (or a trusted leading base); `filepath.Base` and `Clean("/"+x)` clear file.
+  A hand-rolled quote-doubling `strings.ReplaceAll` makes sql Z, not F. Decoding (`QueryUnescape`) after a
+  check undoes the check.
+- guards: `x != A && x != B` against named constants; switch cases on constants; an ANCHORED regexp
+  (`^..$`, no top-level `|`; a pattern we cannot read gives Z); `filepath.IsLocal`; `HasPrefix(p, dir+"/")`
+  (not a bare `dir`: 42 vs 421) and `HasPrefix(u, "https://host/")`; `slices.Contains(list, x)`;
+  own bool helpers; `strings.Contains(x, "..")` rejection (file only); `allow[u.Hostname()]` and
+  `HasSuffix(host, ".zone")` check the host of u; `v, err := strconv.Atoi(x); err != nil { return }`
+  validates x (and the error quotes the input); an own helper that returns an error on a condition over
+  its argument makes the argument and its outputs Z (checked, not proven by us). A substring
+  `strings.Contains(u, "cdn.net")` is NOT a guard.
+- scope: `:=` in a block shadows; a constant-false `if` is not walked; a package is a directory (same-named
+  globals of two directories do not mix); an unqualified call stays in its package; `pkg.F` of a library
+  never takes a user summary (`blackfriday.Run` vs a user `Run`); methods resolve by receiver type when known;
+  field assignments (`req.URL = const`) are tracked per field.
+Fixtures w01–w12 (+ the cross-package pair): every one fails on `b49bb74`. Stand: 33 + cross-file + cross-package.
+After the fixes, on the SAME corpus (fitted, not a measure): **87.9 / 0.0 / 0 silent**; expect_open cases:
+10 of 10 vulnerable OPEN, 10 safe: 6 OPEN, 4 clean, 0 refuted.
+Apps: govwa 3 REFUTED / 8 OPEN (was 2 / 10: `sqli.go:49` now REFUTED, a JSON response is not xss);
+gin-examples 1 REFUTED / 2 OPEN (was 0 / 0: the websocket example executes `text/template` with
+`"ws://"+c.Request.Host` — request data unescaped into HTML; a Host header is hard to set cross-site, so real
+but weak); go-test-bench 23 OPEN (was 10), still 0 REFUTED — its framework dispatch is the known boundary.
+A new blind round is the only way to get a number again.
+
 ## 2026-09-27 — slice 5: the java2zfl soundness lesson ported (MEASURED)
 10 new fixtures (u01–u10); 9 fail on the slices-1-4 engine — 5 real flows it was SILENT on (a Z helper
 return read as F, switch cases walked in sequence, `m[k] = v`, a return before a reassignment, a

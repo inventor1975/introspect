@@ -14,3 +14,10 @@ Sinks: `exec.Command`/`CommandContext` -> shell; `database/sql` Query/Exec/Query
 (the has-args gate avoids colliding with `url.Query()`). String concat, transparent conversions
 (string()/[]byte()/fmt.Sprintf), cross-function + cross-file summaries, branch-join.
 Verdicts: REFUTED (tainted reaches sink) / OPEN (не знаю) / clean.
+
+## After the first blind round (2026-09-27)
+The catalogue, guards and scoping it added are listed in `CALIBRATION.md` (top section). In short: closures
+are walked; gin / gorm / sqlx / `*http.Client` / `fmt.Fprint*(w, ..)` / reverse proxies are sinks; escapers
+are judged by their position in the built string; a declared non-HTML Content-Type silences xss; a
+package is a directory. Weak checks (an unanchored regexp, a substring test, a prefix without a separator)
+are NOT guards; a check hidden in an own helper that returns an error gives OPEN, not clean.

@@ -28,6 +28,18 @@ EXPECT = {
     "u08_return_before.go": ["REFUTED"],   # returns captured where they happen
     "u09_callee_after.go":  ["REFUTED"],   # summaries to a fixpoint
     "u10_atoi.go":          [],            # strconv.Atoi / Itoa give numbers
+    # round 1 of the blind corpus (2026-09-27): each fails on the slice-5 engine (b49bb74)
+    "w01_fprintf_closure.go":   ["REFUTED"],            # a function-literal handler; fmt.Fprintf(w, ..) is a sink
+    "w02_escape_href.go":       ["REFUTED"],            # html escaping at an href START does not protect
+    "w03_client_request.go":    ["REFUTED", "REFUTED"], # client.Get on a struct field; http.NewRequest; fixed host ok
+    "w04_gorm_sqlx.go":         ["REFUTED", "REFUTED"], # gorm Where(string), sqlx Get(&x, q); a map condition is bound
+    "w05_scan_second_order.go": ["OPEN"],               # Scan(&x): read back from the DB, unknown not clean
+    "w06_regex_guard.go":       ["REFUTED"],            # an anchored regexp guard validates; an unanchored one does not
+    "w07_atoi_guard.go":        ["REFUTED"],            # Atoi + `err != nil { return }` validates; the error quotes input
+    "w08_block_scope.go":       ["REFUTED"],            # `:=` in a block shadows; the outer target stays constant
+    "w10_content_type.go":      ["REFUTED"],            # text/plain and gin c.String are not HTML; c.Data text/html is
+    "w11_host_allowlist.go":    ["REFUTED"],            # allow[u.Hostname()] checks the host of u
+    "w12_bind_struct.go":       ["REFUTED"],            # gin binding:"alphanum" bounds the field; an untagged one is not
 }
 def main():
     fails = []
@@ -38,7 +50,11 @@ def main():
     xf = go2zfl.analyze_app(sorted(glob.glob(os.path.join(FIX, "xfile", "*.go"))))
     if collections.Counter(o[4] for o in xf).get("REFUTED", 0) < 1:
         fails.append(f"xfile: expected cross-file REFUTED, got {[o[4] for o in xf]}")
+    xp = go2zfl.analyze_app(sorted(glob.glob(os.path.join(FIX, "xpkg", "*", "*.go"))))
+    got = sorted((os.path.basename(o[0]), o[4]) for o in xp)
+    if got != [("two.go", "REFUTED")]:   # w09: a package is a directory; same-named globals do not mix
+        fails.append(f"xpkg: expected [('two.go', 'REFUTED')], got {got}")
     if fails:
         print("FAIL"); [print("  -", f) for f in fails]; sys.exit(1)
-    print(f"PASS: {len(EXPECT)} Go fixtures + cross-file, dispositions as expected")
+    print(f"PASS: {len(EXPECT)} Go fixtures + cross-file + cross-package, dispositions as expected")
 if __name__ == "__main__": main()
