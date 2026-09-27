@@ -82,8 +82,10 @@ OPEN, never guessed.
   "safe" whenever *any* sanitiser was applied, ignoring whether it fits the sink; introspect
   does not (an HTML-escaper does not protect a shell command). On clean real apps
   (spring-petclinic, gin examples, express core, sinatra) it raised **zero false positives**.
-- **Recall is measured with a denominator only for PHP** (SARD/Stivalet: effectively 0 real
-  misses on SQL and command once oracle defects are excluded). For the other six languages,
+- **Recall is measured with a denominator for PHP and Java.** PHP: SARD/Stivalet, effectively 0 real
+  misses on SQL and command once oracle defects are excluded. Java: NIST Juliet, the 1 110
+  servlet-source cases of CWE78/89/80/81/83 — 0 misses, 0 false alarms, the rest honest OPEN
+  (`java2zfl/CALIBRATION.md`). For the other five languages,
   recall is evidenced by **true positives verified by hand** on deliberately-vulnerable apps
   (NodeGoat, govwa, railsgoat, java-sec-code) with 0 false positives on their clean
   counterparts — not by a labelled denominator. Treat those as *"promising"*, not *"proven"*.

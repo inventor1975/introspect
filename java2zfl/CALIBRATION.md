@@ -1,4 +1,47 @@
-# java2zfl — calibration on real Java apps (2026-09-12, MEASURED)
+# java2zfl — calibration
+
+## 2026-09-27 — slice 6: soundness, then a labelled denominator (MEASURED)
+
+**Why.** The OWASP Benchmark v1.2 run (branch `bench/owasp-java-2026-09`, report `OWASP-2026-09.md`)
+found 293 vulnerable cases judged EARNED — silent — by the slices-1-5 engine. Every one came from a
+place where the walk wrote F for "don't know": a summary that kept only T returns; a bodiless interface
+method with an empty summary; `new C().m(..)` read as `new C()`; an uninitialised local; an unwalked
+`switch`; `add()` into a container not tracked. The contract (INTROSPECT-SEMANTICS §1) says the
+opposite: when unsure, OPEN. Slice 6 fixes each at its cause (list in the java2zfl.py docstring) and
+pins each with a fixture (f15–f36; 19 of the 22 fail on the old engine, 11 of them by staying silent
+where the answer is REFUTED or OPEN).
+
+**Labelled denominator: NIST Juliet for Java, servlet-source variants** — CWE78/89/80/83/81 whose source
+is `getParameter` / `getCookies` / `getQueryString` (1 110 test cases; Juliet's other sources —
+environment, console, sockets, files — are not request input and are not modelled).
+`python3 java2zfl/bench/juliet.py <juliet-java/src> [--engine <file>]`. Per case: the worst verdict in
+the `bad*` methods and in the `good*` methods.
+
+| engine | hit | **miss** | bad OPEN | good clean | **false alarm** | good OPEN |
+|---|---:|---:|---:|---:|---:|---:|
+| slices 1-5 (d675028) | 366 | **306** | 438 | 843 | **8** | 259 |
+| slice 6, first run (before any Juliet-driven change) | 903 | **111** | 96 | 876 | **0** | 123 |
+| slice 6, final | 918 | **0** | 192 | 1 020 | **0** | 90 |
+
+- The first-run 111 misses are all CWE81 (`response.sendError(code, msg)`, not a sink then).
+  Three changes were made AFTER seeing Juliet, so the final row is not held-out: `sendError` became a
+  SOFT sink (whether the error page is escaped depends on the container, so it is OPEN at worst — the
+  111 CWE81 cases moved from miss to OPEN, not to hit); `while(true){..break;}` exits only by break
+  (variant 16 goods were OPEN); a local allocated as `new C()` and never reassigned dispatches on C
+  (variant 81). The held-out figure is the first run: **0 misses and 0 false alarms outside CWE81.**
+- The remaining OPEN is one shape: data through a field (variant 45), a static field of another
+  class (68), or a serialisation round-trip (75) — 30 cases each, bad and good alike. Fields are not
+  tracked; OPEN there is the honest answer, not a gap to tune away.
+- Real apps, same day: spring-petclinic **0 / 0** (unchanged); java-sec-code **7 REFUTED, 2 OPEN**,
+  every REFUTED verified: the six from 2026-09-12 plus `TomcatFilterMemShell:82`
+  (`if ((cmd = req.getParameter(..)) != null) exec(cmd)` — an assignment inside a condition, missed
+  before). `CommandInject.codeInjectSec` is no longer accused: its `cmdFilter` is a
+  `P.matcher(x).matches()` whitelist with an early return (the old engine said REFUTED here; this file
+  claimed OPEN, which was stale).
+- NOT measured yet: the OWASP Benchmark itself with this engine (needs a local clone; the harness on
+  the bench branch reads the old engine's internals and needs adapting).
+
+## 2026-09-12 — calibration on real Java apps (MEASURED)
 
 Parser is pure static (javalang) — no API/LLM calls, no token spend. Run:
 `analyze_app(all *.java)`; verdicts REFUTED (tainted reaches sink) / OPEN (не знаю) / clean.

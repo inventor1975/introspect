@@ -20,6 +20,29 @@ EXPECT = {
     "f12_processbuilder.java": ["REFUTED"],  # new ProcessBuilder(array-of-taint) ctor sink
     "f13_xss_escaped.java":   ["REFUTED"],  # escapeHtml4 credited for xss; raw write REFUTED
     "f14_array_init.java":    ["REFUTED"],  # bare array-initializer {..taint..} -> ProcessBuilder
+    # slice 6 (2026-09-27): the OWASP Benchmark run's silent-EARNED mechanisms, each pinned
+    "f15_newcall.java":        ["REFUTED"],  # new Test().doSomething(param): read as the call, not as new Test()
+    "f16_switch.java":         ["REFUTED"],  # switch is walked (a case assigns the source)
+    "f17_switch_dead.java":    [],           # switch on a constant char: only the live case
+    "f18_ternary_dead.java":   ["REFUTED"],  # constant ?: -> safe arm; the other ?: picks the source
+    "f19_if_dead.java":        [],           # constant if: the tainted else is dead
+    "f20_list.java":           ["REFUTED"],  # list model: get(1) after remove(0) is safe, get(0) is the source
+    "f21_map.java":            ["REFUTED"],  # map model: get("keyA") safe, get("keyB") the source
+    "f22_escaped_sql.java":    ["REFUTED"],  # htmlEscape tags clean for xss ONLY: sql REFUTED, print clean
+    "f23_decode.java":         ["REFUTED"],  # URLDecoder.decode passes taint (was Z)
+    "f24_iface.java":          ["OPEN"],     # bodiless interface method: unknown, never an empty summary
+    "f25_zreturn.java":        ["OPEN"],     # a helper returning an unknown value: Z, not F
+    "f26_builder.java":        ["REFUTED","REFUTED"],  # list.add + pb.command(list); sb.append chain + printf
+    "f27_trycatch.java":       ["REFUTED","REFUTED"],  # catch does not overwrite the try path; += joins
+    "f28_cookies.java":        ["REFUTED"],  # cookie loop: the state at `break` reaches the loop exit
+    "f29_uninit_unknown.java": ["OPEN"],     # an uninitialised local is Z
+    "f30_helper_source.java":  ["REFUTED"],  # a helper that reads the request itself is a source (summary base)
+    "f31_break_overwrite.java":["REFUTED"],  # a later overwrite does not erase the state that left by break
+    "f32_exact_alloc.java":    ["REFUTED"],  # dispatch on the allocated class, not every subclass
+    "f33_forever_loop.java":   ["REFUTED"],  # while(true){..break;}: exit only by break
+    "f34_senderror.java":      ["OPEN"],     # sendError: container-dependent, soft
+    "f35_matcher_guard.java":  [],           # P.matcher(x).matches() + early return is a whitelist guard
+    "f36_process_stream.java": ["OPEN"],     # getInputStream on a Process is not a request source
 }
 def main():
     fails=[]
