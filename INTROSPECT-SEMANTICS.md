@@ -72,3 +72,12 @@ Static, AST-visible flows only. Out of scope for a source-AST module (a DIFFEREN
 framework-indirected sinks whose payload lives OUTSIDE the source — e.g. Java MyBatis SQL in XML mappers / `${}`
 annotations, ORM query DSLs, template files. Deep cross-layer flows beyond indexed summaries resolve to OPEN
 ("не знаю"), never a guessed REFUTED. Precision is the contract's guarantee; recall is bounded by what the AST sees.
+
+## 8. Path checks — two judgement calls, the same in every module (2026-09-28)
+- **A basename clears the file context** (`os.path.basename`, `path.basename`, `filepath.Base`, `File.basename`,
+  `Path.GetFileName`). Its one surviving name, `..`, joined to a base names the base's PARENT DIRECTORY, not a
+  file outside it: a read or write of it fails. This is an argued call, not a proved one. A delete of that
+  directory (`rm_rf`, `Directory.Delete(.., true)`) is the case it does not cover.
+- **Rejecting `..` alone is Z for the file context, not clean**, where the language's path join lets an ABSOLUTE
+  path replace the base (C# `Path.Combine`, Ruby `File.expand_path` / `Pathname#join`, Python `os.path.join`).
+  Where the join cannot be replaced (Go `filepath.Join`), the rejection clears the file context.

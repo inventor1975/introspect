@@ -129,7 +129,7 @@ def run_language(moddir, files):
                              "ctx": t[3], "disp": _norm(t[4])})
     # files the parser could not read: NOT analysed — they must not pass as clean in silence
     run_language.unparsed = [p for p, _why in getattr(mod, "UNPARSED", [])]
-    run_language.unjudged = [(u[0], u[1]) for u in getattr(mod, "UNJUDGED", [])]
+    run_language.unjudged = [tuple(u) for u in getattr(mod, "UNJUDGED", [])]
     return findings
 
 
@@ -199,7 +199,12 @@ def _print(report, show_open=False, quiet=False):
                 print(f"  {'':<8} {len(v['unparsed']):>5} NOT PARSED — not analysed, NOT 'safe': {shown}{more}")
             if v.get("unjudged"):
                 print(f"  {'':<8} {len(v['unjudged']):>5} NOT JUDGED — a response body that is HTML or JSON depending on "
-                      f"a value of unknown origin (declare the content type to have it judged), NOT 'safe'")
+                      f"a value of unknown origin (declare the content type to have it judged), NOT 'safe':")
+                # listed by line: a count alone left each such site as silent as a clean one (blind round 2)
+                for u in (v["unjudged"] if show_open else v["unjudged"][:5]):
+                    print(f"  {'':<8} {'':>5}   {os.path.relpath(u[0], report['project'])}:{u[1]}  {u[2] if len(u) > 2 else ''}")
+                if not show_open and len(v["unjudged"]) > 5:
+                    print(f"  {'':<8} {'':>5}   (+{len(v['unjudged']) - 5} more; --open lists them all)")
         for moddir in sorted(skipped):
             s = skipped[moddir]
             # A skip is NOT always a missing parser: a path bug, a timeout or a crash
