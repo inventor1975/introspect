@@ -1,0 +1,258 @@
+file,category,vulnerable,expect_open,why
+sqli/user_search_controller.rb,sqli,true,false,params[:q] interpolated into a LIKE clause in where
+sqli/products_listing.rb,sqli,true,false,params sort and direction interpolated into order
+sqli/reports_export.rb,sqli,true,false,params dates interpolated into a select_all query
+sqli/legacy_accounts.rb,sqli,true,false,params[:ref] concatenated into find_by_sql
+sqli/inventory_query.rb,sqli,true,false,params[:warehouse] interpolated into connection.execute
+sqli/article_filter.rb,sqli,true,false,params[:category] interpolated into where string
+sqli/order_history.rb,sqli,true,false,params[:status] interpolated into where string
+sqli/audit_lookup.rb,sqli,true,false,params[:actor] interpolated into find_by_sql
+sqli/customer_segments.rb,sqli,true,false,params tier and region interpolated into where
+sqli/ticket_search.rb,sqli,true,false,params[:priority] interpolated into a joins fragment
+sqli/sales_dashboard.rb,sqli,true,false,params[:quarter] interpolated into select_all
+sqli/tag_browser.rb,sqli,true,false,params[:tag] interpolated into a where array literal
+sqli/employee_directory.rb,sqli,true,false,params dept interpolated and tainted order column
+sqli/invoice_finder.rb,sqli,true,false,params[:number] concatenated into where
+sqli/comment_moderation.rb,sqli,true,false,params[:author] interpolated into where string
+sqli/subscription_report.rb,sqli,true,false,params interpolated into where and having
+sqli/geo_lookup.rb,sqli,true,false,params[:city] interpolated into a Sequel dataset string
+sqli/metrics_endpoint.rb,sqli,true,false,params[:name] interpolated into Sequel fetch
+sqli/vendor_catalog.rb,sqli,true,false,params[:country] interpolated into find_by_sql in a model method
+sqli/session_activity.rb,sqli,true,false,params[:user_id] interpolated into connection.execute
+sqli/campaign_stats.rb,sqli,true,false,params[:campaign] concatenated into find_by_sql
+sqli/shipment_tracker.rb,sqli,true,false,params[:code] interpolated into where in a Sinatra route
+sqli/feedback_browser.rb,sqli,true,false,params[:rating] interpolated into where in a helper module
+sqli/loyalty_points.rb,sqli,true,false,params threshold interpolated and sort concatenated into order
+sqli/document_archive.rb,sqli,true,false,params[:owner] interpolated into a where fragment variable
+sqli/payroll_query.rb,sqli,true,false,params year and grade interpolated into a heredoc select_all
+sqli/warehouse_stock.rb,sqli,true,false,params[:columns] passed as a tainted string to select
+sqli/course_enrollment.rb,sqli,true,false,tainted pluck column and interpolated where
+sqli/device_registry.rb,sqli,true,false,params[:firmware] interpolated into exec_query
+sqli/transaction_ledger.rb,sqli,true,false,params interpolated into where and Arel.sql order
+sqli/notification_prefs.rb,sqli,true,false,params[:channel] interpolated into a joins/where string
+sqli/media_gallery.rb,sqli,true,false,params interpolated into a conditionally built where string
+sqli/vendor_ledger.rb,sqli,true,false,params flows cross-file through ReportQueries.status_fragment interpolation
+sqli/incident_timeline.rb,sqli,true,true,taint enters via @severity set in a before_action callback not statically linked
+sqli/account_profile.rb,sqli,false,false,parameterized where with a bind placeholder
+sqli/product_catalog.rb,sqli,false,false,hash conditions passed to where
+sqli/blog_posts.rb,sqli,false,false,named bind placeholders in where
+sqli/user_lookup.rb,sqli,false,false,find by primary key is not a string sink
+sqli/order_status.rb,sqli,false,false,array-bind form of find_by_sql
+sqli/contact_list.rb,sqli,false,false,exec_query with positional bind parameters
+sqli/category_filter.rb,sqli,false,false,parameterized between plus hash conditions
+sqli/staff_roster.rb,sqli,false,false,hash conditions passed to where
+sqli/billing_summary.rb,sqli,false,false,account id coerced with to_i before interpolation
+sqli/event_calendar.rb,sqli,false,false,year and month coerced with Integer before interpolation
+sqli/survey_results.rb,sqli,false,false,sort validated against a whitelist before order
+sqli/asset_manager.rb,sqli,false,false,case statement maps input to constant column names
+sqli/leaderboard.rb,sqli,false,false,sort and direction validated via cross-file QueryGuards whitelist
+sqli/wishlist_view.rb,sqli,false,false,parameterized where plus to_i cast
+sqli/region_selector.rb,sqli,false,false,region checked against a whitelist before interpolation
+sqli/price_history.rb,sqli,false,false,exec_query with positional bind parameters
+sqli/membership_tiers.rb,sqli,false,false,hash conditions plus parameterized clause
+sqli/task_board.rb,sqli,false,false,hash conditions passed to where
+sqli/reservation_lookup.rb,sqli,false,false,Sequel parameterized placeholder
+sqli/analytics_summary.rb,sqli,false,false,days coerced with to_i before interpolation
+sqli/patient_records.rb,sqli,false,false,array-condition form of where
+sqli/forum_threads.rb,sqli,false,false,parameterized where in a Sinatra route
+sqli/coupon_redeem.rb,sqli,false,false,value neutralized with connection.quote before interpolation
+sqli/file_index.rb,sqli,false,false,term escaped and passed as a LIKE bind value not interpolated into SQL
+sqli/team_members.rb,sqli,false,false,hash conditions passed to where
+sqli/inventory_report.rb,sqli,false,false,cross-file bind array from ReportQueries.status_binding
+sqli/login_history.rb,sqli,false,false,user id coerced with Integer before interpolation
+sqli/newsletter_admin.rb,sqli,false,false,order value fetched from a constant map
+sqli/store_locator.rb,sqli,false,false,parameterized where in a Sinatra route
+sqli/grade_book.rb,sqli,false,false,to_i cast plus array-bind find_by_sql
+sqli/permission_matrix.rb,sqli,false,false,scope reassigned unless it is in a whitelist before interpolation
+sqli/activity_feed.rb,sqli,false,false,hash conditions plus parameterized clause
+sqli/profile_directory.rb,sqli,false,true,interpolated handle read from the current user record origin not traceable
+sqli/default_dashboard.rb,sqli,false,true,interpolated region read from ENV configuration origin not traceable
+sqli/saved_filter.rb,sqli,false,true,where fragment read from a settings record origin not traceable
+xss/greetings_controller.rb,xss,true,false,params[:name] interpolated into markup and marked html_safe for render html:.
+xss/profiles_controller.rb,xss,true,false,View helper wraps params[:bio] in raw() inside content_tag so it is emitted unescaped.
+xss/search_app.rb,xss,true,false,Sinatra route returns an HTML string with the query parameter interpolated unescaped.
+xss/guestbook_app.rb,xss,true,false,Inline Sinatra ERB outputs @signature with <%= %> and escape_html is not enabled.
+xss/notes_preview_controller.rb,xss,true,false,render inline: template emits raw params[:note].
+xss/notices_controller.rb,xss,true,false,"Level is whitelisted, but the message text is formatted into markup and marked html_safe."
+xss/tag_cloud_controller.rb,xss,true,false,Each tag from the params array is interpolated into <li> and the joined list marked html_safe.
+xss/article_preview_controller.rb,xss,true,false,Attacker-chosen mode=rich branch leaves content unescaped before html_safe.
+xss/continue_links_controller.rb,xss,true,false,HTML escaping does not stop a javascript: URL placed in the href attribute.
+xss/report_filters_controller.rb,xss,true,false,Escaped value lands in an unquoted attribute so spaces allow injecting event handlers.
+xss/alerts_controller.rb,xss,true,false,escape_javascript is the wrong context for HTML body and leaves tags like <img onerror> intact.
+xss/campaign_landing_controller.rb,xss,true,false,request.GET utm_campaign is interpolated into the headline and marked html_safe.
+xss/profile_cards_controller.rb,xss,true,false,Presenter stores params[:display_name] in an ivar and interpolates it into html_safe markup.
+xss/schedule_controller.rb,xss,true,false,The rescue branch echoes the raw date parameter inside html_safe markup.
+xss/pages_app.rb,xss,true,false,Sinatra halt 404 body interpolates the decoded path parameter unescaped.
+xss/widget_app.rb,xss,true,false,Sinatra helper builds HTML from params[:note] without escaping and returns it as the body.
+xss/listing_descriptions_controller.rb,xss,true,false,simple_format with sanitize: false returns user text as html_safe.
+xss/order_summary_controller.rb,xss,true,false,params[:title] is stored in a hash and interpolated into table rows marked html_safe.
+xss/deployment_status_controller.rb,xss,true,false,Cross-file helper interpolates params[:status] into markup without escaping before html_safe.
+xss/announcements_controller.rb,xss,true,false,sanitize is configured to permit the onclick attribute so script handlers survive.
+xss/feedback_controller.rb,xss,true,false,Cross-file model class builds blockquote markup from params[:message] which is marked html_safe.
+xss/invitations_controller.rb,xss,true,false,Plain ERB result_with_hash does not escape the guest parameter before html_safe.
+xss/snippet_exports_controller.rb,xss,true,false,The format_hint=html case passes the snippet through unescaped to html_safe.
+xss/comment_preview_controller.rb,xss,true,false,Stripping only <script> blocks is bypassable with event-handler attributes.
+xss/topics_controller.rb,xss,true,false,Ruby ^$ anchors match per line so a newline lets markup through the slug check.
+xss/weekly_report_controller.rb,xss,true,false,Highlight lines are appended to a string buffer that is marked html_safe.
+xss/journal_entries_controller.rb,xss,true,true,Stored body saved from params is later rendered unescaped after a database round-trip.
+xss/dashboard_widgets_controller.rb,xss,true,true,Dynamic send dispatches kind=note to a method that emits the value as html_safe.
+xss/storefront_controller.rb,xss,true,true,before_action sets @theme from params and another method interpolates it into html_safe markup.
+xss/readme_preview_controller.rb,xss,true,true,Redcarpet without safe_links_only still renders javascript: links from user markdown.
+xss/welcome_controller.rb,xss,false,false,Name is HTML-escaped before the string is marked html_safe.
+xss/promo_banners_controller.rb,xss,false,false,render html: with a string not marked html_safe is escaped by Rails.
+xss/inbox_preview_controller.rb,xss,false,false,content_tag escapes its string content.
+xss/help_search_controller.rb,xss,false,false,Query and titles pass through ERB::Util h before html_safe.
+xss/author_bios_controller.rb,xss,false,false,Rails sanitize with a tag/attribute allowlist and no event attributes neutralises script.
+xss/swatches_controller.rb,xss,false,false,Color is interpolated only inside the include? allowlist branch.
+xss/archive_pages_controller.rb,xss,false,false,Page value is converted with to_i before interpolation.
+xss/lookup_app.rb,xss,false,false,Word is escaped with Rack::Utils.escape_html and the definition comes from a constant hash.
+xss/shoutbox_app.rb,xss,false,false,Inline ERB passes the value through an h helper that calls Rack::Utils.escape_html.
+xss/draft_preview_controller.rb,xss,false,false,Both branches neutralise the draft (allowlist sanitize or html_escape).
+xss/sections_controller.rb,xss,false,false,The heading is chosen from constant strings by case/when.
+xss/shipping_labels_controller.rb,xss,false,false,The carrier name is looked up from a constant hash with a constant default.
+xss/tip_calculator_controller.rb,xss,false,false,The bill is converted with Float() and only numbers are rendered.
+xss/build_status_controller.rb,xss,false,false,Cross-file helper escapes the label and allowlists the tone.
+xss/member_cards_controller.rb,xss,false,false,Presenter HTML-escapes both fields in the constructor before html_safe output.
+xss/checklist_controller.rb,xss,false,false,Each item is escaped with ERB::Util.h before joining.
+xss/keyword_list_controller.rb,xss,false,false,Keywords go through content_tag and safe_join which escape them.
+xss/outbound_links_controller.rb,xss,false,false,The scheme is restricted to http/https and the URL is escaped inside a quoted href.
+xss/embed_config_controller.rb,xss,false,false,The JSON is passed through json_escape before being placed in a script block.
+xss/feedback_board_app.rb,xss,false,false,Sinatra erb is configured with escape_html: true so <%= %> escapes the comment.
+xss/locale_switch_controller.rb,xss,false,false,Lang is interpolated only after equality checks against constant values.
+xss/wiki_pages_controller.rb,xss,false,false,The slug is validated with an \A...\z anchored pattern of letters digits and hyphens.
+xss/cart_quantity_controller.rb,xss,false,false,The quantity is converted with Integer() and clamped.
+xss/event_calendar_controller.rb,xss,false,false,Only a Date formatted by strftime reaches the markup.
+xss/excerpts_controller.rb,xss,false,false,Rails truncate helper escapes its input by default.
+xss/field_hints_controller.rb,xss,false,false,tag.span escapes attribute values including data attributes.
+xss/articles_app.rb,xss,false,false,The 404 body escapes the name and the success path emits constant markup.
+xss/site_banner_controller.rb,xss,false,true,Raw banner HTML comes from an operator-controlled YAML config file and the param is escaped.
+xss/service_status_app.rb,xss,false,true,Raw notice HTML comes from an environment variable and the param is escaped.
+xss/help_docs_preview_controller.rb,xss,false,true,Redcarpet with filter_html/escape_html and safe_links_only neutralises markup in a library the code does not show.
+file/downloads_app.rb,file,true,false,Query param joined under the files directory and passed to send_file with no traversal check.
+file/attachments_controller.rb,file,true,false,Rails.root.join with a raw filename param lets ../ escape the attachments folder.
+file/log_viewer.rb,file,true,false,Log name param interpolated into a path read with File.read.
+file/exports_controller.rb,file,true,false,Cross-file scrubber strips ../ only once so ....// collapses back into ../.
+file/backups_controller.rb,file,true,false,start_with? check on an unexpanded joined path always passes for ../ sequences.
+file/user_avatars_controller.rb,file,true,false,FileUtils.rm_f deletes a path built from a raw param.
+file/workspace_cleanup.rb,file,true,false,FileUtils.rm_rf on a directory joined from a form param allows deleting outside workspaces.
+file/notes_controller.rb,file,true,false,Slug param builds the target path of File.write so notes can be written anywhere as .md.
+file/docs_preview.rb,file,true,false,Pathname#join with an absolute or ../ page param leaves the docs root before read.
+file/bulk_download_controller.rb,file,true,false,Each element of an array param is joined and read in a loop.
+file/invoice_pdfs_controller.rb,file,true,false,format() inserts the invoice number param into the path given to File.binread.
+file/static_pages.rb,file,true,false,The .. check runs before CGI.unescape so double-encoded traversal passes.
+file/report_templates_controller.rb,file,true,false,Template param flows cross-file into a model method that File.reads under Rails.root.
+file/docs_helper.rb,file,true,false,View helper reads a file joined from params[:doc] without validation.
+file/copy_assets_controller.rb,file,true,false,Both source and destination of FileUtils.cp come from params.
+file/settings_import.rb,file,true,false,Name field of the JSON request body chooses the File.write target.
+file/translations_controller.rb,file,true,false,"Hash#fetch falls back to the raw locale param, so any .yml path can be read."
+file/media_stream.rb,file,true,false,The else branch of the case joins the raw kind param and sends it.
+file/folder_listing_controller.rb,file,true,false,"basename is applied to the file part only, while the folder param stays raw."
+file/thumbnails.rb,file,true,false,File.expand_path with a base dir but no containment check still resolves ../ and absolute paths.
+file/private_files_controller.rb,file,true,true,"Prefix check lacks a trailing separator, so sibling directories like files_old are reachable."
+file/themes.rb,file,true,false,Cookie value is interpolated into a relative path read with File.read.
+file/raw_downloads_controller.rb,file,true,false,send_file is called directly on a path param.
+file/csv_preview.rb,file,true,false,Dataset param joined into the path given to IO.readlines.
+file/storage_bucket.rb,file,true,false,Bucket and key params are stored in an object and joined into the File.binread path.
+file/exports_archive.rb,file,true,false,String#% formatting puts the name param into a path that is then deleted.
+file/package_files_controller.rb,file,true,false,Array#join builds the README path from package and version params.
+file/help_articles_controller.rb,file,true,false,HTML escaping does not neutralise ../ in the article name used for File.read.
+file/sheet_downloads.rb,file,true,false,The anchored regex allows dots and slashes so ../ paths ending in .xlsx pass.
+file/crash_reports_controller.rb,file,true,true,Path is built from params in a before_action and read back from an instance variable in the actions.
+file/theme_bundle_imports_controller.rb,file,true,true,Zip entry names from an uploaded archive are joined into write paths (zip slip).
+file/manuals.rb,file,false,false,File param must be in a constant whitelist before send_file.
+file/statements_controller.rb,file,false,false,Period param only selects a value from a frozen hash of fixed file names.
+file/receipts_controller.rb,file,false,false,File.basename strips directories and a fixed .pdf extension is appended.
+file/user_uploads.rb,file,false,false,Expanded path must start with the root plus separator before send_file.
+file/invoices_controller.rb,file,false,false,The id param is cast with to_i before being put in the file name.
+file/label_printer.rb,file,false,false,A fully anchored \A...\z regex limits the name to letters digits _ and -.
+file/documents_controller.rb,file,false,true,The storage path comes from a database record scoped to the current user.
+file/sound_clips.rb,file,false,false,A case statement maps the param to constant names and halts otherwise.
+file/wiki_pages_controller.rb,file,false,false,cleanpath result must stay under the wiki root plus slash before File.read.
+file/feature_flags_controller.rb,file,false,false,The file read is a constant config path and the param only indexes parsed YAML.
+file/feedback_log.rb,file,false,false,User input is only file content appended to a constant log path.
+file/photo_uploads_controller.rb,file,false,false,File name is a random UUID plus a whitelisted extension.
+file/price_sheets.rb,file,false,false,The equality test picks one of two constant file names and the region param only sets a header.
+file/course_materials.rb,file,false,false,A helper whitelist check guards the name before send_file.
+file/api_cache.rb,file,false,false,The cache file name is a SHA-256 hex digest of the user value.
+file/color_schemes.rb,file,false,false,find returns an element of the constant scheme list or the default.
+file/audit_logs_controller.rb,file,false,false,An integer index selects from a constant array of log names.
+file/daily_digests.rb,file,false,false,The day param is parsed as a Date and re-formatted with strftime.
+file/shared_files_controller.rb,file,false,false,A cross-file resolver expands the path and rejects anything outside the root.
+file/export_formats_controller.rb,file,false,false,The format param is used only after an EXPORTERS.key? whitelist check.
+file/blog_posts_controller.rb,file,false,false,String#delete removes everything except a-z 0-9 and - from the slug.
+file/sprite_sheets.rb,file,false,false,gsub strips every character that is not a word character or dash.
+file/paged_exports.rb,file,false,false,Integer() parsing with %04d formatting leaves only digits in the file name.
+file/release_notes_controller.rb,file,false,false,The version param is only used to search the text of a constant file and in log messages.
+file/fonts.rb,file,false,false,The font name must equal an entry from Dir.children of the font directory.
+file/download_names.rb,file,false,false,The param only sets the download filename header while the served path is constant.
+file/job_outputs_controller.rb,file,false,true,The output path is loaded from a job record looked up by token.
+file/nightly_report.rb,file,false,true,The directory comes from ENV configuration and the param only filters lines.
+file/avatar_crops_controller.rb,file,false,true,The file name uses current_user.id from session state defined elsewhere.
+file/manifest_reader.rb,file,false,false,basename plus an anchored regex and a .json suffix keep the path inside the manifest dir.
+file/locale_bundles_controller.rb,file,false,false,A ternary include? whitelist falls back to en.
+code/calculator_app.rb,code,true,false,Sinatra route passes params[:expression] straight to eval.
+code/report_dsl_controller.rb,code,true,false,Request-supplied report definition is run with instance_eval on a builder.
+code/dynamic_attributes_controller.rb,code,true,false,Attribute name from params is interpolated into a class_eval string.
+code/bulk_actions_controller.rb,code,true,false,"Model receives send with method name and arguments from params, so private methods like system are reachable."
+code/importers_controller.rb,code,true,false,params[:importer] is constantized and instantiated with request data (e.g. ERB then run).
+code/rpc_endpoint.rb,code,true,false,public_send with a request-chosen method name reaches instance_eval/send on the service object.
+code/template_preview_controller.rb,code,true,false,Request body is compiled as an ERB template and evaluated with the controller binding.
+code/inline_render_controller.rb,code,true,false,Title from params is interpolated into the source of render inline so ERB tags execute.
+code/pricing_rules_controller.rb,code,true,false,Rule string from params flows through a helper module into instance_eval.
+code/format_eval_app.rb,code,true,false,String-formatted code built from query params is evaluated.
+code/debug_console_controller.rb,code,true,false,A feature flag is the only gate before binding.eval of the request snippet.
+code/denylist_eval_app.rb,code,true,false,Keyword denylist is bypassable before eval of the request formula.
+code/multiline_regex_calc.rb,code,true,false,"The regex uses ^ and $ which are line anchors in Ruby, so a newline smuggles code into eval."
+code/html_escaped_eval_controller.rb,code,true,false,HTML escaping does not neutralise Ruby code before eval.
+code/chained_ops_controller.rb,code,true,false,Each request step picks the method for public_send on a String (instance_eval is public).
+code/mode_branch_app.rb,code,true,false,In advanced mode the raw formula param reaches eval.
+code/fallback_rescue_controller.rb,code,true,false,Unparseable input falls into a rescue branch that evals it.
+code/command_alias_app.rb,code,true,false,Unknown commands fall back to the raw param which is sent with request args (e.g. system).
+code/record_filter_controller.rb,code,true,false,Field comparator and value params are interpolated into eval inside a select block.
+code/sandbox_object_app.rb,code,true,false,JSON body code is instance_eval'd on a plain Object which is no sandbox.
+code/subscription_transitions_controller.rb,code,true,false,Method name from params is converted to a symbol and passed to send.
+code/sinatra_page_render.rb,code,true,false,Sinatra erb called with a String from params renders it as template source.
+code/tilt_layout_app.rb,code,true,false,Request-supplied layout becomes a Tilt ERB template and is rendered.
+code/widget_config_controller.rb,code,true,true,Expression is copied from params into an ivar in a before_action and instance_eval'd in the action.
+code/rollout_header_controller.rb,code,true,false,A request header value is evaluated with eval.
+code/cookie_prefs_app.rb,code,true,false,The prefs cookie is client-controlled and parsed with eval.
+code/plugin_dispatch_app.rb,code,true,false,const_get and public_send both take names from params (e.g. Kernel.system).
+code/formulas_controller.rb,code,true,true,Users store any expression via update and compute evals it back from the database.
+code/discount_codes_controller.rb,code,true,false,Raw amount param is spliced into the rule template that DiscountRule#apply evals.
+code/chart_labels_controller.rb,code,true,false,Label format from params is evaluated as a double-quoted string literal allowing interpolation.
+code/method_object_app.rb,code,true,false,method() with a request name can return instance_eval which is then called with request args.
+code/custom_fields_controller.rb,code,true,false,Field name from params is interpolated unescaped into a module_eval heredoc.
+code/notification_kinds_controller.rb,code,true,false,safe_constantize still resolves any class name from params before instantiation.
+code/arithmetic_service_app.rb,code,false,false,public_send only runs after the op param is checked against a constant list.
+code/report_scopes_controller.rb,code,false,false,case/when maps the sort param to fixed scope symbols before public_send.
+code/model_registry_controller.rb,code,false,false,constantize receives a value looked up from a frozen hash not the param itself.
+code/integer_multiplier_app.rb,code,false,false,Only an Integer()-converted value is interpolated into the eval string.
+code/anchored_regex_calc.rb,code,false,true,"A \A...\z regex allowing only digits, spaces and operators gates eval; soundness depends on regex reasoning."
+code/interest_estimator_controller.rb,code,false,false,eval runs a constant expression and request values are only local numeric variables.
+code/invoice_builder_controller.rb,code,false,false,instance_eval is given a block and params are used only as data.
+code/profile_fields_controller.rb,code,false,false,class_eval block defines methods from a constant list and public_send is whitelist-guarded.
+code/leaderboard_sort_controller.rb,code,false,true,"Prefix plus respond_to? limits public_send to sort_by_ methods, which needs method-set resolution to prove."
+code/kpi_presets_app.rb,code,false,false,The request expression is only logged and the evaluated variable is reassigned from a preset hash.
+code/margin_reports_controller.rb,code,false,false,The helper returns only constant formula strings keyed by the param.
+code/summary_verbose_app.rb,code,false,false,Request expression is only logged while eval runs a constant.
+code/welcome_letter_controller.rb,code,false,false,ERB template comes from a fixed file and params are passed as hash values.
+code/search_banner_controller.rb,code,false,false,render inline uses a constant template with params passed as locals.
+code/liquid_preview_controller.rb,code,false,true,User template goes to Liquid which does not execute Ruby; needs library knowledge.
+code/exporter_descendants_controller.rb,code,false,false,constantize runs only after include? against known exporter subclasses.
+code/job_control_app.rb,code,false,false,send is guarded by halt unless the action is in a permitted list.
+code/greeting_card_controller.rb,code,false,false,String#inspect produces a Ruby string literal so the name cannot break out in eval.
+code/coordinate_sum_app.rb,code,false,false,Only to_i integers are interpolated into the evaluated code.
+code/line_item_totals_controller.rb,code,false,false,format with %d forces integers (or raises) before eval.
+code/webhook_router_app.rb,code,false,false,method() receives a symbol from a constant hash after a key? guard on the event header.
+code/metrics_summary_controller.rb,code,false,false,Ternary whitelist falls back to a constant before public_send.
+code/order_states_controller.rb,code,false,false,The symbolised event must be in a constant list or the request is rejected before public_send.
+code/score_formula_app.rb,code,false,true,Evaluated expression comes from server environment configuration with numeric params as locals.
+code/shipping_rules_controller.rb,code,false,true,Evaluated formula comes from a server-side YAML config selected by key.
+code/dashboard_layouts_controller.rb,code,false,true,instance_eval runs a server file chosen from a constant map.
+code/analytics_expressions_controller.rb,code,false,false,The param goes to a non-sink helper while the eval helper gets a constant.
+code/report_exporters_controller.rb,code,false,false,Format is whitelist-checked before being camelized into a constant name.
+code/event_handlers_app.rb,code,false,false,const_get only runs for names in Handlers.constants and without inheritance lookup.
+code/help_pages_app.rb,code,false,false,Sinatra erb gets a Symbol from a constant hash so it renders a view file.
+code/batch_steps_app.rb,code,false,false,Each step is skipped unless it is in a constant list before public_send.
+code/tax_calculator_controller.rb,code,false,false,Amount is Float()-parsed and rate is to_f before interpolation into eval.
+code/attribute_readers_controller.rb,code,false,true,A strict identifier regex gates the name interpolated into class_eval.
