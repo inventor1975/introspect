@@ -6,6 +6,7 @@ require 'ripper'
 require 'json'
 
 $funcs = []
+$owner = []          # the enclosing class/module names
 
 def leaf_line(n)
   (n.is_a?(Array) && n[2].is_a?(Array)) ? n[2][0] : 0
@@ -35,17 +36,62 @@ def collect_embexpr(n, out)
   n.each { |c| collect_embexpr(c, out) if c.is_a?(Array) }
 end
 
+# Ripper hands the SOURCE text of a literal: \" is still two characters; the value has one
+def unesc(s)
+  s.to_s.gsub(/\\(["'\\#])/, '\1')
+end
+
+# the same string as ordered parts: {"s" => literal text} / {"e" => expression}
+def collect_parts(n, out)
+  return unless n.is_a?(Array)
+  t = n[0].to_s
+  if t == "@tstring_content"
+    out << { "s" => unesc(n[1]) }; return
+  end
+  if t == "string_embexpr"
+    (n[1] || []).each { |s| out << { "e" => enc(s) } }
+    return
+  end
+  n.each { |c| collect_parts(c, out) if c.is_a?(Array) }
+end
+
+def enc_string(n)
+  exprs = []; collect_embexpr(n, exprs)
+  parts = []; collect_parts(n, parts)
+  return { "k" => "lit", "kind" => "STRING", "value" => parts.map { |p| p["s"] }.join } if exprs.empty?
+  { "k" => "template", "exprs" => exprs, "parts" => parts }
+end
+
+# an if / unless / case used as a VALUE: its branches' statements
+def cond_expr(test, branches)
+  { "k" => "condexpr", "test" => test, "branches" => branches }
+end
+
+def else_branch(node)
+  return [] unless node.is_a?(Array)
+  return enc_stmts(node[1]) if node[0].to_s == "else"
+  return [{ "k" => "exprstmt", "x" => enc(node), "line" => call_line(node) }] if node[0].to_s == "elsif"
+  []
+end
+
 def enc_args(n)
   # arg_paren -> args_add_block -> [ [args...], block ]
   args = []
+  walk = nil
+  list = lambda do |l|                                   # a plain list of args, or a nested args node
+    next unless l.is_a?(Array)
+    if l[0].is_a?(Symbol) then walk.call(l) else l.each { |a| args << enc(a) } end
+  end
   walk = lambda do |x|
     return unless x.is_a?(Array)
     if x[0].to_s == "args_add_block"
-      (x[1] || []).each { |a| args << enc(a) } if x[1].is_a?(Array)
+      list.call(x[1])
     elsif %w[arg_paren paren].include?(x[0].to_s)
       walk.call(x[1])
     elsif x[0].to_s == "args_add"
       walk.call(x[1]); args << enc(x[2])
+    elsif x[0].to_s == "args_add_star"                   # f(a, *rest, b): the splat is an argument too
+      list.call(x[1]); args << enc(x[2]); (x[3..] || []).each { |a| args << enc(a) }
     end
   end
   walk.call(n)
@@ -66,7 +112,7 @@ end
 
 def add_func(name, params_node, body_node)
   $funcs << { "k" => "func", "name" => name || "", "params" => param_names(params_node),
-              "body" => enc_body(body_node) }
+              "owner" => $owner.last, "body" => enc_body(body_node) }
 end
 
 # bodystmt -> encoded statements; rescue / else / ensure become a "try" (they were dropped)
@@ -119,23 +165,57 @@ def enc(n)
   when "@int", "@float", "@CHAR"
     { "k" => "lit", "kind" => "NUM" }
   when "@tstring_content"
-    { "k" => "lit", "kind" => "STRING" }
-  when "var_ref", "var_field", "vcall", "const_ref", "const_path_ref", "top_const_ref"
+    { "k" => "lit", "kind" => "STRING", "value" => unesc(n[1]) }
+  when "const_path_ref"                                   # File::SEPARATOR: base ident File, full name kept
+    b = enc(n[1]); b = b.merge("full" => "#{b["full"] || b["name"]}::#{ident_name(n[2])}") if b["k"] == "ident"; b
+  when "var_ref", "var_field", "vcall", "const_ref", "top_const_ref"
     enc(n[1])
-  when "string_literal", "string_content"
+  when "string_literal", "string_content", "string_concat"
+    enc_string(n)
+  when "regexp_literal"
     exprs = []; collect_embexpr(n, exprs)
-    exprs.empty? ? { "k" => "lit", "kind" => "STRING" } : { "k" => "template", "exprs" => exprs }
+    parts = []; collect_parts(n[1], parts)
+    { "k" => "regex", "src" => parts.map { |p| p["s"] || "" }.join, "interp" => !exprs.empty?, "exprs" => exprs }
+  when "begin"                                           # x = begin .. rescue .. nil end: a value with branches
+    b = enc_body(n[1])
+    if b.length == 1 && b[0]["k"] == "try"
+      cond_expr({ "k" => "nil" }, [b[0]["body"], b[0]["handler"]])
+    else
+      cond_expr({ "k" => "nil" }, [b])
+    end
+  when "ifop"
+    cond_expr(enc(n[1]), [[{ "k" => "exprstmt", "x" => enc(n[2]) }], [{ "k" => "exprstmt", "x" => enc(n[3]) }]])
+  when "if", "elsif"
+    cond_expr(enc(n[1]), [enc_stmts(n[2]), else_branch(n[3])])
+  when "unless"
+    cond_expr({ "k" => "unary", "op" => "!", "x" => enc(n[1]) }, [enc_stmts(n[2]), else_branch(n[3])])
+  when "if_mod"
+    cond_expr(enc(n[1]), [[enc_stmt(n[2])], []])
+  when "unless_mod"
+    cond_expr({ "k" => "unary", "op" => "!", "x" => enc(n[1]) }, [[enc_stmt(n[2])], []])
+  when "case"
+    br = []; cur = n[2]
+    while cur.is_a?(Array) && %w[when in].include?(cur[0].to_s)
+      br << enc_stmts(cur[2]); cur = cur[3]
+    end
+    br << (cur.is_a?(Array) && cur[0].to_s == "else" ? enc_stmts(cur[1]) : [])
+    cond_expr(enc(n[1]), br)
   when "xstring_literal"      # `cmd` backticks (also %x{}) -> shell execution of the string
     exprs = []; collect_embexpr(n, exprs)
     { "k" => "xstring", "exprs" => exprs, "line" => call_line(n) }
   when "symbol_literal", "dyna_symbol", "symbol", "label"
-    { "k" => "lit", "kind" => "SYM" }
+    { "k" => "lit", "kind" => "SYM", "value" => (t == "symbol_literal" && n[1].is_a?(Array)) ? ident_name(n[1][1]) : nil }
+  when "words_new", "qwords_new", "qwords_add", "words_add", "qwords_literal", "words_literal", "qsymbols_literal", "symbols_literal"
+    elts = []
+    walk = lambda { |x| next unless x.is_a?(Array); if x[0].to_s == "@tstring_content" then elts << { "k" => "lit", "kind" => "STRING", "value" => x[1] } else x.each { |c| walk.call(c) } end }
+    walk.call(n)
+    { "k" => "array", "elts" => elts }
   when "binary"
     { "k" => "bin", "op" => n[2].to_s, "x" => enc(n[1]), "y" => enc(n[3]) }
   when "unary"
     { "k" => "unary", "op" => n[1].to_s, "x" => enc(n[2]) }
   when "aref"
-    { "k" => "aref", "object" => enc(n[1]) }             # params[:x] -> taint flows from object
+    { "k" => "aref", "object" => enc(n[1]), "index" => enc_args(n[2]), "line" => call_line(n[1]) }  # params[:x]
   when "method_add_arg"
     { "k" => "call", "callee" => enc(n[1]), "args" => enc_args(n[2]), "line" => call_line(n[1]) }
   when "method_add_block"                                 # x.each do |e| .. end: the block body is walked
@@ -165,10 +245,15 @@ def enc(n)
     elts = []; (n[1] || []).each { |e| elts << enc(e) } if n[1].is_a?(Array)
     { "k" => "array", "elts" => elts }
   when "hash", "bare_assoc_hash", "assoclist_from_args"
-    vals = []
+    vals = []; keys = []
     src = (t == "hash") ? (n[1].is_a?(Array) ? n[1][1] : nil) : n[1]  # hash -> assoclist -> [assocs]
-    (src || []).each { |a| vals << enc(a) } if src.is_a?(Array)
-    { "k" => "array", "elts" => vals }                                # preserve VALUES (nested calls) for taint
+    (src || []).each do |a|
+      vals << enc(a)
+      k = (a.is_a?(Array) && a[0].to_s == "assoc_new") ? a[1] : nil
+      keys << ((k.is_a?(Array) && k[0].to_s == "@label") ? k[1].to_s.chomp(":") :
+               (k.is_a?(Array) && k[0].to_s == "symbol_literal") ? ident_name(k[1].is_a?(Array) ? k[1][1] : nil) : nil)
+    end if src.is_a?(Array)
+    { "k" => "array", "hash" => true, "keys" => keys, "elts" => vals }  # VALUES kept for taint, keys for options
   when "assoc_new", "assoc_splat"
     enc(n[2] || n[1])                                                 # the value side of key: value
   when "paren"
@@ -204,10 +289,18 @@ def enc_stmt(s)
   when "massign"
     { "k" => "assign", "left" => { "k" => "other" }, "names" => mlhs_names(s[1]), "right" => enc(s[2]),
       "line" => call_line(s[1]) }
-  when "if", "unless", "elsif"
+  when "if", "elsif"
     { "k" => "if", "test" => enc(s[1]), "body" => enc_stmts(s[2]), "els" => else_of(s[3]), "line" => call_line(s[1]) }
-  when "if_mod", "unless_mod"
+  when "unless"                                        # the negation is the whole point of `unless`
+    { "k" => "if", "test" => { "k" => "unary", "op" => "!", "x" => enc(s[1]) }, "body" => enc_stmts(s[2]),
+      "els" => else_of(s[3]), "line" => call_line(s[1]) }
+  when "if_mod"
     { "k" => "if", "test" => enc(s[1]), "body" => [enc_stmt(s[2])], "els" => nil, "line" => call_line(s[1]) }
+  when "unless_mod"
+    { "k" => "if", "test" => { "k" => "unary", "op" => "!", "x" => enc(s[1]) }, "body" => [enc_stmt(s[2])],
+      "els" => nil, "line" => call_line(s[1]) }
+  when "next", "break", "redo", "retry"
+    { "k" => "branch", "tok" => s[0].to_s, "line" => call_line(s) }
   when "for"                                           # for x in arr
     { "k" => "for", "left" => mlhs_names(s[1]), "iter" => enc(s[2]), "body" => enc_stmts(s[3]), "line" => 0 }
   when "while", "until", "while_mod", "until_mod"
@@ -222,7 +315,7 @@ def enc_stmt(s)
   when "defs"                                          # def self.name
     add_func(ident_name(s[3]), s[4], s[5]); { "k" => "funcref" }
   when "class", "module"
-    collect_defs(s); { "k" => "other" }
+    enc_class(s); { "k" => "other" }
   when "begin"
     { "k" => "block", "body" => enc_body(s[1]) }
   when "void_stmt"
@@ -241,6 +334,28 @@ def enc_cases(node)
   end
   cases << { "k" => "case", "isdefault" => true, "body" => enc_stmts(cur[1]) } if cur.is_a?(Array) && cur[0].to_s == "else"
   cases
+end
+
+# a class / module body: defs become functions; the rest of the body (Sinatra routes, before_action,
+# constants) becomes a synthetic "<class Name>" function, so a route block in a Sinatra::Base is walked
+def enc_class(node)
+  name = ident_name(node[1]) || "?"
+  $owner.push(name)
+  body = node[0].to_s == "class" ? node[3] : node[2]
+  stmts = body_of(body)
+  rest = []
+  (stmts || []).each do |st|
+    next unless st.is_a?(Array)
+    case st[0].to_s
+    when "def" then add_func(ident_name(st[1]), st[2], st[3])
+    when "defs" then add_func(ident_name(st[3]), st[4], st[5])
+    when "class", "module" then enc_class(st)
+    when "sclass" then collect_defs(st)
+    else rest << enc_stmt(st)
+    end
+  end
+  $funcs << { "k" => "func", "name" => "<class #{name}>", "params" => [], "owner" => name, "body" => rest } unless rest.empty?
+  $owner.pop
 end
 
 def collect_defs(node)

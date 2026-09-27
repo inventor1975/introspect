@@ -24,6 +24,19 @@ EXPECT = {
     "u08_case.rb":         ["REFUTED"],   # case/when joined, not walked in sequence
     "u09_zreturn.rb":      ["OPEN"],      # the program's own `h` wins over the catalogue escaper `h`
     "u10_to_i.rb":         [],            # to_i gives a number
+    # round 1 of the blind corpus (2026-09-27): each fails on the slice-2 engine (b49bb74)
+    "w01_unless_guard.rb":      ["REFUTED"],                     # `unless` negates: validated after, NOT inside
+    "w02_sinatra_class.rb":     ["REFUTED"],                     # a route in a Sinatra::Base class; its value is the body
+    "w03_file_sinks.rb":        ["REFUTED", "REFUTED"],          # send_file, FileUtils
+    "w04_dispatch.rb":          ["REFUTED", "REFUTED", "OPEN"],  # public_send, constantize; a fixed-prefix name is Z
+    "w05_sql_forms.rb":         ["REFUTED", "REFUTED"],          # implicit-self find_by_sql, where(var); hash / binds bound
+    "w06_regex_guard.rb":       ["REFUTED", "REFUTED"],          # \A..\z guards; ^..$ does not; a class allowing ../ does not
+    "w07_href_escape.rb":       ["REFUTED"],                     # h() at an href START does not protect
+    "w08_ternary_guard.rb":     ["REFUTED"],                     # ALLOWED.include?(x) ? x : c is clean; a || b is not
+    "w09_sequel_select_all.rb": ["REFUTED", "REFUTED"],          # Sequel DB[..], connection.select_all
+    "w10_render_forms.rb":      ["REFUTED", "REFUTED"],          # render inline: (code); sanitize letting onclick through
+    "w11_keep_charset.rb":      ["REFUTED"],                     # delete("^a-z0-9-") keeps a safe set; delete("'") does not
+    "w12_chained_append.rb":    ["REFUTED"],                     # out << a << b folds every operand
 }
 def main():
     fails = []

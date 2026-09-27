@@ -12,3 +12,9 @@ Sources: params, params[:x], request.params/GET/POST, cookies. Sinks: system/exe
 (shell), eval/instance_eval (code), find_by_sql/execute + interpolated where/order/... (sql; where(hash)
 is safe), raw/html_safe (xss), File.* (file), open/Net::HTTP (ssrf). String-interpolation + concat,
 guards (== / .include? / negated), cross-method + cross-file summaries, branch-join.
+
+## After the first blind round (2026-09-27)
+The front end keeps `unless` as a negation, walks Sinatra::Base route blocks, ternaries, `if`/`case` as values,
+splats and literal text. The added sinks, guards and escaper positions are listed in `CALIBRATION.md` (top
+section). Weak checks (`^..$`, which Ruby reads per LINE; an anchored class that still allows `../`) are not
+guards; a fixed-prefix `send("prefix_#{x}")` is OPEN, not clean.
