@@ -1,0 +1,1 @@
+package org.owasp.esapi.codecs; public class MySQLCodec { public enum Mode { ANSI, STANDARD } public static final int MYSQL_MODE = 0; public static final int ANSI_MODE = 1; public MySQLCodec(int mode){} public MySQLCodec(Mode mode){} }

@@ -1,0 +1,1 @@
+package org.apache.commons.text; public class StringEscapeUtils { public static String escapeHtml4(String s){return s;} public static String escapeEcmaScript(String s){return s;} public static String escapeXml11(String s){return s;} public static String escapeJava(String s){return s;} public static String unescapeHtml4(String s){return s;} }

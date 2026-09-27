@@ -1,0 +1,1 @@
+package javax.servlet.http; public class Cookie { public Cookie(String n, String v){} public String getName(){return null;} public String getValue(){return null;} public void setValue(String v){} public void setHttpOnly(boolean b){} public void setSecure(boolean b){} public void setPath(String p){} public void setMaxAge(int a){} }

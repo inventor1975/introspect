@@ -1,0 +1,217 @@
+file,category,vulnerable,expect_open,why
+sqli/OrderSearchServlet.java,sqli,true,false,customer query parameter concatenated into a quoted literal passed to executeQuery
+sqli/ProductCatalogServlet.java,sqli,true,false,sort parameter appended to ORDER BY via StringBuilder with only a null/empty default
+sqli/InvoiceLookupServlet.java,sqli,true,false,X-Tenant-Id header concatenated as schema name into prepareStatement while only the number is bound
+sqli/SessionAuditServlet.java,sqli,true,false,tracking cookie value found in a loop with break is concatenated into an INSERT via executeUpdate
+sqli/BulkDeleteServlet.java,sqli,true,false,raw id parameter values joined into an IN list of a DELETE
+sqli/ReportExportServlet.java,sqli,true,false,request body lines become a WHERE clause passed to Statement.execute
+sqli/UserDirectoryServlet.java,sqli,true,false,dept parameter concatenated inside a same-file helper that builds the WHERE clause
+sqli/ShipmentTrackingServlet.java,sqli,true,false,path info substring concatenated into the SQL given to prepareStatement
+sqli/AccountBalanceServlet.java,sqli,true,false,acct parameter concatenated into the prepareCall escape string while only currency is bound
+sqli/CouponRedeemServlet.java,sqli,true,false,ternary keeps trimmed/uppercased user code which is concatenated into an UPDATE
+sqli/FeedbackServlet.java,sqli,true,false,parameter-map keys and values concatenated into addBatch INSERT statements
+sqli/LegacyLoginServlet.java,sqli,true,false,username and password concatenated into a login query after a blank-only check
+sqli/TicketSearchServlet.java,sqli,true,false,"switch whitelists the column, but the value parameter is concatenated raw"
+sqli/WarehouseStockServlet.java,sqli,true,false,escapeHtml4 does not escape single quotes so the bin value breaks out of the SQL literal
+sqli/CatalogFilterServlet.java,sqli,true,false,HTML encoding applied to a value used in an unquoted numeric SQL context
+sqli/DepartmentReportServlet.java,sqli,true,false,region parameter concatenated by ReportSqlBuilder.forRegion in a neighbouring file
+sqli/ArchiveSearchServlet.java,sqli,true,false,author parameter added to a conditions list that is stream-joined into the WHERE clause
+sqli/AdminPurgeServlet.java,sqli,true,false,the NumberFormatException fallback concatenates the raw parameter into the interval
+sqli/GiftCardServlet.java,sqli,true,false,"column names are filtered, but f_* parameter values are appended raw to the WHERE clause"
+sqli/RegionDashboardServlet.java,sqli,true,true,region read from a session attribute set from a request parameter in another servlet
+sqli/NicknameReportServlet.java,sqli,true,true,second-order: a user-chosen nickname read from the database is concatenated into a query
+sqli/CsvImportServlet.java,sqli,true,false,uploaded CSV fields are concatenated into addBatch INSERT statements
+sqli/OrderHistoryServlet.java,sqli,false,false,only constants are concatenated; customer and status are bound with setString
+sqli/ProductSortServlet.java,sqli,false,false,sort column is rejected unless it is in a fixed Set before being appended
+sqli/InvoicePageServlet.java,sqli,false,false,page and size are parsed to int before being concatenated into LIMIT/OFFSET
+sqli/CookieConsentServlet.java,sqli,false,false,cookie only selects between constants 1/0 and the visitor id is bound
+sqli/BulkArchiveServlet.java,sqli,false,false,every id is parsed with Long.parseLong before the IN list is built
+sqli/RegionSummaryServlet.java,sqli,false,false,switch maps region to constant table names and rejects anything else
+sqli/AccountStatementServlet.java,sqli,false,false,prepareCall uses a constant procedure name and bound parameters
+sqli/StaffLookupServlet.java,sqli,false,false,ternary yields one of two constant columns and the search value is bound
+sqli/AuditTrailServlet.java,sqli,false,false,only a server-generated UUID and a constant are concatenated; user note is bound
+sqli/TagCloudServlet.java,sqli,false,false,tag is concatenated only after matching a strict [a-z0-9_-] regex
+sqli/MetricsServlet.java,sqli,false,false,only ints (getIntHeader values and a masked hashCode) are appended to the INSERT
+sqli/HelpdeskQueueServlet.java,sqli,false,false,helper only logs the parameter and returns constant SQL chosen by a boolean
+sqli/PriceAlertServlet.java,sqli,false,false,threshold is a parsed finite double; sku and email are bound
+sqli/InventoryCountServlet.java,sqli,false,false,PreparedStatement.addBatch with all user values bound
+sqli/LoginThrottleServlet.java,sqli,false,true,username is reduced to a SHA-256 hex digest through JDK crypto/HexFormat before concatenation
+sqli/PartitionMaintenanceServlet.java,sqli,false,true,table name comes from a servlet init parameter stored in a field; user value is bound
+sqli/ReportTemplateServlet.java,sqli,false,true,base SQL is read from a server-side properties file; store is bound
+sqli/ExpenseSummaryServlet.java,sqli,false,false,neighbouring builder is used only with an int year or a placeholder query with bound region
+sqli/api/CustomerController.java,sqli,true,false,lastName request parameter concatenated into JdbcTemplate.queryForList
+sqli/api/OrderController.java,sqli,true,false,String path variable concatenated unquoted into queryForMap
+sqli/api/ProductSearchController.java,sqli,true,false,request-body keyword is concatenated into a LIKE literal by ProductSearchService
+sqli/api/TenantReportController.java,sqli,true,false,X-Tenant header concatenated as a table prefix although year is a named parameter
+sqli/api/PreferenceController.java,sqli,true,false,theme cookie concatenated into an UPDATE while only userId is bound
+sqli/api/InventoryController.java,sqli,true,false,default branch uses LegacyStockQuery which concatenates the SKU path variable
+sqli/api/AuditController.java,sqli,true,false,lambda builds a WHERE clause by concatenating the actor parameter
+sqli/api/ReportController.java,sqli,true,false,requested column list is stream-joined into the SELECT projection without a whitelist
+sqli/api/BillingController.java,sqli,true,true,plan code stored in a static map by one endpoint is concatenated by another
+sqli/api/SubscriptionController.java,sqli,true,false,every request parameter key and value is appended to the WHERE clause
+sqli/api/EmployeeController.java,sqli,true,false,inherited findBy concatenates the location parameter
+sqli/api/ShipmentController.java,sqli,true,false,UUID validation failure is only logged and the raw id is still concatenated
+sqli/api/LoyaltyController.java,sqli,true,false,replacing ' with \' leaves backslashes unescaped so the literal can be broken
+sqli/api/MessageController.java,sqli,true,false,sender from the request body DTO is concatenated while folder is bound
+sqli/api/SearchHistoryController.java,sqli,true,false,q parameter concatenated into JdbcTemplate.execute after a length check only
+sqli/api/CalendarController.java,sqli,true,false,every switch-expression branch concatenates the raw from parameter
+sqli/api/VendorController.java,sqli,true,false,"status is whitelisted, but region is concatenated unchecked"
+sqli/api/PayrollController.java,sqli,true,false,first non-blank cost-center header found in a loop is concatenated
+sqli/api/CommentModerationController.java,sqli,true,false,request-body ids are concatenated into batchUpdate statements
+sqli/api/LocationController.java,sqli,true,false,city is inserted into a quoted literal via String.format
+sqli/api/AccountController.java,sqli,true,false,SqlFragments.like wraps the raw name in quotes without escaping
+sqli/api/ProjectController.java,sqli,true,false,helper appends the owner parameter to the caller's StringBuilder
+sqli/api/PromotionController.java,sqli,true,false,Optional chain only trims the campaign parameter before concatenation
+sqli/api/TicketController.java,sqli,true,false,path variable is inserted into a text-block query via formatted()
+sqli/api/DocumentController.java,sqli,true,false,"owner, deleted and limit are bound, but title is concatenated into the LIKE pattern"
+sqli/api/ExportController.java,sqli,true,false,"direction is reduced to ASC/DESC, but orderBy is concatenated raw"
+sqli/api/StatsController.java,sqli,true,false,getOrDefault falls back to the raw metric parameter for unknown keys
+sqli/api/RoleController.java,sqli,true,false,role names are joined into a quoted IN list without escaping
+sqli/api/WebhookController.java,sqli,true,false,first line of the raw request body is concatenated as the event name
+sqli/api/SortPreferenceController.java,sqli,true,true,sort order set by one endpoint into an instance field is concatenated into ORDER BY by another
+sqli/api/ProfileController.java,sqli,true,true,user name from a ThreadLocal populated from the X-Forwarded-User header is concatenated
+sqli/api/CustomerQueryController.java,sqli,false,false,constant column list is concatenated; lastName and city are bound
+sqli/api/OrderDetailController.java,sqli,false,false,path variable is typed long so the concatenation cannot change the SQL structure
+sqli/api/ProductListingController.java,sqli,false,false,ProductListingService binds keyword and category as named parameters
+sqli/api/TenantUsageController.java,sqli,false,false,tenant header is mapped to a constant schema name and unknown tenants are rejected
+sqli/api/ThemeController.java,sqli,false,false,theme is bound and only a long userId and a constant are concatenated
+sqli/api/StockController.java,sqli,false,false,both StockQuery implementations used here bind the SKU
+sqli/api/AuditEventController.java,sqli,false,false,lambda appends constant column names with placeholders and collects values as bind args
+sqli/api/SalesReportController.java,sqli,false,false,requested group-by columns are filtered against a fixed Set before joining
+sqli/api/InvoiceSearchController.java,sqli,false,false,filter keys map to constant columns and values are named parameters
+sqli/api/EmployeeSearchController.java,sqli,false,false,inherited findWhere whitelists the column and binds the value
+sqli/api/ShipmentStatusController.java,sqli,false,false,id is parsed to a UUID and invalid input is rejected before concatenation
+sqli/api/LoyaltyPointsController.java,sqli,false,false,card number must be 1-19 ASCII digits before concatenation
+sqli/api/ReviewController.java,sqli,false,false,concatenated values are typed Long and Integer path/query parameters
+sqli/api/MessageSearchController.java,sqli,false,false,sender and folder are bound; only a clamped int limit is concatenated
+sqli/api/SearchLogController.java,sqli,false,false,search term is bound in JdbcTemplate.update; only a constant table is concatenated
+sqli/api/CalendarViewController.java,sqli,false,false,from is parsed to LocalDate and only LocalDate values are concatenated
+sqli/api/VendorListController.java,sqli,false,false,both status and region are checked against fixed Sets before concatenation
+sqli/api/PayrollExportController.java,sqli,false,false,header value found in the loop is only used as a bound argument
+sqli/api/CommentPurgeController.java,sqli,false,false,each id is parsed to long before building batchUpdate statements
+sqli/api/AccountSearchController.java,sqli,false,false,SqlFragments.likeParam result is bound to a LIKE placeholder
+sqli/api/ProjectListController.java,sqli,false,false,helper appends constant columns with placeholders and collects values as args
+sqli/api/PromotionLookupController.java,sqli,false,false,Optional chain maps anything outside a fixed campaign Set to DEFAULT
+sqli/api/TicketQueueController.java,sqli,false,false,formatted() only inserts a constant table name; assignee and priority are bound
+sqli/api/DocumentSearchController.java,sqli,false,false,all four values including the LIKE pattern are bound parameters
+sqli/api/ExportSortController.java,sqli,false,false,switch expression maps orderBy to constant columns and dir to ASC/DESC
+sqli/api/StatsSummaryController.java,sqli,false,false,getOrDefault falls back to a constant column so only mapped constants are concatenated
+sqli/api/RoleMembersController.java,sqli,false,false,role ids pass through Long.parseLong before joining the IN list
+sqli/api/WebhookReceiverController.java,sqli,false,false,event name must parse as an enum constant and only its name() is concatenated
+sqli/api/NotesController.java,sqli,false,false,limit is parsed to int and clamped; notebook is bound
+sqli/api/OrgChartController.java,sqli,false,false,view selects a fixed OrgQuery implementation that binds or concatenates only a long id
+sqli/api/FeatureFlagController.java,sqli,false,true,table name comes from an @Value configuration field; flag name is bound
+sqli/api/ColumnPickerController.java,sqli,false,true,column must be in a whitelist loaded from the database at request time
+sqli/api/QueryDispatchController.java,sqli,false,true,SQL comes from a reflectively chosen static builder that returns constant queries; region is bound
+sqli/api/VendorSearchController.java,sqli,false,true,ESAPI encodeForSQL with MySQLCodec escapes the value for a quoted MySQL literal
+sqli/api/ReportScheduleController.java,sqli,false,true,schema name comes from a JVM system property; owner is bound
+xss/account/ProfileServlet.java,xss,true,false,Query parameter name is printed unescaped into an h1.
+xss/account/GreetingServlet.java,xss,true,false,Parameter passes through a same-file helper that concatenates it into HTML without escaping.
+xss/account/DisplayNameServlet.java,xss,false,false,Same-file helper HTML-encodes the assembled name before it is written.
+xss/account/LocaleBannerServlet.java,xss,false,false,lang is reset to a constant unless it is in a fixed Set whitelist.
+xss/account/ThemeServlet.java,xss,true,false,The else branch of the whitelist check echoes the rejected raw theme value.
+xss/account/PasswordResetServlet.java,xss,false,false,Early return unless the token matches [A-Za-z0-9]{32} so only alphanumerics reach the page.
+xss/account/LastVisitServlet.java,xss,true,false,Cookie value found in a loop with break is written raw into href and link text.
+xss/account/ConsentBannerServlet.java,xss,false,false,The cookie only decides a boolean; the output uses constant strings.
+xss/account/AvatarServlet.java,xss,false,false,size is parsed with Integer.parseInt and clamped before output.
+xss/account/NicknameServlet.java,xss,true,false,escapeHtml4 does not encode the apostrophe but the value sits in a single-quoted attribute.
+xss/account/BioServlet.java,xss,false,false,Encode.forHtmlAttribute encodes quotes for the single-quoted attribute and forHtml covers the textarea body.
+xss/account/WelcomeBackServlet.java,xss,true,false,Markup.tag in the neighbouring helper does not escape and receives the raw name.
+xss/account/AccountSummaryServlet.java,xss,false,false,"Name goes through Markup.text, or Markup.page/link which escape title and label."
+xss/account/OrderHistoryServlet.java,xss,true,false,The inherited render() escapes only the title; the raw status is in the body fragment.
+xss/account/OrderDetailServlet.java,xss,false,false,"Raw order number only reaches the escaped title, the body gets the parsed long."
+xss/account/UnsubscribeServlet.java,xss,false,false,Early return unless email matches a strict regex without HTML metacharacters.
+xss/account/PreferencesServlet.java,xss,true,true,Servlet instance field set from a POST parameter is later printed raw in doGet (stored and shared).
+xss/account/LinkPreviewServlet.java,xss,false,false,Scheme restricted to http/https and value attribute-encoded inside a quoted href.
+xss/account/RedirectNoticeServlet.java,xss,true,false,JS-string encoding does not stop a javascript: URL assigned to location.href.
+xss/account/RedirectHoldServlet.java,xss,false,false,"Target must be a site-relative path (ternary fallback) and is JS-encoded, so no script scheme is possible."
+xss/account/ProfileCardController.java,xss,true,false,Cookie value is concatenated into a text/html ResponseEntity body.
+xss/account/LanguageController.java,xss,false,true,Locale.forLanguageTag().toLanguageTag() canonicalises to alphanumerics and hyphens only.
+xss/account/SettingsController.java,xss,true,false,displayName is returned raw in a String ResponseEntity which browsers receive as text/html.
+xss/account/SettingsSaveController.java,xss,false,false,The JSON response contains only a boolean and lengths and never the input itself.
+xss/account/ProfileAwardController.java,xss,true,true,The injected AwardRenderer is the only @Component implementation which does not escape the label.
+xss/account/ProfileAwardPreviewController.java,xss,false,false,The renderer is explicitly the encoding implementation even though the variable is the interface type.
+xss/account/ProfileAwardLegacyController.java,xss,true,false,Explicitly uses the non-escaping HtmlAwardRenderer with a request parameter.
+xss/account/LoginErrorController.java,xss,true,false,reason is inserted raw via String.format into an HTML response (username is escaped).
+xss/account/LoginHintController.java,xss,false,false,The switch expression maps the code to constant messages only.
+xss/account/NotificationController.java,xss,false,false,The stream lookup returns an enum constant title or a literal default.
+xss/catalog/ContinueShoppingServlet.java,xss,true,false,HTML escaping in an href does not block a javascript: URL.
+xss/catalog/SearchResultsServlet.java,xss,true,false,escapeHtml4 leaves the apostrophe so the single-quoted JS string in the script block can be broken.
+xss/catalog/SearchSuggestServlet.java,xss,false,false,Encode.forJavaScript for the script string and Encode.forHtml for the body.
+xss/catalog/FilterChipServlet.java,xss,true,false,Encode.forHtmlAttribute does not encode spaces and the data-filter attribute is unquoted.
+xss/catalog/SortLinkServlet.java,xss,false,false,Attribute-encoded value in double-quoted attributes after a fixed URL prefix.
+xss/catalog/ProductWidgetServlet.java,xss,true,false,escapeEcmaScript does not encode angle brackets but its output is also placed in the h3 body.
+xss/catalog/EmbedCodeServlet.java,xss,false,false,escapeEcmaScript is used only inside the double-quoted script string and the body uses forHtml.
+xss/catalog/CategoryServlet.java,xss,true,false,Markup.link does not escape or validate href and receives the raw next parameter.
+xss/catalog/LegacyPromoServlet.java,xss,true,false,Overrides formatCode without escaping so the base doGet writes the raw code via dynamic dispatch.
+xss/catalog/SeasonalPromoServlet.java,xss,false,false,Overridden formatCode HTML-escapes before adding line breaks.
+xss/catalog/TagListServlet.java,xss,false,false,Stream maps each tag through Encode::forHtml before wrapping it.
+xss/catalog/CurrencyServlet.java,xss,false,false,Tainted key only selects a constant symbol and the amount is a parsed BigDecimal.
+xss/catalog/AnnouncementServlet.java,xss,true,true,Static field set from a POST parameter is printed raw to every visitor.
+xss/catalog/ViewModeServlet.java,xss,true,false,The switch default assigns the raw mode which is written with printf.
+xss/catalog/ShelfLabelServlet.java,xss,true,false,Raw label is written as bytes to the servlet output stream as text/html.
+xss/catalog/SearchHistoryServlet.java,xss,true,true,Search terms stored in the session by doPost are printed raw by doGet.
+xss/catalog/ProductSearchController.java,xss,true,false,@RequestParam q is returned raw with produces text/html.
+xss/catalog/ProductLookupController.java,xss,false,false,id is bound as long and ref is HTML-escaped.
+xss/catalog/ProductPageController.java,xss,true,false,@PathVariable slug is placed raw in an h1 of the @ResponseBody HTML.
+xss/catalog/ProductSlugController.java,xss,false,false,The path variable is HtmlUtils-escaped before it is inserted.
+xss/catalog/AdvancedSearchController.java,xss,true,false,@ModelAttribute form fields (brand and keyword) are appended raw.
+xss/catalog/InventoryController.java,xss,true,false,The neighbouring service method embeds an unknown SKU raw in its HTML result.
+xss/catalog/StockLevelController.java,xss,false,false,Only the parsed int reaches the service's describeLevel.
+xss/catalog/CouponController.java,xss,true,false,The lambda wraps the raw coupon code in markup.
+xss/catalog/CouponCheckController.java,xss,false,false,The lambda HTML-escapes the code before wrapping it.
+xss/catalog/CategoryTreeController.java,xss,true,false,A recursive same-file helper writes each raw path segment into li elements.
+xss/catalog/CategoryPathController.java,xss,false,false,Segments not matching [a-z0-9-] are skipped with continue before output.
+xss/catalog/ReviewController.java,xss,false,true,Jsoup.clean with Safelist.basic sanitises the review body and the rating is an int.
+xss/catalog/StoreLocatorController.java,xss,true,false,The ternary picks either the raw zip or the raw path variable city and both are appended unescaped.
+xss/catalog/StoreHoursController.java,xss,false,false,storeId is an int and the hours text comes from a constant map.
+xss/catalog/QuickViewController.java,xss,true,false,The static helper ProductSnippets.card concatenates the raw title and price.
+xss/catalog/QuickPriceController.java,xss,false,false,ProductSnippets.safeCard encodes the title and the price is a parsed BigDecimal.
+xss/catalog/ProductCompareController.java,xss,true,false,The stream map wraps raw SKUs in th cells joined into the HTML response.
+xss/support/AgentConsoleServlet.java,xss,false,false,All header values are passed through Encode.forHtml.
+xss/support/TicketActionServlet.java,xss,true,false,"HTML encoding inside an onclick JS string is decoded by the browser, so the quote breaks out."
+xss/support/TicketLinkServlet.java,xss,false,false,The id is parsed with Long.parseLong before it is placed in the onclick handler.
+xss/support/ReplyPreviewServlet.java,xss,true,false,escapeJava does not encode HTML metacharacters and the output is HTML body.
+xss/support/TicketFormServlet.java,xss,true,false,The subject stored in a map is read back and written raw into a value attribute.
+xss/support/TicketSummaryServlet.java,xss,false,false,Only constant map entries are printed raw and the subject entry is encoded.
+xss/support/HelpSearchServlet.java,xss,true,false,The request body read via getReader is echoed raw.
+xss/support/TicketHistoryServlet.java,xss,true,false,The helper's what argument is not escaped and gets the raw comment (only agent is encoded).
+xss/support/TicketAuditServlet.java,xss,false,false,The helper receives an encoded agent and a constant action text.
+xss/support/ArticleIndexServlet.java,xss,false,false,The filter only drives continue/break and the output uses constant titles and ints.
+xss/support/FeedItemServlet.java,xss,false,false,escapeXml11 encodes all HTML-significant characters for the element body.
+xss/support/TicketNoteController.java,xss,true,false,A text/plain @RequestBody string is returned as raw HTML with only newlines converted.
+xss/support/TicketPreviewController.java,xss,false,false,The request body is HTML-encoded before newlines become br tags.
+xss/support/ChatTranscriptController.java,xss,true,false,Raw lines and the customer name are wrapped by a stream map and joined.
+xss/support/ChatNoticeController.java,xss,false,false,Only a count and an HtmlUtils-escaped first line are output.
+xss/support/SystemInfoController.java,xss,false,true,System properties and environment values are not attacker-controlled and the parameter only selects a branch.
+xss/support/MotdController.java,xss,false,true,HTML is read from a server-side file and the request only toggles a constant class.
+xss/support/HelpArticleController.java,xss,true,true,A reflectively chosen getter returns request-derived text that is written raw.
+xss/support/ReleaseNotesController.java,xss,true,true,The commonmark renderer with defaults passes raw HTML in the markdown straight through.
+xss/support/ChangelogController.java,xss,false,true,The commonmark renderer is configured with escapeHtml and sanitizeUrls.
+xss/support/EscalationController.java,xss,true,false,The catch block echoes the rejected raw priority into a text/html response.
+xss/support/EscalationStatusController.java,xss,false,false,The catch block encodes the rejected priority and the success path uses enum names.
+xss/support/SurveyController.java,xss,true,false,A loop with continue appends raw answers to a body whose Content-Type header is text/html.
+xss/support/SurveyResultController.java,xss,false,false,Answers are parsed to ints and only the average and count are output.
+xss/reports/ExportLinkServlet.java,xss,true,false,"UriUtils.encodeQueryParam leaves the apostrophe, parentheses and semicolon so the onclick JS string can be broken."
+xss/reports/DownloadPageServlet.java,xss,false,false,URLEncoder output contains no HTML-significant characters and has a fixed relative prefix.
+xss/reports/ReportTableServlet.java,xss,true,false,The attacker selects the pass-through CellFormatter implementation with mode=rich.
+xss/reports/ReportCsvPreviewServlet.java,xss,false,false,Declared as the interface but always the encoding implementation.
+xss/reports/AmountColumnServlet.java,xss,false,false,The currency formatter parses BigDecimal and outputs formatted numbers or constants.
+xss/reports/NotesColumnServlet.java,xss,true,true,The static formatter map routes the notes parameter to the pass-through implementation.
+xss/reports/JobStatusServlet.java,xss,true,true,The NumberFormatException message embeds the raw input and is printed.
+xss/reports/ChartTitleServlet.java,xss,false,true,The raw title comes from the servlet init parameter (deployment config) and the request value is encoded.
+xss/reports/HealthTextServlet.java,xss,false,false,The raw echo is served as text/plain with nosniff so the browser does not render HTML.
+xss/reports/SummaryHeaderServlet.java,xss,true,false,"trim, replace and capitalise keep the markup, and the value is appended raw."
+xss/reports/SummaryFooterServlet.java,xss,false,false,"replaceAll strips every character outside [A-Za-z0-9 .,-]."
+xss/reports/ColumnPickerServlet.java,xss,true,false,A forEach lambda prints each raw column name directly to the writer.
+xss/reports/DashboardController.java,xss,true,false,The @RequestParam Map keys and values are appended raw in a forEach lambda.
+xss/reports/WidgetController.java,xss,false,false,Keys are whitelisted with a Set and values are HtmlUtils-escaped.
+xss/reports/ExportController.java,xss,true,false,Column names from a List parameter are appended raw via StringBuilder (only the title is escaped).
+xss/reports/ExportSummaryController.java,xss,false,false,Requested columns are mapped to enum constants and only constant labels and a counter are output.
+xss/reports/ReportTitleController.java,xss,false,true,The title is injected from application configuration via @Value and year is an int.
+xss/reports/ReportNoteController.java,xss,true,true,The note saved from a request parameter is read back from the database and rendered raw (stored XSS).
+xss/reports/ReportOwnerController.java,xss,false,false,Database values are HTML-encoded before output.
+xss/reports/ChartController.java,xss,true,false,HTML escaping does not protect an unquoted JavaScript argument inside a script block.
+xss/reports/ChartDataController.java,xss,false,false,An early return unless every character is a digit guards the unquoted JS argument.
+xss/reports/AuditTrailController.java,xss,true,false,The inherited html() wrapper does not escape and gets the raw actor.
+xss/reports/AuditExportController.java,xss,false,false,The actor goes through the inherited escaped() helper and days is an int.
