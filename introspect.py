@@ -84,8 +84,10 @@ def _load(moddir):
 
 def _norm(d):
     """Normalise a module's disposition to REFUTED / OPEN / EARNED."""
+    # IF STABLE (judge, 2026-10-29): settled only if a value reads the same at check and at use — in code that
+    # is exactly the assumption a time-of-check/time-of-use bug breaks, so neither a clear nor an accusation.
     return {"ON CREDIT": "OPEN", "R": "REFUTED", "O": "OPEN", "F": "EARNED",
-            "E": "OPEN"}.get(d, d)
+            "E": "OPEN", "EARNED IF STABLE": "OPEN", "REFUTED IF STABLE": "OPEN"}.get(d, d)
 
 
 def _classify(full, by_module, uncovered):

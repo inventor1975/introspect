@@ -47,4 +47,6 @@ def judge_taint(st, ctx, source="input", sink="sink"):
     if errs or not r.get("ok", True):
         return "OPEN"                  # a refused document -> honest не-знаю, never a false clear/accusation
     disp = r["report"]["judge"]["disposition"]
-    return {"ON CREDIT": "OPEN"}.get(disp, disp)
+    # IF STABLE (2026-10-29): holds only if the value is the same at check and at use — OPEN, never a clear or
+    # an accusation on that presumption
+    return {"ON CREDIT": "OPEN", "EARNED IF STABLE": "OPEN", "REFUTED IF STABLE": "OPEN"}.get(disp, disp)
