@@ -384,16 +384,39 @@ def judge_sheet_claim(formula, quantities, marks):
         polarity = "toward T" if disposition == "EARNED" else "toward F"
         disposition = "ON CREDIT"
 
+    def _measurable(n):
+        """The quantities whose measurement can resolve Z atom n (ZTL 78d06c9, 2026-11-02): q pinned to a point
+        (its lower end, upper end, middle), the rest as declared; q is a cure if some pin gives T or F. An unbounded
+        q is kept. If no single quantity cures, every non-point quantity is offered — never an empty list."""
+        kind, e1, e2 = natoms[n][:3]
+        wide = [q for q in numeric[n]["used"] if quantities[q]["lo"] != quantities[q]["hi"]]
+        cures = []
+        for q in wide:
+            lo, hi = quantities[q]["lo"], quantities[q]["hi"]
+            if lo == -INF or hi == INF:
+                cures.append(q)
+                continue
+            for pt in (lo, hi, (lo + hi) / 2):
+                pinned = dict(quantities)
+                pinned[q] = dict(quantities[q], lo=pt, hi=pt)
+                if compare(kind, e1, e2, pinned)[0] in ("T", "F"):      # a pin off the lattice reads E: not a cure
+                    cures.append(q)
+                    break
+        return cures or wide
+
     next_check = []
     # §21 discipline: once the verdict is hereditary, remaining checks buy
     # nothing — measure/verify cures are offered only while the claim is
     # still open or riding credit; document cures always accompany credit
-    if disposition in ("OPEN", "ON CREDIT"):
+    # ... but NOT when the core verdict is forced and only the provenance cap
+    # holds it at ON CREDIT (ZTL 78d06c9, 2026-11-02): a forced verdict is
+    # hereditary; resolving another atom cannot move it, only documenting
+    # lifts the cap. The test is the CORE disposition, before the cap.
+    if core["disposition"] == "OPEN":
         for n in natoms:
             if numeric[n]["verdict"] == "Z" and n in core["unverified"]:
-                for q in numeric[n]["used"]:
-                    if quantities[q]["lo"] != quantities[q]["hi"]:
-                        next_check.append(f"measure {q}")
+                for q in _measurable(n):
+                    next_check.append(f"measure {q}")
                 # the witness falls due the moment the measurement lands:
                 # a Z atom can show nothing non-bearing yet (re-marking it Z
                 # is a no-op, so it never enters `bearing`), and surprising
