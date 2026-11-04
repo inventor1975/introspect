@@ -358,7 +358,20 @@ def judge_sheet_claim(formula, quantities, marks):
         marking[name] = v
         numeric[name] = {"comparison": chunk, "verdict": v,
                          "pedigree": sorted(ped), "used": sorted(used)}
+        if v == "Z" and isinstance(why, str) and why.startswith("ZERO-DIVISOR: "):
+            numeric[name]["no_subject"] = why[len("ZERO-DIVISOR: "):]
     core = judge(core_formula, marking)
+    # A DIVISOR 0 IN EVERY READING (2026-11-05; ZTL 2.1 §25 on the numeric floor): the atom's value stays Z — no
+    # verdict changes — but where the claim's outcome RESTS on it (pinning the atom to T or F would change the
+    # disposition), no "measure" order is issued that is known to be unfillable: the claim is E, with the order named.
+    # Where the claim stands on other grounds, the bill is empty and nothing changes ("a missing subject halts its own
+    # predicate, never the proceeding").
+    no_subject = []
+    for name in natoms:
+        if numeric.get(name, {}).get("no_subject"):
+            if any(judge(core_formula, dict(marking, **{name: t}))["disposition"] != core["disposition"]
+                   for t in ("T", "F")):
+                no_subject.append(name)
 
     # which comparison atoms are load-bearing for the core disposition?
     bearing = []
@@ -451,6 +464,10 @@ def judge_sheet_claim(formula, quantities, marks):
     # into the comparisons a reader of the sheet actually wrote
     def _say(a):
         return natoms[a][3] if a in natoms else a
+    if no_subject:
+        disposition, polarity = "E", None
+        next_check = ([f"repair the claim: {numeric[n]['comparison']}: {numeric[n]['no_subject']}" for n in no_subject]
+                      + [c for c in next_check if not any(c.split(" ", 1)[-1] in numeric[n]["used"] for n in no_subject)])
     return {"formula": formula, "core_formula": core_formula.strip(),
             "numeric_atoms": numeric, "core": core,
             "lazy": core["lazy"],

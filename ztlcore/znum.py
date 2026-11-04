@@ -1475,6 +1475,38 @@ def names_in(expr, acc=None):
     return acc
 
 
+def _zero_divisor(expr, quantities):
+    """DIVISION BY A DIVISOR THAT IS 0 IN EVERY READING (2026-11-05, the curator's word; ZTL 2.1 §25 carried to the
+    numeric floor). a / b names "the c with c·b = a" — a definite description. With b = 0 in every reading it has no
+    subject: for a != 0 NO c satisfies it, for a = 0 EVERY c does. As a VALUE both are just undefined (as before); the
+    difference is the WORK ORDER: §25 found that marking them OPEN promises a check that cannot help. So the atom stops
+    as E with the order named — "nothing to check, ever" vs "a value must be stipulated". A divisor that only MAY be 0
+    (its range straddles 0, or it is dirty) stays undefined -> Z -> OPEN: measuring it can exclude 0. Returns the
+    reason, or None."""
+    if not isinstance(expr, tuple) or not expr:
+        return None
+    for sub in expr[1:]:
+        why = _zero_divisor(sub, quantities)
+        if why:
+            return why
+    if expr[0] == "div" and len(expr) == 3:
+        rb = _ev(expr[2], quantities)[0]
+        if rb is not None and rb[0] == 0 and rb[1] == 0 and not ZERO_DIV_AS_Z[0]:
+            ra = _ev(expr[1], quantities)[0]
+            if ra is not None and ra[0] == 0 and ra[1] == 0:
+                return ("0/0: every c satisfies c*0 = 0 - checking cannot settle it; a value must be stipulated "
+                        "(the claim is underdetermined, not open)")
+            if ra is not None and (ra[0] > 0 or ra[1] < 0):
+                return ("x/0 with x != 0: no c satisfies c*0 = x - there is nothing to check, ever; the claim has "
+                        "no subject")
+            return ("x/0: the divisor is 0 in every reading - no value (none for x != 0, every c for x = 0); "
+                    "checking the divisor cannot settle it")
+    return None
+
+
+ZERO_DIV_AS_Z = [False]   # TEST-ONLY sabotage: the pre-2026-11-05 reading (an exact-zero divisor marked Z -> OPEN)
+
+
 def compare(kind, e1, e2, quantities):
     """A numeric atom. Verdict by the generating principle over intervals:
     T if forced under every reading, F if the negation is forced, else Z.
@@ -1483,6 +1515,11 @@ def compare(kind, e1, e2, quantities):
         r1, p1, u1, s1, un1 = _ev(e1, quantities)
         r2, p2, u2, s2, un2 = _ev(e2, quantities)
         _unify_units(un1, un2, "compare")
+        _zw = _zero_divisor(e1, quantities) or _zero_divisor(e2, quantities)
+        if _zw:
+            # the VALUE is as before (undefined -> Z: §25, "no verdict changes anywhere"); the reason rides along so the
+            # judge can issue the right WORK ORDER where the claim's outcome rests on this atom (znumjudge)
+            return "Z", p1 | p2, u1 | u2, "ZERO-DIVISOR: " + _zw
     except _NoReadings as why:
         touched = {n for n in names_in(e1) | names_in(e2) if n in quantities}
         # THE FOURTH CORNER: no admissible reading, so there is nothing to
