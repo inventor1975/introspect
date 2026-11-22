@@ -25,6 +25,10 @@ core (ztljudge) judge the formula. Diagnostics merge both floors:
                 is no carrier — the probe is widening it to full ignorance
                 and seeing whether the verdict survives):
                   measure <quantity>   — interval too wide (numeric Z);
+                  stipulate <quantity> — the same, for a quantity declared a
+                                         CONVENTION: no fact to measure, a
+                                         value is fixed only by declaring one
+                                         (2026-11-05, Bertrand's chord);
                   document <quantity>  — bounds unearned AND load-bearing;
                   contest type <q>:<t> — the LATTICE is what forces the
                                          verdict; a type is a formalization
@@ -48,6 +52,13 @@ Sheet line format (extends ztljudge's ledger format):
                 optional `sample` token (each occurrence of the name is a
                 separate act of measurement; without it the name denotes
                 ONE THING and repeated occurrences co-refer, so m - m is 0),
+                and an optional `convention` token (the quantity has no value
+                to measure until one is declared — a probability over an
+                unnamed measure, a unit, a summation method: the cure for its
+                width is "stipulate", never "measure"; verdicts are unchanged —
+                the token decides only which order is issued. `convention`
+                with `sample` is refused: a convention has one value, `sample`
+                says each occurrence is its own measurement),
                 optional unit token read as EXPONENTS (m2, RUB/m2, km/h:
                 m·m unifies with m2, m2·RUB/m2 with RUB, m/m with a bare
                 number — but km never with m, since a conversion factor is
@@ -68,8 +79,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 from ztljudge import judge                                  # noqa: E402
+import zfunc as _zfunc                                     # noqa: E402
+from znum import Integrand, names_in                       # noqa: E402
 from znum import (EARNED, CREDIT, INF, qty, compare, num,   # noqa: E402
-                  typename, bounds_bearing, type_bearing)
+                  typename, type_bearing, _degrade)
 
 
 # ------------------------------------------------------------ sheet parsing
@@ -119,6 +132,7 @@ def parse_quantities(text):
                 lo, hi = _num(m.group("lo")), _num(m.group("hi"))
             # trailing tokens: discreteness | provenance | unit (free order)
             prov, wit, discrete, unit, sample = CREDIT, None, None, None, False
+            convention = False
             for tok in part.split()[1:]:
                 if tok == "int":
                     discrete = "int"
@@ -134,11 +148,17 @@ def parse_quantities(text):
                     prov = CREDIT
                 elif tok == "sample":
                     sample = True          # each occurrence is its own act
+                elif tok == "convention":
+                    convention = True      # no fact to measure: a value is declared
                 else:
                     unit = tok
+            if convention and sample:
+                raise ValueError(f"{m.group('name')}: 'convention' and 'sample' cannot both hold — a convention has "
+                                 f"one value, 'sample' makes each occurrence its own measurement")
             quantities[m.group("name")] = qty(lo, hi, prov, wit,
                                               discrete=discrete, unit=unit,
                                               sample=sample)
+            quantities[m.group("name")]["convention"] = convention
         else:
             name, _, val = part.partition("=")
             if val.strip().upper() in ("T", "F", "Z"):
@@ -156,6 +176,35 @@ def _closes_last(s, i):
         if depth == 0:
             return j == len(s) - 1
     return False
+
+
+def _split_top(inner):
+    """Split at the commas outside every bracket."""
+    parts, depth, start = [], 0, 0
+    for i, c in enumerate(inner):
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        elif c == "," and depth == 0:
+            parts.append(inner[start:i])
+            start = i + 1
+    parts.append(inner[start:])
+    return parts
+
+
+def _inner_integrals(e):
+    """Every integral node inside e (not into an integrand — those are the inner node's own business)."""
+    if not isinstance(e, tuple) or not e:
+        return []
+    if e[0] == "integral":
+        return [e] + [n for a in e[2:] for n in _inner_integrals(a)]
+    return [n for a in (e[1] if e[0] == "sum" else e[1:]) for n in _inner_integrals(a)]
+
+
+def _holds_integral(e):
+    return isinstance(e, tuple) and bool(e) and (e[0] == "integral" or any(
+        _holds_integral(a) for a in (e[1] if e[0] == "sum" else e[1:])))
 
 
 def _parse_arith(s, quantities):
@@ -180,6 +229,12 @@ def _parse_arith(s, quantities):
             elif c in "([":
                 depth -= 1
             elif c in level and depth == 0:
+                # A SIGN, NOT AN OPERATOR: a `+`/`-` right after another operator or an opening paren is the sign of
+                # its operand (`x0 - -19`, `a * -b`, as Python's ast.unparse writes them). Splitting there left an
+                # empty side — "malformed arithmetic: ''" (found 2026-10-13 by the ztl-stand soundness audit, seven
+                # fuzz bricks); the split moves on to the operator before it.
+                if c in "+-" and s[:i].rstrip()[-1:] in ("", "+", "-", "*", "/", "(", "[", ","):
+                    continue
                 return (_TAG[c], _parse_arith(s[:i], quantities),
                         _parse_arith(s[i + 1:], quantities))
     # SQUARE ROOT, AS A CALL: `sqrt(expr)`. znum has evaluated ("sqrt", e)
@@ -191,6 +246,63 @@ def _parse_arith(s, quantities):
     # and only when the parenthesis opened by `sqrt(` is the one that ends.
     if s.startswith("sqrt(") and s.endswith(")") and _closes_last(s, 4):
         return ("sqrt", _parse_arith(s[5:-1], quantities))
+    # FUNCTIONS (zfunc, 2026-10-10): exp ln log10 atan tan with one argument (sin cos since 2026-10-13), pow min max
+    # with two, split at the top-level comma. Same rule as sqrt: only when the parenthesis
+    # the name opens is the one that ends the text.
+    # A DEFINITE INTEGRAL (2026-10-20, the curator's "интегралы и прочее" into ZFL): integral(f, x, a, b) — f read
+    # in the variable x, which is NOT a quantity of the sheet (it may not shadow one); a and b are ordinary sides
+    # (numbers, quantities, intervals: limits that move). The node keeps f opaque (znum.Integrand) so the walkers
+    # that collect names never meet x; f's other names ride as the node's own arguments after the limits.
+    if s.startswith("integral(") and s.endswith(")") and _closes_last(s, 8):
+        parts = _split_top(s[9:-1])
+        if len(parts) != 4:
+            raise ValueError(f"integral takes 4 arguments, integral(f, x, a, b), got {len(parts)}: {s!r}")
+        x = parts[1].strip()
+        if not re.match(r"^[A-Za-z_][A-Za-z_0-9]*$", x):
+            raise ValueError(f"integral: the variable of integration must be a plain name, not {x!r}")
+        if x in quantities:
+            raise ValueError(f"integral: the variable of integration {x!r} is already a quantity of the sheet "
+                             f"— give it a letter of its own")
+        q2 = dict(quantities)
+        q2[x] = qty(0, 0, CREDIT, None)
+        f = _parse_arith(parts[0], q2)
+        for k, v in q2.items():                 # interval literals inside f join the sheet as usual
+            if k != x and k not in quantities:
+                quantities[k] = v
+        # A NESTED integral (2026-11-09): read when every inner integral's LIMITS are free of this variable — on an
+        # outer piece the inner one is read with x as a parameter of the box (zintegral reads parameters already),
+        # and its derivative in x is the integral of the derivative (zcertify.derivative). Limits that move with x
+        # (Leibniz's boundary terms) are not read yet.
+        for inner in _inner_integrals(f):
+            if x in names_in(inner[2]) or x in names_in(inner[3]):
+                raise ValueError(f"integral: an inner integral whose limits move with {x!r} is not read (yet) — "
+                                 f"its limits must be free of the outer variable")
+        a = _parse_arith(parts[2], quantities)
+        b = _parse_arith(parts[3], quantities)
+        params = tuple(sorted(n for n in names_in(f) if n != x and n in quantities))
+        return ("integral", Integrand(f, x), a, b, *params)
+    # PI: zfunc's proved bracket of pi, an EARNED constant (a sheet's own row named `pi` wins).
+    if s == "pi" and "pi" not in quantities:
+        if "_pi" not in quantities:
+            quantities["_pi"] = qty(_zfunc.PI[0], _zfunc.PI[1], EARNED, "zfunc.PI: a proved bracket of pi")
+        return "_pi"
+    m = re.match(r"^(exp|ln|log10|atan|tan|sin|cos|pow|min|max|ifpos_d|ifpos|besselj0|besselj1|berp|beip|ber|bei)\(", s)
+    if m and s.endswith(")") and _closes_last(s, len(m.group(1))):
+        inner = s[len(m.group(1)) + 1:-1]
+        parts, depth, start = [], 0, 0
+        for i, c in enumerate(inner):
+            if c in "([":
+                depth += 1
+            elif c in ")]":
+                depth -= 1
+            elif c == "," and depth == 0:
+                parts.append(inner[start:i])
+                start = i + 1
+        parts.append(inner[start:])
+        want = 2 if m.group(1) in ("pow", "min", "max") else (3 if m.group(1).startswith("ifpos") else 1)
+        if len(parts) != want:
+            raise ValueError(f"{m.group(1)} takes {want} argument(s), got {len(parts)}: {s!r}")
+        return (m.group(1), *[_parse_arith(x, quantities) for x in parts])
     if s.startswith("(") and s.endswith(")"):
         return _parse_arith(s[1:-1], quantities)
     # UNARY SIGN. The binary split above starts at index 1, so a leading
@@ -324,14 +436,23 @@ def extract_comparisons(formula, quantities, parse=True):
 
 
 # ----------------------------------------------------------------- judging
-def judge_sheet_claim(formula, quantities, marks):
+def judge_sheet_claim(formula, quantities, marks, fixed=None):
     """Judge one mixed claim. Numeric floor supplies comparison atoms;
     the unchanged core judges the formula; the provenance axis caps the
-    disposition; next_check merges the cures of both floors."""
+    disposition; next_check merges the cures of both floors.
+
+    `fixed` (from znumsolve, 2026-10-09): {comparison text: (verdict, pedigree,
+    used)} for comparisons the solver has read JOINTLY — over a linear system's
+    unknowns as functions of its parameters, at the corners where that is exact.
+    Every other comparison is read here as before."""
     core_formula, natoms = extract_comparisons(formula, quantities)
     marking, numeric = dict(marks), {}
     for name, (kind, e1, e2, chunk) in natoms.items():
-        v, ped, used, why = compare(kind, e1, e2, quantities)
+        if fixed and chunk in fixed:
+            v, ped, used = fixed[chunk]
+            why = None
+        else:
+            v, ped, used, why = compare(kind, e1, e2, quantities)
         if v == "E":
             # THE FOURTH CORNER (2026-08-12): no admissible reading, so
             # this atom cannot be judged at all — and a claim resting on an
@@ -389,18 +510,33 @@ def judge_sheet_claim(formula, quantities, marks):
     # quantity that merely appears in the pedigree buys nothing.
     credit_quantities = sorted({q for n in bearing
                                 for q in numeric[n]["pedigree"]})
-    bearing_credit = sorted({q for n in bearing
-                             for q in numeric[n]["pedigree"]
-                             if bounds_bearing(*natoms[n][:3], quantities, q)})
-    disposition, polarity = core["disposition"], None
-    if disposition in ("EARNED", "REFUTED") and bearing_credit:
-        polarity = "toward T" if disposition == "EARNED" else "toward F"
-        disposition = "ON CREDIT"
+    # an atom read JOINTLY (`fixed`) rests on every credit quantity of its
+    # system: the widening probe re-reads it apart and would see nothing move,
+    # so for it the whole credit pedigree bears — the cautious side
+    # bounds_bearing's probe, each answer computed ONCE (2026-10-12, the universal stand: a pension portfolio of 14
+    # bonds spent 113 s here — every probe re-read the atom's unwidened verdict, and every (atom, quantity) pair was
+    # probed twice, here and in the cures below; 41.5 s with the cache, the same verdicts). Same rule as
+    # znum.bounds_bearing: widen q to full ignorance, does the atom's verdict move?
+    _base, _bear = {}, {}
 
+    def _bears(n, q):
+        if fixed and natoms[n][3] in fixed:
+            return True
+        if (n, q) not in _bear:
+            kind, e1, e2 = natoms[n][:3]
+            if n not in _base:
+                _base[n] = compare(kind, e1, e2, quantities)[0]
+            wide = dict(quantities)
+            wide[q] = _degrade(quantities[q])
+            _bear[(n, q)] = compare(kind, e1, e2, wide)[0] != _base[n]
+        return _bear[(n, q)]
     def _measurable(n):
-        """The quantities whose measurement can resolve Z atom n (ZTL 78d06c9, 2026-11-02): q pinned to a point
-        (its lower end, upper end, middle), the rest as declared; q is a cure if some pin gives T or F. An unbounded
-        q is kept. If no single quantity cures, every non-point quantity is offered — never an empty list."""
+        """The quantities whose measurement can resolve Z atom n (2026-11-02, the materials judge: with Ea
+        unknown, "measure kB" and "measure T_rt" were offered — no value of either decides the atom). Probe =
+        an IDEAL measurement of q alone: q pinned to a point (its lower end, upper end, middle), the rest as
+        declared; q is a cure if some pin gives T or F. An unbounded q cannot be pinned at its ends and is kept.
+        If no single quantity cures (the atom needs several narrowed together), every non-point quantity is
+        offered, as before — never an empty list for an open atom."""
         kind, e1, e2 = natoms[n][:3]
         wide = [q for q in numeric[n]["used"] if quantities[q]["lo"] != quantities[q]["hi"]]
         cures = []
@@ -412,24 +548,41 @@ def judge_sheet_claim(formula, quantities, marks):
             for pt in (lo, hi, (lo + hi) / 2):
                 pinned = dict(quantities)
                 pinned[q] = dict(quantities[q], lo=pt, hi=pt)
-                if compare(kind, e1, e2, pinned)[0] in ("T", "F"):      # a pin off the lattice reads E: not a cure
+                v = compare(kind, e1, e2, pinned)[0]       # a pin off the type's lattice reads E: not a cure
+                if v in ("T", "F"):
                     cures.append(q)
                     break
         return cures or wide
+    bearing_credit = sorted({q for n in bearing
+                             for q in numeric[n]["pedigree"]
+                             if _bears(n, q)})
+    disposition, polarity = core["disposition"], None
+    # the cap covers the IF STABLE verdicts too (2026-10-31): the judge gained
+    # them on 2026-10-29 and this line still read only the plain two, so
+    # `x <= 10 & (ok -> ok)` with x on credit came out EARNED IF STABLE while
+    # its truth rode x's unearned bounds — a forced verdict above ON CREDIT
+    if disposition in ("EARNED", "REFUTED", "EARNED IF STABLE", "REFUTED IF STABLE") \
+            and bearing_credit:
+        polarity = "toward T" if disposition.startswith("EARNED") else "toward F"
+        disposition = "ON CREDIT"
 
     next_check = []
     # §21 discipline: once the verdict is hereditary, remaining checks buy
     # nothing — measure/verify cures are offered only while the claim is
     # still open or riding credit; document cures always accompany credit
+    # IF STABLE is settled by verification too (verifying a repeated atom
+    # removes the condition), so it earns the same measure/verify cures
     # ... but NOT when the core verdict is forced and only the provenance cap
-    # holds it at ON CREDIT (ZTL 78d06c9, 2026-11-02): a forced verdict is
-    # hereditary; resolving another atom cannot move it, only documenting
-    # lifts the cap. The test is the CORE disposition, before the cap.
-    if core["disposition"] == "OPEN":
+    # holds it at ON CREDIT (2026-11-02, the materials judge: `(p == 0) |
+    # (nc == 0)` with nc = 0 on credit was told "measure p" — a forced verdict
+    # is hereditary, resolving p cannot move it; only documenting nc lifts the
+    # cap). The test is the CORE disposition, before the cap.
+    if core["disposition"] in ("OPEN", "EARNED IF STABLE", "REFUTED IF STABLE"):
         for n in natoms:
             if numeric[n]["verdict"] == "Z" and n in core["unverified"]:
                 for q in _measurable(n):
-                    next_check.append(f"measure {q}")
+                    # a convention has no value to find: the order that can fill it is a declaration
+                    next_check.append(f"{'stipulate' if quantities[q].get('convention') else 'measure'} {q}")
                 # the witness falls due the moment the measurement lands:
                 # a Z atom can show nothing non-bearing yet (re-marking it Z
                 # is a no-op, so it never enters `bearing`), and surprising
@@ -450,7 +603,7 @@ def judge_sheet_claim(formula, quantities, marks):
         # (an atom that is already Z never enters `bearing` — re-marking it
         # Z is a no-op — so every atom here is forced and the probe applies)
         for q in numeric[n]["pedigree"]:
-            if bounds_bearing(kind, e1, e2, quantities, q):
+            if _bears(n, q):
                 next_check.append(f"document {q}")
         if numeric[n]["verdict"] in ("T", "F"):
             for q in numeric[n]["used"]:
@@ -470,7 +623,7 @@ def judge_sheet_claim(formula, quantities, marks):
                       + [c for c in next_check if not any(c.split(" ", 1)[-1] in numeric[n]["used"] for n in no_subject)])
     return {"formula": formula, "core_formula": core_formula.strip(),
             "numeric_atoms": numeric, "core": core,
-            "lazy": core["lazy"],
+            "forced": core["forced"],
             "pending": [_say(a) for a in core["pending"]],
             "disposition": disposition, "polarity": polarity,
             "credit_quantities": credit_quantities,
@@ -658,7 +811,7 @@ if __name__ == "__main__":
                           ("a=1 earned:doc, b=5 earned:doc, ok=Z", "a <= b | ok")):
         q, m = parse_quantities(data)
         r = judge_sheet_claim(formula, q, m)
-        print(f"   {formula:14} {r['disposition']:8} lazy={r['lazy']} "
+        print(f"   {formula:14} {r['disposition']:8} forced={r['forced']} "
               f"pending={r['pending']}")
     q, m = parse_quantities("a=[0,10] credit, b=5 earned:doc, ok=Z")
     assert judge_sheet_claim("a <= b & ok", q, m)["pending"] == ["a <= b", "ok"]
@@ -698,6 +851,87 @@ if __name__ == "__main__":
     print("   Intent is invisible in a single claim and perfectly visible")
     print("   in the distribution — which is the only handle this corpus")
     print("   has on it, and it is enough to name a source.")
+    print()
+    print("-" * 72)
+    print("IF STABLE ON A SHEET (2026-10-31) — the cap and the cures reach it")
+    for f, sheet, want_disp, want_pol, want_cure in [
+            ("ok -> ok", "x=[1,5] credit, ok=Z", "EARNED IF STABLE", None, "verify ok"),
+            ("x <= 10 & (ok -> ok)", "x=[1,5] credit, ok=Z", "ON CREDIT", "toward T", "document x"),
+            ("x <= 10 & (ok -> ok)", "x=[1,5] earned:m1, ok=Z", "EARNED IF STABLE", None, "verify ok"),
+            ("x >= 10 | (ok & ~ok)", "x=[1,5] credit, ok=Z", "ON CREDIT", "toward F", "document x")]:
+        q, m = parse_quantities(sheet)
+        r = judge_sheet_claim(f, q, m)
+        print(f"   {f:24} | {sheet:24} -> {r['disposition']:17} {r['polarity'] or ''}  {r['next_check']}")
+        assert r["disposition"] == want_disp and r["polarity"] == want_pol, (f, sheet, r["disposition"])
+        assert want_cure in r["next_check"], (f, sheet, r["next_check"])
+    # a cure must be able to cure (2026-11-02, the materials judge): a forced verdict held at ON CREDIT is lifted by
+    # documenting, never by measuring an atom it does not rest on; and an open atom is cured only by a quantity
+    # whose exact value can decide it — not by sharpening an already sharp constant beside an unknown one
+    for f, sheet, want in [
+            ("(p == 0) | (nc == 0)", "p=[0,1] int credit, nc=0 int credit", ["document nc"]),
+            ("x * exp(e / k) >= 1", "x=[1,2] earned:m, e=? credit, k=[99/100,101/100] earned:c", ["measure e", "document e"]),
+            ("a + b >= 10", "a=[0,20] credit, b=[0,1] credit", ["measure a", "document a", "document b"]),
+            ("a + b >= 10", "a=[0,6] credit, b=[0,6] credit", ["measure a", "measure b", "document a", "document b"])]:
+        q, m = parse_quantities(sheet)
+        r = judge_sheet_claim(f, q, m)
+        print(f"   {f:24} | {sheet:40} -> {r['disposition']:10} {r['next_check']}")
+        assert r["next_check"] == want, (f, sheet, r["next_check"])
+    print("   a verdict that rides credit stays ON CREDIT whatever its stability;")
+    print("   a stable-only verdict names the atom whose verification removes the")
+    print("   condition.")
+    # (2026-11-05) A DIVISOR 0 IN EVERY READING: E with the order named where the claim rests on it, the value Z as
+    # before (a disjunction standing on another ground stays EARNED); a divisor that only MAY be 0 stays OPEN "measure"
+    import znum as _zn
+    _dz = [("x / y >= 1", "x=[2,2] earned:a, y=[0,0] earned:b", "E", "nothing to check"),
+           ("x / y >= 1", "x=[0,0] earned:a, y=[0,0] earned:b", "E", "stipulated"),
+           ("x / y >= 1", "x=[2,2] earned:a, y=[-1,1] earned:b", "OPEN", "measure y"),
+           ("x / y >= 1", "x=[2,2] earned:a, y=[1,2] earned:b", "EARNED", None),
+           ("(x / y >= 1) | (x >= 1)", "x=[2,2] earned:a, y=[0,0] earned:b", "EARNED", None),
+           ("(x / y >= 1) & (x >= 1)", "x=[2,2] earned:a, y=[0,0] earned:b", "E", "nothing to check")]
+    for f, sheet, want, order in _dz:
+        qs, mk = parse_quantities(sheet)
+        r = judge_sheet_claim(f, qs, mk)
+        assert r["disposition"] == want and (order is None or any(order in c for c in r["next_check"])), (f, sheet, r)
+    _zn.ZERO_DIV_AS_Z[0] = True       # the pre-2026-11-05 reading, as a sabotage: 2/0 >= 1 was OPEN "measure ..."
+    try:
+        qs, mk = parse_quantities(_dz[0][1])
+        assert judge_sheet_claim(_dz[0][0], qs, mk)["disposition"] == "OPEN"
+    finally:
+        _zn.ZERO_DIV_AS_Z[0] = False
+    print("   a divisor 0 in every reading: E with the order named ('nothing to check, ever' for x/0, 'a value")
+    print("   must be stipulated' for 0/0) where the claim rests on it; a divisor that may be 0: OPEN, measure it.")
+    # (2026-11-05) A CONVENTION: the cure for its width is "stipulate", never "measure" — and NOTHING else moves.
+    # Both sides: (1) every claim gets the same disposition and polarity with and without the token, on a battery of
+    # sheets — the token cannot buy or cost a verdict; (2) the only difference in the cures is measure <-> stipulate
+    # for the convention quantity itself; an empirical quantity beside it keeps "measure"; (3) convention + sample is
+    # refused by form. Sabotage: issuing "stipulate" for every quantity must break (2).
+    _conv_cases = [("P == 1/2", "P=[1/4,1/2] earned:three"), ("P >= 1/4", "P=[1/4,1/2] earned:three"),
+                   ("P > 1/2", "P=[1/4,1/2] credit"), ("P == 1/2", "P=[1/4,1/2] credit"),
+                   ("P * n >= 10", "P=[1/4,1/2] earned:three, n=[10,40] earned:c"),
+                   ("(P >= 1/3) & ok", "P=[1/4,1/2] earned:three, ok=Z"),
+                   ("(P >= 1/3) | (n > 5)", "P=[1/4,1/2] earned:three, n=[0,9] credit"),
+                   ("P * n >= 10", "P=[1/4,1/2] earned:three, n=[0,100] credit")]
+
+    def _conv(sheet):
+        return sheet.replace("P=[1/4,1/2] earned:three", "P=[1/4,1/2] earned:three convention") \
+                    .replace("P=[1/4,1/2] credit", "P=[1/4,1/2] credit convention")
+    for f, sheet in _conv_cases:
+        a = judge_sheet_claim(f, *parse_quantities(sheet))
+        b = judge_sheet_claim(f, *parse_quantities(_conv(sheet)))
+        assert (a["disposition"], a["polarity"]) == (b["disposition"], b["polarity"]), (f, sheet, a, b)
+        assert [c.replace("measure P", "stipulate P") for c in a["next_check"]] == b["next_check"], (f, a, b)
+        assert not any(c.startswith("measure P") for c in b["next_check"])
+        assert not any(c.startswith("stipulate") and c != "stipulate P" for c in b["next_check"])
+    # P pinned to 1/2 decides it (n >= 30), n pinned to 50 decides it (P >= 1/4): both are cures, of two kinds
+    _b = judge_sheet_claim("P * n >= 10", *parse_quantities(_conv("P=[1/4,1/2] earned:three, n=[30,50] credit")))
+    assert "stipulate P" in _b["next_check"] and "measure n" in _b["next_check"], _b
+    try:
+        parse_quantities("P=[0,1] convention sample")
+        raise AssertionError("convention + sample was accepted")
+    except ValueError:
+        pass
+    print("   a convention: the same verdict with and without the token on every case; its cure reads 'stipulate',")
+    print("   an empirical quantity beside it keeps 'measure'; 'convention' with 'sample' is refused by form.")
     print()
     print("=" * 72)
     print("ZNUMJUDGE GREEN — mixed formulas judged by the unchanged core;")

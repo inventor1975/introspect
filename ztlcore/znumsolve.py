@@ -47,10 +47,13 @@ from fractions import Fraction
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
+from znum import _mlin, _ev_mlin, _ev                              # noqa: E402
 from znum import (INF, EARNED, CREDIT, qty, num, fmt, _linear,   # noqa: E402
                   _NotLinear, _step, typename, _poly, _rat_sqrt, _NoReadings,
                   QSqrt, qsqrt_of, _ev_exact, names_in as _names_in,
                   _upoly, _ptrim, _pdivmod, _real_roots)
+from znum import (_padd as _upadd, _pmul as _upmul, _peval as _upeval,     # noqa: E402
+                  _pderiv as _upderiv, _peval_iv as _upeval_iv, _iv_div)
 from znumjudge import (parse_quantities, extract_comparisons,     # noqa: E402
                        judge_sheet_claim, _closes_last)
 
@@ -228,6 +231,480 @@ def _upoly_roots(kind, e1, e2, qs):
     return name, pieces, seen, exact
 
 
+# ------------------------- linear systems with parameters in the coefficients
+# MATRIX-DESIGN.md (2026-10-09). The rows of the claim's equalities are read as
+# A(p) x = b(p): x the unknowns ('?'), p the PARAMETERS — quantities with a finite
+# box that are not pinned. Exact when every parameter sits in one rank-one block
+# (then each unknown is linear-fractional in each parameter, and its range over
+# the box is the hull of the corner solutions); otherwise nothing is narrowed and
+# the log says why. A sheet with no parameter in a coefficient never comes here
+# with anything to do: `_solve_linear_system` has already pinned what it can.
+PARAM_MAX_KEYS = 10      # 2**10 corners; the multilinear floor's cap, the studio's atom cap
+
+
+def _pmul(a, b):
+    """Product of two polynomials {monomial: coef}; a monomial is a sorted
+    tuple of parameter names, repeats allowed (a minor may square a name)."""
+    out = {}
+    for m1, k1 in a.items():
+        for m2, k2 in b.items():
+            m = tuple(sorted(m1 + m2))
+            out[m] = out.get(m, Fraction(0)) + k1 * k2
+    return {m: k for m, k in out.items() if k != 0}
+
+
+def _psub(a, b):
+    out = dict(a)
+    for m, k in b.items():
+        out[m] = out.get(m, Fraction(0)) - k
+    return {m: k for m, k in out.items() if k != 0}
+
+
+def _peval(p, at):
+    s = Fraction(0)
+    for m, k in p.items():
+        t = k
+        for name in m:
+            t *= at[name]
+        s += t
+    return s
+
+
+def _rank_one_in(param, A, b, rows, unknowns):
+    """True iff [dA/dparam | db/dparam] has rank <= 1 IDENTICALLY in the other
+    parameters: every 2x2 minor vanishes as a polynomial (never sampled)."""
+    def deriv(poly):
+        return {tuple(n for n in m if n != param): k for m, k in poly.items()
+                if param in m}
+    cols = list(unknowns) + ["_rhs"]
+    M = {}
+    for r in rows:
+        for c in cols:
+            src = b.get(r, {}) if c == "_rhs" else A.get((r, c), {})
+            d = deriv(src)
+            if d:
+                M[(r, c)] = d
+    ent = list(M)
+    for i in range(len(ent)):
+        r1, c1 = ent[i]
+        for j in range(i + 1, len(ent)):
+            r2, c2 = ent[j]
+            if r1 == r2 or c1 == c2:
+                continue
+            minor = _psub(_pmul(M[(r1, c1)], M[(r2, c2)]),
+                          _pmul(M.get((r1, c2), {}), M.get((r2, c1), {})))
+            if minor:
+                return False
+    return True
+
+
+def _axpy(row_i, f, row_p):
+    """row_i - f * row_p, an entry left AS IS where row_p has 0 (a - f*0 = a exactly: the same numbers, fewer
+    Fraction operations). MEASURED 2026-11-09: a 128-link chain's system — bidiagonal, its pivot rows almost all 0 —
+    spent most of ZTL's 3.1 s on products with 0."""
+    return [a - f * b if b else a for a, b in zip(row_i, row_p)]
+
+
+def _solve_exact(Ab, n):
+    """Gaussian elimination over Fractions on an n x n system given as rows
+    [a_1..a_n, b]. Returns (x, det) or (None, 0) if singular."""
+    M = [list(r) for r in Ab]
+    det = Fraction(1)
+    for c in range(n):
+        piv = next((i for i in range(c, n) if M[i][c] != 0), None)
+        if piv is None:
+            return None, Fraction(0)
+        if piv != c:
+            M[c], M[piv] = M[piv], M[c]
+            det = -det
+        det *= M[c][c]
+        inv = 1 / M[c][c]
+        for i in range(n):
+            if i != c and M[i][c] != 0:
+                f = M[i][c] * inv
+                M[i] = _axpy(M[i], f, M[c])
+    return [M[i][n] / M[i][i] for i in range(n)], det
+
+
+def _solve_exact_multi(M, n):
+    """Gauss-Jordan over Fractions on n x n rows [a_1..a_n, b_1..b_k] (several right-hand sides at once).
+    Returns (columns: k lists of n values, det), or (None, 0) if singular."""
+    M = [list(r) for r in M]
+    det = Fraction(1)
+    for c in range(n):
+        piv = next((i for i in range(c, n) if M[i][c] != 0), None)
+        if piv is None:
+            return None, Fraction(0)
+        if piv != c:
+            M[c], M[piv] = M[piv], M[c]
+            det = -det
+        det *= M[c][c]
+        inv = 1 / M[c][c]
+        for i in range(n):
+            if i != c and M[i][c] != 0:
+                f = M[i][c] * inv
+                M[i] = _axpy(M[i], f, M[c])
+    k = len(M[0]) - n
+    return [[M[i][n + j] / M[i][i] for i in range(n)] for j in range(k)], det
+
+
+def affine_range(c0, coef, box):
+    """The exact range of c0 + sum_p coef[p] * p over a box {p: (lo, hi)}: each term at its own end, chosen by the
+    sign of its coefficient (lean/ZSuperpose.lean, `affine_low_le` / `affine_high_ge` / `affine_attained`)."""
+    lo = hi = Fraction(c0)
+    for p, c in coef.items():
+        a, b = box[p]
+        lo += c * (a if c >= 0 else b)
+        hi += c * (b if c >= 0 else a)
+    return lo, hi
+
+
+def _superpose(A, b, ridx, unknowns, params):
+    """PARAMETERS ONLY ON THE RIGHT-HAND SIDE, the right-hand side AFFINE in them (2026-10-20, the bridge girder:
+    a constant 141 x 141 truss matrix, 11 toleranced loads — over the corner cap of 10, so the floor refused and the
+    stand certified 90 unknowns one by one, minutes each). A x = b0 + sum_p b_p p with A constant gives, by linearity,
+    x = A^-1 b0 + sum_p (A^-1 b_p) p EXACTLY: one elimination with 1 + |params| right-hand sides instead of 2^|params|
+    solutions. -> ({unknown: (c0, {p: c})}, None) or (None, reason)."""
+    n = len(unknowns)
+    full = {i: [_peval(A.get((i, u), {}), {}) for u in unknowns]
+            + [b[i].get((), Fraction(0))] + [b[i].get((p,), Fraction(0)) for p in params] for i in ridx}
+    # independent rows of the constant matrix; an OVERDETERMINED system (more rows than unknowns — a quantity fixed
+    # earlier leaves a redundant equality, 2026-10-20) is kept only if every extra row holds for EVERY value of the
+    # parameters: its residual, affine in them, must vanish identically (each coefficient exactly 0)
+    chosen, basis = [], []
+    for i in ridx:
+        v = full[i][:n]
+        for (pc_, bv) in basis:
+            if v[pc_] != 0:
+                f = v[pc_] / bv[pc_]
+                v = [x - f * y for x, y in zip(v, bv)]
+        nz = next((c for c, x in enumerate(v) if x != 0), None)
+        if nz is not None:
+            basis.append((nz, v))
+            chosen.append(i)
+    if len(chosen) < n:
+        return None, None
+    cols, det = _solve_exact_multi([full[i] for i in chosen], n)
+    if cols is None or det == 0:
+        return None, "singular: the constant matrix of the system has no inverse"
+    for i in ridx:
+        if i in chosen:
+            continue
+        row = full[i]
+        for k in range(1 + len(params)):            # residual's constant and each parameter's coefficient
+            if sum((row[j] * cols[k][j] for j in range(n)), Fraction(0)) != row[n + k]:
+                return None, ("overdetermined: an equality beyond the independent ones does not hold for every "
+                              "value of the parameters")
+    return {u: (cols[0][j], {p: cols[1 + k][j] for k, p in enumerate(params) if cols[1 + k][j] != 0})
+            for j, u in enumerate(unknowns)}, None
+
+
+def _param_corners(qs, atoms, rhs_only_ok=False, is_unknown=None, one_rank_many=False):
+    """Read the committed equalities as A(p) x = b(p) and solve them at every
+    corner of the parameters' box. Returns a dict: unknowns, params, in_A,
+    rows (the chunks used), corners [(at, solution)], contributors, skipped
+    (names in equalities left out), reason (None when solved).
+
+    one_rank_many: when exactly ONE parameter enters with rank > 1 and every
+    other with rank one, do not refuse — return the system with "rank_many"
+    set to that parameter and no corners (its extremes may lie inside the box;
+    `_solve_rank_many` finds them). Callers that READ the corners (the
+    dependence reading) leave the flag off and keep the refusal."""
+    if is_unknown is None:
+        def is_unknown(q):
+            return isinstance(q["lo"], float) or isinstance(q["hi"], float)
+    out = {"unknowns": [], "params": [], "in_A": set(), "rows": [], "corners": [],
+           "contributors": set(), "skipped": [], "reason": None}
+    rows = []                     # (A_row {unknown: poly}, b_row poly, chunk)
+    for kind, e1, e2, chunk in atoms.values():
+        if kind != "eq":
+            continue
+        keys, seen = {}, set()
+        try:
+            terms, _ = _mlin(("sub", e1, e2), qs, [0], keys, seen)
+        except (_NotLinear, _NoReadings, KeyError):
+            out["skipped"].append(_names_in(e1) | _names_in(e2))
+            continue
+        if any(qs[nm].get("sample") for nm in keys.values()):
+            continue
+        a_row, const, ok = {}, {}, True
+        for mono, coef in terms.items():
+            if coef == 0:
+                continue
+            names = [keys[k] for k in mono]
+            unk = [nm for nm in names if is_unknown(qs[nm])]
+            if len(unk) > 1:
+                ok = False                # unknown times unknown: not linear
+                break
+            par = tuple(sorted(nm for nm in names if nm not in unk))
+            if unk:
+                poly = a_row.setdefault(unk[0], {})
+                poly[par] = poly.get(par, Fraction(0)) + coef
+            else:
+                const[par] = const.get(par, Fraction(0)) - coef
+        if ok and a_row:
+            rows.append((a_row, {m: k for m, k in const.items() if k != 0}, chunk))
+            out["contributors"] |= seen
+        elif not ok:
+            out["skipped"].append(set(keys.values()))
+    if not rows:
+        out["reason"] = ""
+        return out
+    params = sorted({nm for a_row, b_row, _ in rows
+                     for poly in list(a_row.values()) + [b_row]
+                     for m in poly for nm in m})
+    in_A = {nm for a_row, _, _ in rows for poly in a_row.values() for m in poly for nm in m}
+    out.update(params=params, in_A=in_A, rows=[c for _, _, c in rows])
+    if not params or (not in_A and not rhs_only_ok):
+        # no parameter at all: _solve_linear_system's job; parameters only on the
+        # right-hand side: the existing hull narrowing reads them, and that path is
+        # kept word for word — nothing changes where the floor already worked
+        out["reason"] = ""
+        return out
+    if any(isinstance(qs[p]["lo"], float) or isinstance(qs[p]["hi"], float) for p in params):
+        out["reason"] = "a coefficient rests on an unbounded quantity: not solved as a system"
+        return out
+    # A quantity known EXACTLY (lo == hi: a catalogue value of the chosen design, a given constant) is a number, not a
+    # parameter: it may sit in the matrix (2026-10-20, the bridge girder: the stress laws s == N / BOT.A put the chosen
+    # section in A, and the system was refused as "11 parameters > 10" though only the 11 loads vary).
+    point = {p: qs[p]["lo"] for p in params if qs[p]["lo"] == qs[p]["hi"]}
+    wide = [p for p in params if p not in point]
+    if wide and not (in_A - set(point)) and all(
+            sum(1 for nm in m if nm not in point) <= 1 for _, b_row, _ in rows for m in b_row):
+        # SUPERPOSITION: no varying parameter in A, the right-hand side affine in them — exact for ANY number
+        unknowns_s = sorted({u for a_row, _, _ in rows for u in a_row})
+        A_s = {(i, u): {(): _peval(poly, point)} for i, (a_row, _, _) in enumerate(rows) for u, poly in a_row.items()}
+        b_s = {}
+        for i, (_, b_row, _) in enumerate(rows):
+            acc = {}
+            for m, coef in b_row.items():
+                w = [nm for nm in m if nm not in point]
+                val = coef
+                for nm in m:
+                    if nm in point:
+                        val *= point[nm]
+                key = (w[0],) if w else ()
+                acc[key] = acc.get(key, Fraction(0)) + val
+            b_s[i] = acc
+        aff, why = _superpose(A_s, b_s, list(range(len(rows))), unknowns_s, wide)
+        if aff is not None:
+            out.update(unknowns=unknowns_s, affine=aff, params=wide)
+            return out
+        if why:
+            out["reason"] = why
+            return out
+    if len(params) > PARAM_MAX_KEYS:
+        out["reason"] = (f"{len(params)} parameters in the coefficients, "
+                         f"cap {PARAM_MAX_KEYS}: not solved as a system")
+        return out
+    unknowns = sorted({u for a_row, _, _ in rows for u in a_row})
+    out["unknowns"] = unknowns
+    A = {(i, u): poly for i, (a_row, _, _) in enumerate(rows) for u, poly in a_row.items()}
+    b = {i: b_row for i, (_, b_row, _) in enumerate(rows)}
+    ridx = list(range(len(rows)))
+    bad = [p for p in params if not _rank_one_in(p, A, b, ridx, unknowns)]
+    if bad and not (one_rank_many and len(bad) == 1):
+        out["reason"] = (f"parameter {bad[0]} enters the coefficients with rank > 1: "
+                         f"the corners are not exact, not solved as a system"
+                         + (f" (and {len(bad) - 1} more)" if len(bad) > 1 else ""))
+        return out
+    # independent rows at the midpoint (exact); the system must be square
+    mid = {p: (qs[p]["lo"] + qs[p]["hi"]) / 2 for p in params}
+    n = len(unknowns)
+    chosen, basis = [], []
+    for i in ridx:
+        v = [_peval(A.get((i, u), {}), mid) for u in unknowns]
+        for (piv_col, bv) in basis:
+            if v[piv_col] != 0:
+                f = v[piv_col] / bv[piv_col]
+                v = [x - f * y for x, y in zip(v, bv)]
+        nz = next((c for c, x in enumerate(v) if x != 0), None)
+        if nz is not None:
+            basis.append((nz, v))
+            chosen.append(i)
+    if len(chosen) < n:
+        out["reason"] = (f"{len(chosen)} independent equalities for {n} unknowns "
+                         f"at the box's midpoint: not uniquely solvable")
+        return out
+    if len(chosen) < len(ridx):
+        # an equality beyond the independent ones holding at every CORNER does not
+        # make it hold INSIDE the box (its residual need not be multiaffine), and a
+        # reading where it fails has no solution at all — refuse, do not guess
+        out["reason"] = (f"{len(rows)} equalities for {n} unknowns: overdetermined, "
+                         f"not solved as a system")
+        return out
+    if bad:
+        out["rank_many"] = bad[0]
+        out["system"] = (A, b, chosen, unknowns, params)
+        return out
+    sign = None
+    corners = [[]]
+    for p in params:
+        corners = [c + [e] for c in corners for e in (qs[p]["lo"], qs[p]["hi"])]
+    for corner in corners:
+        at = dict(zip(params, corner))
+        Ab = [[_peval(A.get((i, u), {}), at) for u in unknowns] + [_peval(b[i], at)]
+              for i in chosen]
+        x, det = _solve_exact(Ab, n)
+        if x is None or det == 0:
+            out["reason"] = "singular at a corner of the box: not solved as a system"
+            return out
+        s = det > 0
+        if sign is None:
+            sign = s
+        elif s != sign:
+            out["reason"] = ("the determinant changes sign over the box: "
+                             "not solved as a system")
+            return out
+        out["corners"].append((at, dict(zip(unknowns, x))))
+    return out
+
+
+def _udet(M):
+    """Determinant of a square matrix of univariate polynomials (coefficient
+    lists, degree 0 first) by fraction-free Bareiss elimination: every division
+    is exact, so the result is the exact determinant polynomial."""
+    n = len(M)
+    M = [[list(c) for c in row] for row in M]
+    sign, prev = 1, [Fraction(1)]
+    for k in range(n - 1):
+        if not any(M[k][k]):
+            sw = next((i for i in range(k + 1, n) if any(M[i][k])), None)
+            if sw is None:
+                return [Fraction(0)]
+            M[k], M[sw] = M[sw], M[k]
+            sign = -sign
+        for i in range(k + 1, n):
+            for j in range(k + 1, n):
+                num_ = _upadd(_upmul(M[k][k], M[i][j]), _upmul(M[i][k], M[k][j]), -1)
+                q, r = _pdivmod(num_, prev)
+                if any(r):
+                    raise ArithmeticError("Bareiss: inexact division")
+                M[i][j] = q
+        prev = M[k][k]
+    det = M[n - 1][n - 1]
+    return [sign * c for c in det]
+
+
+def _solve_rank_many(pc, qs):
+    """One parameter p of rank > 1 (one steel batch for three bars), every other
+    parameter rank one. For each corner of the OTHERS (monotone there: rank one,
+    linear-fractional), every unknown is x_i(p) = N_i(p)/D(p) by Cramer, both
+    polynomials EXACT (`_udet`). D must keep its sign on p's interval at every
+    corner (no singular reading inside the box). The extremes of x_i on the
+    interval sit at its ends or at the real roots of N_i' D - N_i D' (Sturm,
+    `_real_roots`): a rational root is evaluated exactly; an irrational one is
+    clamped to 1e-12 and enclosed by interval Horner — sound, then not exact.
+    Returns (ranges, exact, reason)."""
+    A, b, chosen, unknowns, params = pc["system"]
+    p = pc["rank_many"]
+    plo, phi = qs[p]["lo"], qs[p]["hi"]
+    others = [q for q in params if q != p]
+    corners = [[]]
+    for q in others:
+        corners = [c + [e] for c in corners for e in (qs[q]["lo"], qs[q]["hi"])]
+
+    def upoly(poly, at):          # multivariate {monomial: coef} -> univariate in p
+        out = [Fraction(0), Fraction(0)]
+        for m, k in poly.items():
+            t, deg = k, 0
+            for nm in m:
+                if nm == p:
+                    deg += 1
+                else:
+                    t *= at[nm]
+            while len(out) <= deg:
+                out.append(Fraction(0))
+            out[deg] += t
+        return _ptrim(out)
+
+    n = len(unknowns)
+    lo, hi, exact, sign = {}, {}, True, None
+    for corner in corners:
+        at = dict(zip(others, corner))
+        Mx = [[upoly(A.get((i, u), {}), at) for u in unknowns] for i in chosen]
+        bv = [upoly(b[i], at) for i in chosen]
+        D = _udet(Mx)
+        if not any(D) or _real_roots(D, plo, phi):
+            return {}, False, f"singular for some {p} in its box: not solved as a system"
+        s_ = _upeval(D, plo) > 0
+        if sign is None:
+            sign = s_
+        elif s_ != sign:
+            return {}, False, "the determinant changes sign over the box: not solved as a system"
+        dD = _upderiv(D)
+        for c, u in enumerate(unknowns):
+            N = _udet([row[:c] + [bv[i]] + row[c + 1:] for i, row in enumerate(Mx)])
+            vals = [_upeval(N, plo) / _upeval(D, plo), _upeval(N, phi) / _upeval(D, phi)]
+            crit = _upadd(_upmul(_upderiv(N), D), _upmul(N, dD), -1)
+            ivs = []
+            if any(crit):
+                for l, h in _real_roots(crit, plo, phi):
+                    if l == h:
+                        vals.append(_upeval(N, l) / _upeval(D, l))
+                    else:
+                        exact = False
+                        ivs.append(_iv_div(_upeval_iv(N, (l, h)), _upeval_iv(D, (l, h))))
+            cand_lo = min(vals + [iv[0] for iv in ivs])
+            cand_hi = max(vals + [iv[1] for iv in ivs])
+            lo[u] = cand_lo if u not in lo or cand_lo < lo[u] else lo[u]
+            hi[u] = cand_hi if u not in hi or cand_hi > hi[u] else hi[u]
+    return {u: (lo[u], hi[u]) for u in unknowns}, exact, None
+
+
+_LAST_AFFINE = [None]     # the affine forms of the last system solved by superposition: ({u: (c0, {p: c})}, params)
+
+
+def _solve_param_system(qs, atoms):
+    """Ranges of the unknowns of a linear system whose coefficients carry
+    parameters. Returns (ranges {name: (lo, hi)}, contributors, reason): ranges
+    is empty and reason says why whenever the exact class does not hold."""
+    _LAST_AFFINE[0] = None
+    pc = _param_corners(qs, atoms, one_rank_many=True)
+    if pc["reason"] is None and pc.get("rank_many"):
+        ranges, exact, why = _solve_rank_many(pc, qs)
+        if why:
+            return {}, set(), why
+        p = pc["rank_many"]
+        loose = sorted({u for names in pc["skipped"] for u in names if u in pc["unknowns"]})
+        note = (f"{p} has rank > 1: its extremes taken at the ends and at the real critical points"
+                + ("" if exact else " (an irrational one enclosed, so the range may be wider than the truth)"))
+        if loose:
+            exact = False
+            note += (f"; exact over the linear rows only: {', '.join(loose)} also appear in an "
+                     f"equality the system could not read")
+        return ranges, pc["contributors"], ("RANK_MANY:" + ("exact:" if exact else "outer:") + note)
+    if pc["reason"] == "" and pc["params"] and not pc["in_A"] and len(pc["rows"]) >= 2:
+        # PARAMETERS ONLY ON THE RIGHT-HAND SIDE, TWO OR MORE EQUALITIES (gap Z3, 2026-10-10).
+        # MEASURED before this: (x + y == p) & (x - y == q) left x and y at (-inf, inf) —
+        # not "outer", unbounded. x = A^-1 b(p) with A constant and b multilinear in the
+        # boxes, so x is multilinear too and its range is attained at the corners: EXACT.
+        # One equality stays where it was (the hull narrowing, the multilinear step).
+        pc = _param_corners(qs, atoms, rhs_only_ok=True)
+    if pc["reason"] is not None:
+        return {}, set(), (pc["reason"] or None)
+    lo, hi = {}, {}
+    if pc.get("affine"):
+        _LAST_AFFINE[0] = (pc["affine"], list(pc["params"]))
+        box = {p: (qs[p]["lo"], qs[p]["hi"]) for p in pc["params"]}
+        for u, (c0, coef) in pc["affine"].items():
+            lo[u], hi[u] = affine_range(c0, coef, box)
+    for _, x in pc["corners"]:
+        for u, xv in x.items():
+            lo[u] = xv if u not in lo or xv < lo[u] else lo[u]
+            hi[u] = xv if u not in hi or xv > hi[u] else hi[u]
+    # AN EQUALITY LEFT OUT STILL CONSTRAINS (prose review, 2026-10-09): a row not
+    # linear in the unknowns (I*I == ..., a division by an unknown) is not part
+    # of the system; the hull above is then exact for the LINEAR rows only and,
+    # for the unknowns that row mentions, a sound outer range — said so here.
+    loose = sorted({u for names in pc["skipped"] for u in names if u in pc["unknowns"]})
+    note = None
+    if loose:
+        note = (f"exact over the linear rows only: {', '.join(loose)} also appear in an "
+                f"equality the system could not read, so their ranges may be wider than the truth")
+    return {u: (lo[u], hi[u]) for u in pc["unknowns"]}, pc["contributors"], note
+
+
 def _solve_monomial_system(qs, atoms):
     """Exact elimination over the equalities, x and x² as SEPARATE columns.
 
@@ -283,11 +760,11 @@ def _solve_monomial_system(qs, atoms):
             continue
         mat[r], mat[piv] = mat[piv], mat[r]
         f = mat[r][col]
-        mat[r] = [x / f for x in mat[r]]
+        mat[r] = [x / f if x else x for x in mat[r]]
         for i in range(len(mat)):
             if i != r and mat[i][col] != 0:
                 k = mat[i][col]
-                mat[i] = [a - k * b for a, b in zip(mat[i], mat[r])]
+                mat[i] = _axpy(mat[i], k, mat[r])
         r += 1
     single = []
     for row in mat:
@@ -344,11 +821,11 @@ def _solve_linear_system(qs, atoms):
             continue
         mat[r], mat[piv] = mat[piv], mat[r]
         f = mat[r][col]
-        mat[r] = [x / f for x in mat[r]]
+        mat[r] = [x / f if x else x for x in mat[r]]
         for i in range(len(mat)):
             if i != r and mat[i][col] != 0:
                 k = mat[i][col]
-                mat[i] = [a - k * b for a, b in zip(mat[i], mat[r])]
+                mat[i] = _axpy(mat[i], k, mat[r])
         r += 1
     pinned = {}
     for row in mat:
@@ -460,6 +937,209 @@ def _apply_pieces(kind, name, pieces, seen, chunk, qs, log, orig=None, exact=())
                          else f"[{fmt(k['lo'])}, {fmt(k['hi'])}]" for k in kept))
     log.append(f"{name} -> {shown} by [{chunk}] (from the discriminant)")
     return "moved"
+
+
+def _mlin_eq(kind, e1, e2, qs):
+    """`name == E` where E is MULTILINEAR in the other quantities (each to the
+    first power, names correlated): the name lies in E's range over their boxes,
+    and that range is EXACT — a multilinear expression is linear in each name with
+    the others fixed, so its extremes sit at the corners (`_ev_mlin`).
+
+    WHY (2026-10-09, the universal stand's probe tasks, gap Z2): tau == R*C,
+    Tj == Ta + P*(Rjc + Rcs + Rsa) and V == N*(Vcell - I*r) — a quantity defined
+    by a PRODUCT of toleranced quantities — left the name at (-inf, inf): the
+    linear reading refuses a product of two boxes, the parabola and polynomial
+    readings want one name. Three of five tasks hit it; the exact corners were
+    already here for comparisons. Only the defined name is narrowed: the boxes
+    on the other side are not read backwards. Returns (name, lo, hi, seen) or None."""
+    if kind != "eq":
+        return None
+    for side, other in ((e1, e2), (e2, e1)):
+        if not isinstance(side, str) or side not in qs:
+            continue
+        q = qs[side]
+        if q.get("sample") or (q["lo"] == q["hi"] and not isinstance(q["lo"], float)):
+            continue
+        names = {n for n in _names_in(other) if n in qs}
+        if side in names:
+            continue
+        try:
+            got = _ev_mlin(other, qs)
+        except (_NoReadings, ZeroDivisionError):
+            continue
+        if got is None:
+            continue
+        (lo, hi), _, used, _, _ = got
+        if lo in (INF, -INF) or hi in (INF, -INF) or isinstance(lo, float) or isinstance(hi, float):
+            continue
+        return side, lo, hi, set(used) | names
+    return None
+
+
+class _NotAffine(Exception):
+    pass
+
+
+def _lin_in(e, U):
+    """e as  rest + sum_u coef_u * u  over the names U, every coefficient and the rest a tree free of U:
+    {None: rest, u: coef}. Raises _NotAffine where e is not linear in U."""
+    if isinstance(e, str):
+        return {e: Fraction(1)} if e in U else {None: e}
+    if not isinstance(e, tuple):
+        return {None: e}
+    op = e[0]
+    if op == "sum":
+        out = {None: Fraction(0)}
+        for a in e[1]:
+            out = _lin_merge(out, _lin_in(a, U), "add")
+        return out
+    if op in ("add", "sub") and len(e) == 3:
+        return _lin_merge(_lin_in(e[1], U), _lin_in(e[2], U), op)
+    if op == "mul" and len(e) == 3:
+        a, b = _lin_in(e[1], U), _lin_in(e[2], U)
+        if set(a) == {None}:
+            return {k: ("mul", a[None], t) for k, t in b.items()}
+        if set(b) == {None}:
+            return {k: ("mul", t, b[None]) for k, t in a.items()}
+        raise _NotAffine("a product of two unknowns")
+    if op == "div" and len(e) == 3:
+        a, b = _lin_in(e[1], U), _lin_in(e[2], U)
+        if set(b) != {None}:
+            raise _NotAffine("a division by an unknown")
+        return {k: ("div", t, b[None]) for k, t in a.items()}
+    if _names_in(e) & set(U):
+        raise _NotAffine(f"{op} of an unknown")
+    return {None: e}
+
+
+def _lin_merge(a, b, op):
+    out = dict(a)
+    for k, t in b.items():
+        if k in out:
+            out[k] = (op, out[k], t)
+        else:
+            out[k] = t if op == "add" else ("sub", Fraction(0), t)
+    return out
+
+
+def _affine_def_eq(kind, e1, e2, qs, affine):
+    """`name == E` with E LINEAR in the unknowns of a system solved by superposition (2026-10-20, the bridge girder:
+    the deflection, a sum over 45 bars of N_i n_i L_i / (E_i A_i), read by intervals with each N_i's own range, lost
+    the loads' correlation — the designs at the limit stayed OPEN, and they are the optimum). Each unknown is
+    u = c0 + sum_p c_p p; with them put in, E = a0 + sum_p a_p p, the a's trees of the OTHER quantities. When every
+    a_p keeps one sign over the box, each p is taken at the end its sign picks (lean/ZSuperpose `term_low` /
+    `term_high`, pointwise for every value of the other quantities); what is left is read by intervals — sound, and
+    narrow when each other quantity appears once. Returns (name, lo, hi, seen) or None."""
+    if kind != "eq" or affine is None:
+        return None
+    aff, params = affine
+    U = {u for u, (c0, cs) in aff.items() if cs}            # unknowns that move with the parameters
+    for side, other in ((e1, e2), (e2, e1)):
+        if not isinstance(side, str) or side not in qs or side in aff:
+            continue
+        q = qs[side]
+        if q.get("sample") or (q["lo"] == q["hi"] and not isinstance(q["lo"], float)):
+            continue
+        names = {n for n in _names_in(other) if n in qs}
+        if side in names or not (names & U):
+            continue
+        try:
+            parts = _lin_in(other, U)
+        except _NotAffine:
+            continue
+        # like coefficients first: the same tree from several unknowns adds as NUMBERS (x/k + y/k: the 1/k's of p
+        # sum to 1/k, of q to 0 exactly — read one by one, the zero became [-1/4, 1/4] and its sign unknown)
+        g0, gp = {}, {p: {} for p in params}
+        for u, coef in parts.items():
+            if u is None:
+                continue
+            c0, cs = aff[u]
+            g0[coef] = g0.get(coef, Fraction(0)) + c0
+            for p, c in cs.items():
+                gp[p][coef] = gp[p].get(coef, Fraction(0)) + c
+
+        def build(base, groups):
+            t = base
+            for coef, k in groups.items():
+                if k != 0:
+                    t = ("add", t, ("mul", coef, k))
+            return t
+        a0 = build(parts.get(None, Fraction(0)), g0)
+        ap = {p: build(Fraction(0), gp[p]) for p in params}
+        if any(n in params for t in [a0] + list(ap.values()) for n in _names_in(t)):
+            continue                                        # a parameter also in a coefficient: not affine in it
+        seen = set(names)
+        try:
+            pick_lo, pick_hi = {}, {}
+            for p, t in ap.items():
+                iv, _, used, _, _ = _ev(t, qs)
+                if iv is None:
+                    raise _NotAffine("an unread coefficient")
+                seen |= set(used)
+                plo, phi = qs[p]["lo"], qs[p]["hi"]
+                if iv[0] >= 0:
+                    pick_lo[p], pick_hi[p] = plo, phi
+                elif iv[1] <= 0:
+                    pick_lo[p], pick_hi[p] = phi, plo
+                else:
+                    raise _NotAffine("a coefficient changes sign over the box")
+            # the ends, built PER COEFFICIENT: each coefficient tree once, times its number at the picked corner —
+            # a quantity in one coefficient is read once (the 45 moduli of the girder, each in one bar's term; built
+            # per parameter, each modulus sat in all twelve sums and the reading widened ~10 %)
+            def ends(pick):
+                t = parts.get(None, Fraction(0))
+                for coef in g0.keys() | {c for gq in gp.values() for c in gq}:
+                    k = g0.get(coef, Fraction(0)) + sum((gp[p].get(coef, Fraction(0)) * pick[p] for p in params),
+                                                        Fraction(0))
+                    if k != 0:
+                        t = ("add", t, ("mul", coef, k))
+                return t
+            ivl, _, ul, _, _ = _ev(ends(pick_lo), qs)
+            ivh, _, uh, _, _ = _ev(ends(pick_hi), qs)
+        except (_NotAffine, _NoReadings, ZeroDivisionError, KeyError, ValueError):
+            continue
+        if ivl is None or ivh is None:
+            continue
+        lo, hi = ivl[0], ivh[1]
+        if any(v in (INF, -INF) or isinstance(v, float) for v in (lo, hi)):
+            continue
+        return side, lo, hi, seen | set(ul) | set(uh) | set(params)
+    return None
+
+
+def _iv_eq(kind, e1, e2, qs):
+    """`name == E` where E is NOT multilinear (a name squared, a division by a
+    box): the name lies in E's INTERVAL reading over the boxes — sound (it never
+    excludes a value the table allows), possibly wider than the truth, because
+    each occurrence of a name is read on its own (I*I*R with I and R tied by
+    the system).
+
+    WHY (2026-10-09, the universal stand, gap Z1): P1 == I*I*R1 and
+    f == 1/(2*pi*tau) stayed at (-inf, inf) after the system had bounded I and
+    tau exactly; power and frequency are everywhere. Logged as an interval
+    reading, never as exact. Returns (name, lo, hi, seen) or None."""
+    if kind != "eq":
+        return None
+    for side, other in ((e1, e2), (e2, e1)):
+        if not isinstance(side, str) or side not in qs:
+            continue
+        q = qs[side]
+        if q.get("sample") or (q["lo"] == q["hi"] and not isinstance(q["lo"], float)):
+            continue
+        names = {n for n in _names_in(other) if n in qs}
+        if side in names:
+            continue
+        try:
+            iv, _, used, _, _ = _ev(other, qs)
+        except (_NoReadings, ZeroDivisionError, KeyError):
+            continue
+        if iv is None:
+            continue
+        lo, hi = iv
+        if lo in (INF, -INF) or hi in (INF, -INF) or isinstance(lo, float) or isinstance(hi, float):
+            continue
+        return side, lo, hi, set(used) | names
+    return None
 
 
 def _committed_atoms(core):
@@ -640,6 +1320,41 @@ def narrow(quantities, formula, rounds=MAX_ROUNDS, orig=None):
         qs[name] = pinned_q
         log.append(f"{name} = {fmt(value)} by exact elimination"
                    f" ({derived_prov})")
+    # PARAMETERS IN THE COEFFICIENTS (MATRIX-DESIGN.md, 2026-10-09): what the
+    # exact elimination above could not read — a box times an unknown — read as
+    # one system and solved at the corners when that is exact; otherwise the log
+    # says which condition failed and nothing is touched.
+    ranges, pcontrib, why = _solve_param_system(qs, atoms)
+    affine_sys = _LAST_AFFINE[0]
+    how = "exact at the corners" if not (ranges and why) else "at the corners, over the linear rows"
+    if why and why.startswith("RANK_MANY:"):
+        _, kind_rm, text_rm = why.split(":", 2)
+        how = ("exact at the corners and at the critical points" if kind_rm == "exact"
+               else "at the corners and the critical points, an irrational one enclosed")
+        why = text_rm
+    if why:
+        log.append(why)
+    for name, (vlo, vhi) in sorted(ranges.items()):
+        q = qs[name]
+        lo, hi = max(q["lo"], vlo), min(q["hi"], vhi)
+        if lo > hi:
+            log.append(f"{name}: the system forces [{fmt(vlo)}, {fmt(vhi)}], outside its box")
+            qs[name] = dict(q, empty=True, empty_grounds=sorted(
+                _grounds_of(sorted(pcontrib - {name}), qs, orig) | _own(name, qs, orig)))
+            return qs, log
+        grounds = _grounds_of(sorted(pcontrib - {name}), qs, orig)
+        nq = qty(lo, hi, _prov_of(grounds, orig),
+                 "derived:" + ",".join(sorted(grounds)) if grounds else None,
+                 discrete=q["discrete"], unit=q["unit"], sample=False)
+        if nq.get("no_readings"):
+            log.append(f"{name}: [{fmt(lo)}, {fmt(hi)}] holds no point of its "
+                       f"{typename(q['discrete'])} lattice — no solution")
+            qs[name] = dict(q, empty=True, empty_grounds=sorted(grounds))
+            return qs, log
+        nq["grounds"] = nq["derived_from"] = sorted(grounds)
+        qs[name] = nq
+        log.append(f"{name} -> [{fmt(lo)}, {fmt(hi)}] by the system over its parameters, "
+                   f"{how} ({_prov_of(grounds, orig)})")
     single, bad, contributors = _solve_monomial_system(qs, atoms)
     if bad:
         first = sorted(qs)[0]
@@ -657,6 +1372,11 @@ def narrow(quantities, formula, rounds=MAX_ROUNDS, orig=None):
         if _apply_pieces("eq", name, pieces, contributors, "the system",
                          qs, log, orig, _exact_roots(p, q2, c)) == "empty":
             return qs, log
+    eq_uses = {}                       # in how many committed equalities each name appears
+    for _k, _a, _b, _c in atoms.values():
+        if _k == "eq":
+            for _n in _names_in(_a) | _names_in(_b):
+                eq_uses[_n] = eq_uses.get(_n, 0) + 1
     for _ in range(rounds):
         moved = False
         for atom, (kind, e1, e2, chunk) in atoms.items():
@@ -680,6 +1400,44 @@ def narrow(quantities, formula, rounds=MAX_ROUNDS, orig=None):
                     if got_u is not None:
                         step = _apply_pieces("eq", got_u[0], got_u[1], got_u[2], chunk,
                                              qs, log, orig, got_u[3])
+                if step is None:
+                    got_m = _affine_def_eq(kind, e1, e2, qs, affine_sys)
+                    how_m = ("affine in the system's parameters, each at the end its coefficient's sign picks; the "
+                             "rest by interval reading, sound")
+                    if got_m is None:
+                        got_m = _mlin_eq(kind, e1, e2, qs)
+                        how_m = "multilinear, exact at the corners"
+                    if got_m is None:
+                        got_m = _iv_eq(kind, e1, e2, qs)
+                        how_m = "interval reading, sound, may be wider than the truth"
+                    # A DEFINITION, NOT A SYSTEM (2026-10-09, test_quadratic): with
+                    # u == s*s - 3*s & u - 2*s + 3 == 0 the two steps fed each other —
+                    # u from s here, s from u by the linear row — every round a finer
+                    # fraction, until numbers past 4300 digits. A name equated in
+                    # another equality too belongs to the system readings above.
+                    if got_m is not None and eq_uses.get(got_m[0], 0) > 1:
+                        got_m = None
+                    if got_m is not None:
+                        name_m, mlo, mhi, seen_m = got_m
+                        qm = qs[name_m]
+                        lo, hi = max(qm["lo"], mlo), min(qm["hi"], mhi)
+                        if (lo, hi) != (qm["lo"], qm["hi"]):
+                            g = (_grounds_of(sorted(seen_m - {name_m}), qs, orig)
+                                 | _own(name_m, qs, orig))
+                            if lo > hi:
+                                log.append(f"{name_m}: emptied by [{chunk}] (its range "
+                                           f"[{fmt(mlo)}, {fmt(mhi)}], {how_m})")
+                                qs[name_m] = dict(qm, lo=lo, hi=hi, empty=True,
+                                                  empty_grounds=sorted(g))
+                                return qs, log
+                            nm = qty(lo, hi, _prov_of(g, orig),
+                                     ("derived:" + ",".join(sorted(g))) if g else None,
+                                     discrete=qm["discrete"], unit=qm["unit"], sample=False)
+                            nm["grounds"] = nm["derived_from"] = sorted(g)
+                            qs[name_m] = nm
+                            log.append(f"{name_m} -> [{fmt(nm['lo'])}, {fmt(nm['hi'])}] by [{chunk}], "
+                                       f"{how_m} ({_prov_of(g, orig)})")
+                            step = "moved"
                 if step == "empty":
                     return qs, log
                 moved = moved or step == "moved"
@@ -768,6 +1526,118 @@ def _no_solution(qs, log, empty, sheet):
             "empty": empty, "next_check": [], "solved": {}}
 
 
+def _verdict_ledger(qs, quantities):
+    """The ledger the VERDICT is read on (MATRIX-DESIGN.md, second stage). The
+    solver narrows every quantity — that is the answer, shown under `solved` —
+    but a quantity that carried a ground is judged on its ORIGINAL box: a claim
+    about a measured value holds for every reading of it, and narrowing it by the
+    claim first made `(y >= 3/2) & (x == 1)`, y verified in [1, 2], come back
+    EARNED (measured 2026-10-09, live). Only an unknown `?` is a question whose
+    answer the claim may narrow."""
+    out = {}
+    for n, q in qs.items():
+        o = quantities.get(n)
+        out[n] = o if (o is not None and _is_ground(o)) else q
+    return out
+
+
+def _dependence_fixed(formula, quantities):
+    """Comparisons read JOINTLY over a linear system's unknowns as functions of
+    its parameters, at the corners, where that is exact (MATRIX-DESIGN.md):
+    {comparison text: (verdict, pedigree, used)} for judge_sheet_claim."""
+    Q = {n: dict(q) for n, q in quantities.items()}
+    try:
+        core, atoms = extract_comparisons(formula, Q)
+    except Exception:
+        return {}
+    committed = _committed_atoms(core)
+    catoms = {k: v for k, v in atoms.items() if k in committed}
+
+    def unknown(q):
+        return q["lo"] == -INF and q["hi"] == INF
+
+    pc = _param_corners(Q, catoms, rhs_only_ok=True, is_unknown=unknown)
+    if pc["reason"] is not None or not (pc["corners"] or pc.get("affine")):
+        return {}
+    U, P = set(pc["unknowns"]), set(pc["params"])
+    if any(Q[u].get("discrete") or Q[u].get("sample") for u in U):
+        return {}                         # a lattice answer is not read at corners
+    if any(p not in quantities for p in P):
+        # an interval LITERAL in the claim (`x == [3,4]`, as to_book writes a
+        # bound) says where a value lies — membership, not a measured quantity
+        # that must hold at every reading; it is no parameter of a system
+        return {}
+    ped_rows = {n for n in pc["contributors"] if n in Q and not unknown(Q[n])
+                and Q[n]["prov"] == CREDIT}
+    fixed = {}
+    for chunk in pc["rows"]:
+        fixed[chunk] = ("T", set(ped_rows), set(pc["contributors"]))
+    for kind, e1, e2, chunk in atoms.values():
+        if chunk in fixed:
+            continue
+        keys, seen = {}, set()
+        try:
+            terms, _ = _mlin(("sub", e1, e2), Q, [0], keys, seen)
+        except (_NotLinear, _NoReadings, KeyError):
+            continue
+        names = set(keys.values())
+        if not (names & U) or not names <= (U | P):
+            continue
+        ok = True
+        for mono, coef in terms.items():
+            if coef == 0:
+                continue
+            nm = [keys[k] for k in mono]
+            unk = [x for x in nm if x in U]
+            par = [x for x in nm if x in P]
+            if len(unk) > 1 or (unk and par) or (par and pc["in_A"]):
+                ok = False                # not linear-fractional per parameter: separate reading
+                break
+        if not ok:
+            continue
+        if pc.get("affine") and any(len(m) > 1 for m in terms if terms[m] != 0):
+            continue                      # a product of parameters: not affine — read separately
+        if pc.get("affine"):
+            # the comparison's left side minus right side is AFFINE in the parameters: its exact range decides
+            g0, gc = Fraction(0), {}
+            for mono, coef in terms.items():
+                nm = [keys[k] for k in mono]
+                if not nm:
+                    g0 += coef
+                elif nm[0] in U:
+                    c0u, cu = pc["affine"][nm[0]]
+                    g0 += coef * c0u
+                    for pp, cc in cu.items():
+                        gc[pp] = gc.get(pp, Fraction(0)) + coef * cc
+                else:
+                    gc[nm[0]] = gc.get(nm[0], Fraction(0)) + coef
+            glo, ghi = affine_range(g0, gc, {p: (Q[p]["lo"], Q[p]["hi"]) for p in gc})
+            vals = [glo, ghi]
+        else:
+            vals = []
+        for at, x in ([] if pc.get("affine") else pc["corners"]):
+            env = dict(at)
+            env.update(x)
+            g = Fraction(0)
+            for mono, coef in terms.items():
+                t = coef
+                for k in mono:
+                    t *= env[keys[k]]
+                g += t
+            vals.append(g)
+        if kind == "le":
+            v = "T" if all(g <= 0 for g in vals) else "F" if all(g > 0 for g in vals) else "Z"
+        elif kind == "lt":
+            v = "T" if all(g < 0 for g in vals) else "F" if all(g >= 0 for g in vals) else "Z"
+        else:
+            v = ("T" if all(g == 0 for g in vals) else
+                 "F" if all(g > 0 for g in vals) or all(g < 0 for g in vals) else "Z")
+        ped = set(ped_rows) | {n for n in seen if n in Q and not unknown(Q[n])
+                               and Q[n]["prov"] == CREDIT}
+        fixed[chunk] = (v, ped, set(pc["contributors"]) | set(seen))
+    return fixed
+
+
 def solve_claim(formula, quantities, marks):
     """Narrow first, then judge on the narrowed ledger — and say, for every
     answer the narrowing produced, what it is worth and what would fix it.
@@ -778,6 +1648,7 @@ def solve_claim(formula, quantities, marks):
     paid to look at."""
     qs, log = narrow(quantities, formula)
     sheet = dict(quantities)
+    dependence = _dependence_fixed(formula, quantities)
     for k, v in qs.items():            # with the claim's literal intervals
         sheet.setdefault(k, v)
     empty = [n for n, q in qs.items() if q.get("empty")]
@@ -802,7 +1673,8 @@ def solve_claim(formula, quantities, marks):
             if e1:
                 worlds.append((rq, _no_solution(qs1, [], e1, sheet), qs1))
                 continue
-            worlds.append((rq, judge_sheet_claim(formula, qs1, marks), qs1))
+            worlds.append((rq, judge_sheet_claim(formula, _verdict_ledger(qs1, sheet), marks,
+                                                 fixed=dependence), qs1))
         alive_w = [w3 for w3 in worlds if w3[1]["disposition"] != "REFUTED"]
         alive = [(rq, w) for rq, w, _ in alive_w]
         if not alive:
@@ -834,13 +1706,17 @@ def solve_claim(formula, quantities, marks):
                                         discrete=qs[other]["discrete"],
                                         unit=qs[other]["unit"], sample=False)
                         qs[other]["grounds"] = sorted(g)
-            rank = {"EARNED": 3, "ON CREDIT": 2, "OPEN": 1}
+            # EARNED IF STABLE sits between EARNED and ON CREDIT (2026-10-31; the
+            # judge gained it 2026-10-29). REFUTED IF STABLE is left out on
+            # purpose: a root that is false-if-stable beside a root that is true
+            # is not "weaker" on one scale — it stays with `odd`, as before
+            rank = {"EARNED": 4, "EARNED IF STABLE": 3, "ON CREDIT": 2, "OPEN": 1}
             odd = [w for _, w in alive if w["disposition"] not in rank]
             r = odd[0] if odd else min(
                 (w for _, w in alive), key=lambda w: rank[w["disposition"]])
             kept_roots[name] = [rq for rq, _ in alive]
     if not kept_roots:
-        r = judge_sheet_claim(formula, qs, marks)
+        r = judge_sheet_claim(formula, _verdict_ledger(qs, sheet), marks, fixed=dependence)
     r["narrowed"], r["log"] = qs, log
     solved, cures = {}, list(r["next_check"])
     # a literal of the claim (`_lit`, which the judge's own reading may add

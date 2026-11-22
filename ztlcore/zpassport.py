@@ -18,7 +18,7 @@ per strongly connected component of the dependency graph:
                    stipulation is FORCED, not chosen.
   UNDERDETERMINED  classical models exist (≥ 2): the refusal stands
                    UNTIL STIPULATION — an external choice grounds it.
-  INPUT            a plain unverified input imported into the system:
+  INPUT            a plain dirty input imported into the system:
                    the refusal stands until verification (E12).
   DOWNSTREAM       inherited quarantine: the component itself is fine,
                    but it reads quarantined sentences below; culprits
@@ -38,7 +38,7 @@ a computable instrument over finite systems.
 from itertools import product
 
 from ztl import T, F, Z, VALUES
-from fixedpoint import EAGER, LAZY, jump, ev_reg, least_fp_lazy, fmt_v
+from fixedpoint import EAGER, N, jump, ev_reg, least_fp_stable, fmt_v
 
 
 # ------------------------------------------------------ dependency graph
@@ -131,7 +131,7 @@ def passports(system):
     fixed point, a report per component as `(members, kind, why)`, and the
     kind-with-model-count per name. The docstring said two until 2026-08-19,
     which cost a caller two unpacking errors before anyone read the code."""
-    lfp = least_fp_lazy(system)
+    lfp = least_fp_stable(system)
     comp_kind = {}
     reports = []
     for comp in sccs(system):
@@ -144,8 +144,8 @@ def passports(system):
         for s in comp:
             env_names |= deps(system[s]) - names
         env = {n: lfp[n] for n in env_names}
-        if any(v == Z for v in env.values()):
-            culprits = sorted({n for n in env_names if lfp[n] == Z})
+        if any(v in (Z, N) for v in env.values()):
+            culprits = sorted({n for n in env_names if lfp[n] in (Z, N)})
             permanent = any(comp_kind[c][0] in ("PARADOX",)
                             or (comp_kind[c][0] == "DOWNSTREAM"
                                 and comp_kind[c][1] == "permanent")
@@ -221,7 +221,7 @@ def stipulation_theorem(system):
         if kind in ("UNDERDETERMINED", "INTRINSIC"):
             for m in component_models(comp, system, env):
                 checked_under += 1
-                lfp2 = least_fp_lazy(stipulate(system, m))
+                lfp2 = least_fp_stable(stipulate(system, m))
                 if all(lfp2[s] == m[s] for s in comp) and \
                    all(lfp2[s] == v for s, v in grounded_before.items()):
                     ok_under += 1
@@ -243,7 +243,7 @@ MIXED = {
     "A":  "B", "B": ("not", "A"),             # carousel — paradox, period 4
     "E1": ("not", "E2"), "E2": ("not", "E1"),  # even cycle — 2 models
     "I":  ("xnor", "I", "I"),                 # intrinsic: unique model T
-    "m":  "Z",                                # unverified input
+    "m":  "Z",                                # dirty input
     "g0": "T",                                # grounded
     "g1": ("not", "λ"),                       # downstream of the liar
     "g2": ("or", "E1", ("not", "E1")),        # downstream of a choice

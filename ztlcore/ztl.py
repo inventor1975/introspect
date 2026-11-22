@@ -2,10 +2,13 @@
 """
 ZTL — Zero-Trust Logic.
 
-Truth values: T (truth), F (falsehood) — every compound's verdict is two-valued
-(Z lives only on an atom).
-Input mark: Z (zero-trust: "truth not earned") — the third symbol of the
-calculating tables, not a value (passport: paper/ZTL-draft_1.4.md §10).
+Values: T (truth), F (falsehood), Z (zero-trust: "truth not earned", the mark of
+a dirty input). Z is a dirty parameter: not ours, its owner may change it between
+two reads, so each occurrence is read on its own; verification cleans it —
+replaces it with a checked value. ZTL is a three-valued logic whose every connective is
+two-valued: Z is the value of atoms only — every compound's verdict is T or F
+(passport: publications/ztl/ZTL-draft_2.1.0.md §10; up to 2.0.0 this read "two-valued, Z not
+a value", too strong: a dirty atom is an assertion whose value is Z).
 
 Generating principle (one for all connectives):
     op(...Z...) = AND over all classical substitutions {T,F} for Z,
@@ -40,8 +43,15 @@ CLASSICAL = (T, F)
 
 
 def _subs(x):
-    """Classical readings of a value: Z reads both as T and as F."""
-    return CLASSICAL if x == Z else (x,)
+    """Classical readings of a value: Z reads both as T and as F.
+
+    Only T, F and Z enter ZTL's tables (pure branch, 2026-11-22): the solver's phase N or any other symbol is
+    refused here, loudly, instead of being read as a value."""
+    if x == Z:
+        return CLASSICAL
+    if x not in CLASSICAL:
+        raise ValueError(f"not a ZTL value: {x!r} (only T, F, Z enter the tables)")
+    return (x,)
 
 
 def lift1(f):
