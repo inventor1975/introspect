@@ -63,3 +63,47 @@ conclusion" for `lean_workbook_53067` would not close.
 - **The exact reading is ours.** An auto-bound variable meant as a product (`abc`), an intended floor, or `n = 0`
   excluded only in words can make a "false" statement the author's correct one. The class says which reading
   refuted it; the informal text decides what was meant.
+
+## Sequences, 2026-11-25 (the curator's "да": computed from their hypotheses, refuted at a point, never EARNED)
+
+A variable `u : ℕ → K` is now read as a **sequence** (`../../zflseq.py`). The hypotheses force its values: a fact,
+or a rule instance with one unknown value, linear in it, solved exactly forward or backward. A value outside the
+codomain, or a checked instance that is false, means **no sequence satisfies the hypotheses**.
+- **Rescanned:** the 100 E/OPEN statements and the 24 control statements whose only blocker was `ℕ → …`
+  (`ids_seq.txt`, `seq_rows.jsonl.gz`, dumper frozen).
+
+| class | E/OPEN (100) | control EARNED (24) |
+|---|---|---|
+| vacuous: no sequence satisfies the hypotheses | **17** | 0 |
+| refuted at a point, existence conditional | 6 | 1 |
+| checked at points, not refuted | 15 | 5 |
+| translated, no value forced | 47 | 9 |
+| untranslated (∃, `Nat.Prime`, two-index rules, …) | 15 | 9 |
+
+**The 17 vacuous statements**, each read by hand, fall into two kinds.
+- **Contradictory in BOTH readings: 11.** Goedel-Prover's proof derives the conclusion from contradictory
+  hypotheses.
+  - Example: `lean_workbook_11466` gives `u : ℕ → ℕ`, `u 1 = 2` and `u (n+1) = 3 u n + 4` for every n. At n = 0
+    the exact reading gives u 0 = −2/3, not in ℕ; in Lean, `u 1 = 3 u 0 + 4 ≥ 4`.
+  - The same: `28753`, `plus_32061`, `plus_64920`, `plus_55264` (u 0 = −1/5), `plus_28363` (−5/2), `plus_58839`
+    (99/2), `56529` (1/2), `plus_79707` (b 0 = −1), and `20690` (in Lean `(0 − 1)/1 · f 0 = 0 ≠ 2000`).
+  - `plus_64022` (a 1 = a 0, yet 1 ≠ 2) is the same in both readings.
+- **Contradictory in the EXACT reading only: 5.** Lean's floor or truncation makes them consistent.
+  - `14608` and `plus_41806`: b 2 = 1/7 exactly, 0 in Lean.
+  - `48498`: c 2 = 1/2.
+  - `30373` and `plus_10087`: f 2 = 1 − 2 = −1 exactly, 0 in Lean.
+  - These are the ℕ-convention class: the informal text decides what was meant.
+- **`plus_47435`: not classified by hand.** A rule guarded by `m ≠ 2^n − 1` over a free n.
+
+**The 7 conditional refutations** (`19623`, `64941`, `25727`, `plus_11170`, `plus_41341`, `5663`, `plus_66017`)
+share one shape:
+- the rule's instance at n = 0 has **no value** in the mathematics: the index `n − 1` at 0, or `k / k` at 0;
+- the next instances force values that contradict the conclusion;
+- in Lean the n = 0 instance is read through a convention (`0 − 1 = 0`, `x / 0 = 0`), and it contradicts the other
+  hypotheses, so the proof is vacuous.
+
+Example: `lean_workbook_5663` is in the control (Lean proved it). It gives `a 1 = 5`, yet the conclusion says
+`a 1 = (2 + 4)/3 = 2`. Lean proves it only because `a 1 = 6 a 0 − 4 a (0 − 1) = 2` at n = 0.
+
+"Conditional" means: false, or vacuously true; the reader does not decide which. By the curator's word, nothing here is
+EARNED: a prefix of a sequence proves nothing about every n.

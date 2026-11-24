@@ -140,4 +140,29 @@ theorem t_geo_poly (n : ℕ) : ∑ i ∈ Finset.Icc 1 n, (i : ℝ) / 2 ^ i ≤ 1
 -- ZTL EARNED: a product over a concrete interval: 5! = 120
 theorem t_prod5 : ∏ i ∈ Finset.Icc 1 5, i = 120 := by decide
 
+-- SEQUENCES (2026-11-25): computed from the hypotheses that define them, refuted at a point, never EARNED
+-- SEQREFUTED: u 1 = 2 but 3·3^0 − 2 = 1 — a forward recurrence, so a sequence exists and the refutation is real
+theorem t_seq_wrong (u : ℕ → ℝ) (h1 : u 1 = 2) (h : ∀ n, u (n + 1) = 3 * u n + 4) (n : ℕ) (hn : 1 ≤ n) :
+    u n = 3 * 3 ^ (n - 1) - 2 := by sorry
+
+-- WITNESS none: the right closed form — no point refutes it (u 0 is forced backward: 3 u 0 + 4 = 2)
+theorem t_seq_right (u : ℕ → ℝ) (h1 : u 1 = 2) (h : ∀ n, u (n + 1) = 3 * u n + 4) (n : ℕ) (hn : 1 ≤ n) :
+    u n = 4 * 3 ^ (n - 1) - 2 := by sorry
+
+-- SEQREFUTED: Fibonacci from 1, 1 gives x 5 = 8 (the guard n ≥ 2 keeps the indices in ℕ)
+theorem t_fib (x : ℕ → ℝ) (h0 : x 0 = 1) (h1 : x 1 = 1) (h : ∀ n ≥ 2, x n = x (n - 1) + x (n - 2)) : x 5 = 9 := by
+  sorry
+
+-- SEQVACUOUS: a 0 = 3 and a 1 = 2 contradict a (n+1) = 2 a n — no sequence satisfies the hypotheses
+theorem t_seq_vac (a : ℕ → ℕ) (h0 : a 0 = 3) (h1 : a 1 = 2) (h : ∀ n, a (n + 1) = 2 * a n) : a 5 = 1 := by sorry
+
+-- SEQREFUTED: a concrete far index, computed: a 2023 = 2024
+theorem t_seq_far (a : ℕ → ℝ) (h0 : a 0 = 1) (h : ∀ n, a (n + 1) = a n + 1) : a 2023 = 2023 := by sorry
+
+-- WITNESS none: ∃ over a sequence's value — a point at one k is no refutation of ∃ k (the first version said it was)
+theorem t_seq_exists (v : ℕ → ℤ) (h0 : v 0 = 1) (h : ∀ n, v (n + 1) = 3 * v n) : ∃ k, v 10 = k := by sorry
+
+-- UNTR: a function ℝ → ℝ is not a sequence — the curator's word: untranslated, said so
+theorem t_fun (f : ℝ → ℝ) (h : ∀ x, f x = 2 * x) : f 1 = 2 := by sorry
+
 end ZFLReadFix

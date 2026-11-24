@@ -320,6 +320,11 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
   | .lit (.natVal n) => return toString n
   | _ => pure ()
   let args := e.getAppArgs
+  -- A SEQUENCE AT AN INDEX (2026-11-25, the curator's "да"): u t for a variable u : ℕ → K is app(q_u, t); zflread
+  -- computes u from the hypotheses that define it (a value, a recurrence), refutes at a point, never EARNs
+  if let .fvar id := e.getAppFn then
+    if let some s := names.get? id then
+      if s.startsWith "q_" && args.size == 1 then return s!"app({s}, {← zTerm names args[0]!})"
   let bin (op : String) (a b : Lean.Expr) : MetaM String := do
     return s!"({← zTerm names a} {op} {← zTerm names b})"
   let fn1 (f : String) : MetaM String := do
@@ -518,6 +523,34 @@ def zTry (k : MetaM String) : MetaM Json := do
     let m ← ex.toMessageData.toString
     return Json.mkObj [("untr", Json.str ((m.dropPrefix "untr: ").toString))]
 
+/-- `ℕ → K` with K a number type: a SEQUENCE (its codomain's kind), or none -/
+def seqKind (t : Lean.Expr) : MetaM (Option String) := do
+  let t ← whnfR t
+  if let .forallE _ d c _ := t then
+    if c.hasLooseBVars then return none
+    if (← numKind d) != "nat" then return none
+    let k ← numKind c
+    return if k == "" then none else some k
+  return none
+
+/-- a hypothesis ∀ n₁ … nₖ : ℕ/ℤ, body — a RULE over a sequence (a recurrence, a bound for every index): the body is
+translated with the bound names r_…, listed under "rule". zflread instantiates it at indices; it is never a box
+variable and never read as a claim about one point. -/
+partial def ruleOf (names : ZNames) (ex : ZExtra) (t : Lean.Expr) (bound : Array String) : MetaM Json := do
+  let t := t.consumeMData
+  if let .forallE nm d b bi := t then
+    if !(← isProp d) then
+      let k ← numKind d
+      if k == "nat" || k == "int" then
+        return ← withLocalDecl nm bi d fun x => do
+          let (vs, taken) ← ex.get
+          let zn := "r_" ++ ((zflName nm.toString taken).drop 2).toString
+          ex.set (vs, zn :: taken)
+          ruleOf (names.insert x.fvarId! zn) ex (b.instantiate1 x) (bound.push (zn ++ ":" ++ k))
+  let j ← zTry (zProp names (-1) ex t)
+  if bound.isEmpty then return j
+  return j.setObjVal! "rule" (Json.arr (bound.map Json.str))
+
 /-- the binders of the statement: the number variables (named for ZFL), the hypotheses, the conclusion -/
 def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
   let mut names : ZNames := {}
@@ -533,7 +566,14 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
       let kind ← numKind t
       let decl ← x.fvarId!.getDecl
       if kind == "" then
-        bad := bad <|> some s!"a variable of type {← ppExpr t}"
+        match ← seqKind t with
+        | some cod =>
+          let nm := "q_" ++ ((zflName decl.userName.toString taken).drop 2).toString
+          taken := nm :: taken
+          names := names.insert x.fvarId! nm
+          vars := vars.push (Json.mkObj [("name", Json.str nm), ("lean", Json.str decl.userName.toString),
+                                         ("type", Json.str ("seq:" ++ cod))])
+        | none => bad := bad <|> some s!"a variable of type {← ppExpr t}"
       else
         let nm := zflName decl.userName.toString taken
         taken := nm :: taken
@@ -543,8 +583,9 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
   -- a hypothesis is ASSUMED: a negative place (its ∀ is not the box's); the conclusion is the positive one
   let ex : ZExtra ← IO.mkRef (#[], taken)
   let mut hyps := #[]
+  let hasSeq := vars.any fun v => (v.getObjValAs? String "type").toOption.getD "" |>.startsWith "seq:"
   for t in hypTs do
-    hyps := hyps.push (← zTry (zProp names (-1) ex t))
+    hyps := hyps.push (← if hasSeq then ruleOf names ex t #[] else zTry (zProp names (-1) ex t))
   let c ← withExists names ex concl fun nm body => zTry (zProp nm 1 ex body)
   let (inner, _) ← ex.get
   return Json.mkObj ([("vars", Json.arr (vars ++ inner)), ("hyps", Json.arr hyps), ("concl", c)] ++

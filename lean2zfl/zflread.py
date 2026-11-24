@@ -656,8 +656,17 @@ def _exact_of(text):
         from znum import _ev_exact
         v = _ev_exact(_parse_arith(text, {}), {})
     except Exception:
-        return None
-    return v if isinstance(v, _Fr) else None
+        v = None
+    if not isinstance(v, _Fr):                           # min / max / idiv …: the floor's interval, when pinned
+        try:
+            from znumjudge import _parse_arith
+            iv = znum._ev(_parse_arith(text, {}), {})[0]
+        except Exception:
+            return None
+        if iv is None or iv[0] != iv[1] or isinstance(iv[0], float):
+            return None
+        v = _Fr(iv[0])
+    return v
 
 
 def _ptext(p, x):
@@ -804,6 +813,26 @@ def read(t):
     conventions, also LEAN'S reading of them (`ztl_conv`), and the mark `rests_on_nat_convention` when the mathematics
     is refuted (or refuted at a point) and Lean's convention holds there"""
     raw = _core_arrows(t.get("zfl") or {})
+    if raw and not raw.get("untr_vars") and any(v["type"].startswith("seq:") for v in raw.get("vars", [])):
+        # SEQUENCES (2026-11-25, the curator's "да"): computed from the hypotheses that define them, refuted at a
+        # point, never EARNED (zflseq). Lean's ℕ conventions read as the second reading, at the same point.
+        import zflseq
+        out = zflseq.read_seq(raw, False)
+        w = out.get("witness") or {}
+        if _marked(raw):
+            if "refuted_at" in w:
+                lr = zflseq.read_seq(raw, True, only=w["refuted_at"])
+                lw = lr.get("witness") or {}
+                # only a CHECKED point counts: a Lean reading that could not compute the values says nothing
+                w["conv_at_point"] = ("REFUTED" if "refuted_at" in lw else "HOLDS"
+                                      if lr.get("sequence", {}).get("points_checked") else "UNREAD")
+                if w["conv_at_point"] == "HOLDS":
+                    out["rests_on_nat_convention"] = True
+            else:
+                lw = zflseq.read_seq(raw, True).get("witness") or {}
+                if "refuted_at" in lw:
+                    out["lean_refuted_at"] = lw["refuted_at"]
+        return out
     if raw and not raw.get("untr_vars") and "zfl" in raw.get("concl", {}) and \
             any(w in p.get("zfl", "") for p in [raw["concl"]] + list(raw.get("hyps", [])) for w in ("series(", "zeta(")):
         # a series or zeta: no single "mathematical" reading exists — the method is the claim's dirty parameter
