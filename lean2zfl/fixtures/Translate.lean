@@ -162,8 +162,22 @@ theorem t_seq_far (a : ℕ → ℝ) (h0 : a 0 = 1) (h : ∀ n, a (n + 1) = a n +
 -- WITNESS none: ∃ over a sequence's value — a point at one k is no refutation of ∃ k (the first version said it was)
 theorem t_seq_exists (v : ℕ → ℤ) (h0 : v 0 = 1) (h : ∀ n, v (n + 1) = 3 * v n) : ∃ k, v 10 = k := by sorry
 
--- UNTR: a function ℝ → ℝ is not a sequence — the curator's word: untranslated, said so
+-- FUNCTIONS AT POINTS (2026-11-25, the curator's "да": values forced at points, refuted at a point, never EARNED)
+-- WITNESS none: f x = 2x forces f 1 = 2 — true, nothing refutes it, and it is not EARNED either
 theorem t_fun (f : ℝ → ℝ) (h : ∀ x, f x = 2 * x) : f 1 = 2 := by sorry
+
+-- WITNESS refuted: Cauchy's equation from f 1 = 2 forces f 8 = 16 (via f 2, f 4); 15 is refuted — conditionally:
+-- no recursion builds a function, so "false, or no f satisfies the hypotheses"
+theorem t_fun_cauchy (f : ℝ → ℝ) (h1 : f 1 = 2) (h : ∀ x y, f (x + y) = f x + f y) : f 8 = 15 := by sorry
+
+-- VACUOUS: f 0 = 1 and f (x + y) = f x + f y contradict at x = y = 0
+theorem t_fun_vac (f : ℝ → ℝ) (h0 : f 0 = 1) (h : ∀ x y, f (x + y) = f x + f y) : f 1 = 1 := by sorry
+
+-- WITNESS refuted: 2 f x + f (1 − x) = x² at x = 2 and x = −1 is a linear system: f 2 = 7/3, not 1
+theorem t_fun_system (f : ℝ → ℝ) (h : ∀ x, 2 * f x + f (1 - x) = x ^ 2) : f 2 = 1 := by sorry
+
+-- WITNESS none: … and 7/3 is what it forces
+theorem t_fun_system_ok (f : ℝ → ℝ) (h : ∀ x, 2 * f x + f (1 - x) = x ^ 2) : f 2 = 7 / 3 := by sorry
 
 -- ∃ UNDER A CONNECTIVE (2026-11-25): lifted by ZTL's own first-order calculus (zfo)
 -- WITNESS refuted: an ∃ in a hypothesis joins the box as a universal; at a = 1, x = 1/2 the hypothesis holds, a < 1 not

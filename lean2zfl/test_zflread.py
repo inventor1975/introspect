@@ -54,7 +54,7 @@ for t in lean2zfl.dump_file(SRC):
         ok = any(d[2].startswith("hyp") and d[1] in ("OPEN", "NOWHERE") for d in r.get("domain", []) if len(d) > 2) \
             and "refuted_at" not in w
     elif exp == "VACUOUS":                           # hypotheses refuted: no admissible point, no refutation
-        ok = r.get("vacuous") is True and "refuted_at" not in w
+        ok = r.get("vacuous") is True and "refuted_at" not in w and r.get("ztl") != "EARNED"
     elif exp == "NATCONV":                           # the mathematics refuted, Lean's ℕ convention holds (variant В)
         ok = r.get("rests_on_nat_convention") is True
     elif exp.startswith("ZTL "):

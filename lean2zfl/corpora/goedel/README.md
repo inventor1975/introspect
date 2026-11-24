@@ -134,3 +134,22 @@ refuted, and all but one stay OPEN. They are algebraic identities under hypothes
 …; partial fractions; the triangle inequality. Proving them needs elimination (algebra), not reading.
 
 The box now folds a side that has no name (`re == 3 + 4·0 − 0·1`), and it splits a comparison whose sides have spaces.
+
+## Functions at points, 2026-11-25 (the curator's "да"; measured)
+
+`f : D → K` with D ≠ ℕ (ℝ, ℤ, ℚ) is read like a sequence.
+- **Instantiation.** A rule `∀ x y, …` is instantiated at a fixed set of rationals, plus the arguments the
+  statement names.
+- **Forced values.** An instance with one unknown value forces it. When that is stuck, the instances that are
+  linear in their unknowns are eliminated as a system, exactly (Gauss–Jordan over ℚ), so
+  `2 f x + f (1 − x) = x²` forces f 2 = 7/3.
+- **Verdicts.** No recursion builds a function, so every refutation is `conditional`: false, or no f satisfies the
+  hypotheses. A contradiction found among the instances is exact: no function satisfies them.
+
+Rescanned: 80 statements (51 E/OPEN, 29 control) whose blocker was a variable `ℝ/ℤ/ℚ → ℝ/ℤ/ℚ`.
+- **0 refuted.**
+- **2 vacuous.** `lean_workbook_17594` and `plus_7201` take the hypothesis `∀ x, x ≠ 1 ∧ x ≠ -1`, which is false at
+  x = 1, in Lean as well. The intended reading was presumably x ∉ {1, −1}.
+- 11 checked at points without a refutation.
+- 46 translated with no value forced.
+- 21 untranslated (`ite`, λ, ∃ over a non-number, `sinh`).

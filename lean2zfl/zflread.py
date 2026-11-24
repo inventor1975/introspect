@@ -857,7 +857,7 @@ def read(t):
     conventions, also LEAN'S reading of them (`ztl_conv`), and the mark `rests_on_nat_convention` when the mathematics
     is refuted (or refuted at a point) and Lean's convention holds there"""
     raw = _core_arrows(t.get("zfl") or {})
-    if raw and not raw.get("untr_vars") and any(v["type"].startswith("seq:") for v in raw.get("vars", [])):
+    if raw and not raw.get("untr_vars") and any(v["type"].startswith(("seq:", "fun:")) for v in raw.get("vars", [])):
         # SEQUENCES (2026-11-25, the curator's "да"): computed from the hypotheses that define them, refuted at a
         # point, never EARNED (zflseq). Lean's ℕ conventions read as the second reading, at the same point.
         import zflseq

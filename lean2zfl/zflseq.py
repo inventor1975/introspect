@@ -93,16 +93,40 @@ def _apps(text, vals, idx_of):
         if i in vals.get(q, {}):
             out.append(f"({zr._print(vals[q][i])})")
         else:
-            out.append(f"X__{q}__{i if i >= 0 else 'm' + str(-i)}")
+            out.append(_xname(q, i))
             unknown.append((q, i))
         last = k
     out.append(text[last:])
     return "".join(out), unknown
 
 
+def _xname(q, i):
+    i = Fraction(i)
+    t = f"{abs(i.numerator)}" + (f"_{i.denominator}" if i.denominator != 1 else "")
+    return f"X__{q}__{'m' if i < 0 else ''}{t}"
+
+
 def _idx(text):
+    """an argument's exact rational value (an integer for a sequence), or None"""
     v = _zr()._exact_of(text)
-    return int(v) if v is not None and v.denominator == 1 else None
+    if v is None:
+        return None
+    return int(v) if v.denominator == 1 else v
+
+
+def _arg_ok(i, dom):
+    """an argument inside the variable's domain and inside the caps"""
+    i = Fraction(i)
+    if dom == "nat":
+        return i.denominator == 1 and 0 <= i <= INDEX_CAP
+    if dom == "int":
+        return i.denominator == 1 and abs(i) <= INDEX_CAP
+    return abs(i.numerator) <= 10 ** 6 and i.denominator <= 10 ** 6
+
+
+_REALS = sorted({Fraction(n) for n in range(-6, 7)} | {Fraction(p, 2) for p in (-3, -1, 1, 3)} |
+                {Fraction(p, 3) for p in (-1, 1)})
+_REALS_SMALL = [Fraction(n) for n in range(-2, 3)]
 
 
 def _truth(text):
@@ -137,17 +161,33 @@ def _in_codomain(v, cod):
     return True
 
 
-def solve(seqs, facts, rules, need=0):
+def solve(seqs, facts, rules, need=0, seen=()):
     """forced values {q: {i: Fraction}} from facts (texts) and rules [(bound names, text)], or 'vacuous', plus the
-    count of instances left unchecked"""
+    instances left unchecked. seqs: {q: (domain, codomain)}. A rule is instantiated at ℕ indices 0 … top (one binder),
+    at integers, and at a fixed set of rationals plus the arguments `seen` (a function at points); several binders
+    over a smaller set; more than three binders: not read."""
+    import itertools
     top = min(INDEX_CAP, max(PREFIX, need + 2))
+    extra = sorted({Fraction(x) for x in seen})
     insts = list(facts)
     for bound, text in rules:
-        if len(bound) != 1:
-            return None, None                            # a rule over two indices: not read in this version
-        name, kind = bound[0].split(":")
-        rng = range(0, top + 1) if kind == "nat" else range(-top, top + 1)
-        insts += [_subst(text, {name: Fraction(n)}) for n in rng]
+        k = len(bound)
+        if k > 3:
+            return None, None
+        pools = []
+        for b_ in bound:
+            name, kind = b_.split(":")
+            if kind == "nat":
+                pools.append([Fraction(n) for n in range(0, (top if k == 1 else 12) + 1)])
+            elif kind == "int":
+                m = min(top, 30) if k == 1 else 6
+                pools.append([Fraction(n) for n in range(-m, m + 1)])
+            else:
+                base = _REALS if k <= 2 else _REALS_SMALL
+                pools.append(sorted(set(base) | set(extra)))
+        names = [b_.split(":")[0] for b_ in bound]
+        for combo in itertools.product(*pools):
+            insts.append(_subst(text, dict(zip(names, combo))))
     vals = {q: {} for q in seqs}
     pending = []
     for inst in insts:                                   # split guards and conjunctions once
@@ -178,8 +218,8 @@ def solve(seqs, facts, rules, need=0):
                 left.append(t)
                 continue
             text, unknown = r
-            if any(i < 0 or i > INDEX_CAP for _, i in unknown):
-                left.append(t)                           # a value outside ℕ (exact reading of n − 1 at 0): unread
+            if any(not _arg_ok(i, seqs[q][0]) for q, i in unknown):
+                left.append(t)                           # an argument outside the domain (n − 1 at 0 in ℕ): unread
                 continue
             if not unknown:
                 v = _truth(text)
@@ -192,16 +232,101 @@ def solve(seqs, facts, rules, need=0):
                 eq = _top_split(text, "==")
                 if len(eq) == 2:
                     q, i = unknown[0]
-                    x = _solve_one(eq[0], eq[1], f"X__{q}__{i}")
+                    x = _solve_one(eq[0], eq[1], _xname(q, i))
                     if x is not None:
-                        if not _in_codomain(x, seqs[q]):
-                            return "vacuous", f"{q}({i}) = {x} is not in its codomain {seqs[q]}"
+                        if not _in_codomain(x, seqs[q][1]):
+                            return "vacuous", f"{q}({i}) = {x} is not in its codomain {seqs[q][1]}"
                         vals[q][i] = x
                         progress = True
                         continue
             left.append(t)
         pending = left
+        if not progress:                                 # one at a time is stuck: solve the LINEAR SYSTEM exactly
+            r = _system(pending, vals, seqs)
+            if r == "vacuous":
+                return "vacuous", "the linear system of the instances is inconsistent"
+            if r:
+                progress = True
     return vals, pending
+
+
+SYSTEM_ROWS = 600
+
+
+def _system(pending, vals, seqs):
+    """the pending equations linear in their unknown values, eliminated exactly (Gauss–Jordan over ℚ): every unknown
+    the system DETERMINES is assigned (True), an inconsistent system is 'vacuous', otherwise False. An unknown
+    determined only up to a free one is left unknown — never guessed."""
+    import znum
+    from znumjudge import _parse_arith
+    rows, cols = [], {}
+    for t in pending:
+        r = _apps(t, vals, _idx)
+        if r is None:
+            continue
+        text, unknown = r
+        if not unknown or any(not _arg_ok(i, seqs[q][0]) for q, i in unknown):
+            continue
+        eq = _top_split(text, "==")
+        if len(eq) != 2:
+            continue
+        xs = {_xname(q, i): (q, i) for q, i in unknown}
+        try:
+            tree = _parse_arith(f"({eq[0]}) - ({eq[1]})", {x: {} for x in xs})
+            p = znum._mpoly(tree, {x: {"lo": float("-inf"), "hi": float("inf")} for x in xs})
+        except Exception:
+            continue
+        if any(len(m) > 1 or (m and m[0][1] != 1) for m in p):
+            continue                                     # not linear in the unknowns
+        row = {m[0][0]: c for m, c in p.items() if m}
+        if not row:
+            continue
+        for x in row:
+            cols.setdefault(x, xs[x])
+        rows.append((row, -p.get((), Fraction(0))))
+        if len(rows) >= SYSTEM_ROWS:
+            break
+    if not rows:
+        return False
+    # Gauss–Jordan on sparse rows
+    piv = {}                                             # column -> (row, rhs) with that column's coefficient 1
+    for row, rhs in rows:
+        row = dict(row)
+        for c, (pr, prhs) in piv.items():
+            if c in row:
+                k = row.pop(c)
+                for c2, v2 in pr.items():
+                    if c2 != c:
+                        nv = row.get(c2, 0) - k * v2
+                        if nv:
+                            row[c2] = nv
+                        else:
+                            row.pop(c2, None)
+                rhs = rhs - k * prhs
+        if not row:
+            if rhs != 0:
+                return "vacuous"
+            continue
+        c = next(iter(row))
+        k = row[c]
+        row = {c2: v / k for c2, v in row.items()}
+        rhs = rhs / k
+        for c0, (pr, prhs) in list(piv.items()):         # eliminate c from the earlier pivots
+            if c in pr:
+                kk = pr[c]
+                npr = {c2: pr.get(c2, 0) - kk * row.get(c2, 0) for c2 in set(pr) | set(row)}
+                piv[c0] = ({c2: v for c2, v in npr.items() if v}, prhs - kk * rhs)
+        piv[c] = (row, rhs)
+    done = False
+    for c, (pr, prhs) in piv.items():
+        if set(pr) == {c}:                               # the row names this unknown alone: DETERMINED
+            q, i = cols[c]
+            if not _in_codomain(prhs, seqs[q][1]):
+                return "vacuous"
+            if i not in vals[q]:
+                vals[q][i] = prhs
+                done = True
+    return done
 
 
 _POLY_OPS = re.compile(r"/|ndiv|idiv|sqrt|ln\(|log10|exp\(|sin\(|cos\(|tan\(|min\(|max\(|ifpos|mod\(|fact\(|choose")
@@ -209,6 +334,8 @@ _POLY_OPS = re.compile(r"/|ndiv|idiv|sqrt|ln\(|log10|exp\(|sin\(|cos\(|tan\(|min
 
 def existence_by_recursion(seqs, rules):
     """True when every rule is a forward recurrence for its own sequence (see the module note)"""
+    if any(d != "nat" for d, _ in seqs.values()):
+        return False                                     # a function at points: no recursion builds it
     owner = {}
     for bound, text in rules:
         if len(bound) != 1:
@@ -232,7 +359,7 @@ def existence_by_recursion(seqs, rules):
         bare = re.sub(r"app\([^()]*(\([^()]*\))*[^()]*\)", "A", rhs)        # the indices' own − do not count
         if _POLY_OPS.search(bare) or re.search(r"\bnsub\(|\bpow\(\s*[^,]*,\s*[^)]*-", bare):
             return False
-        if seqs[q] == "nat" and "-" in bare:
+        if seqs[q][1] == "nat" and "-" in bare:
             return False
         g = re.search(r"(>=|>)\s*\(?(\d+)", imp[0]) if len(imp) == 2 else None
         lowest = (int(g.group(2)) + (g.group(1) == ">")) if g else 0          # the smallest r the rule applies at
@@ -253,8 +380,14 @@ def read_seq(raw, conv=False, only=None):
     import itertools
     import random
     z = zr._reading(raw, conv)
-    seqs = {v["name"]: v["type"].split(":", 1)[1] for v in z.get("vars", []) if v["type"].startswith("seq:")}
-    scal = {"vars": [v for v in z.get("vars", []) if not v["type"].startswith("seq:")], "hyps": []}
+    seqs = {}
+    for v in z.get("vars", []):
+        if v["type"].startswith("seq:"):
+            seqs[v["name"]] = ("nat", v["type"].split(":", 1)[1])
+        elif v["type"].startswith("fun:"):
+            _, d, cod = v["type"].split(":")
+            seqs[v["name"]] = (d, cod)
+    scal = {"vars": [v for v in z.get("vars", []) if v["name"] not in seqs], "hyps": []}
     c = z.get("concl", {})
     if "zfl" not in c:
         return {"translated": False, "untr": c.get("untr", "?")}
@@ -291,7 +424,7 @@ def read_seq(raw, conv=False, only=None):
     texts = [c["zfl"]] + point_hyps
     concrete = [_idx(t) for tx in texts + facts for _, _, inner in zr._calls(tx, "app")
                 for t in [inner.partition(",")[2]]]
-    need = max([i for i in concrete if i is not None] + [0])
+    need = max([int(i) for i in concrete if i is not None and Fraction(i).denominator == 1 and i >= 0] + [0])
     rnd = random.Random(20261125)
     size = 1
     for p in pools:
@@ -309,7 +442,13 @@ def read_seq(raw, conv=False, only=None):
         key = (tuple(t for _, t in rs), tuple(fs))
         if key not in cache:
             need_pt = max([need] + [int(x) for x in pt if x.denominator == 1 and 0 <= x <= INDEX_CAP])
-            cache[key] = solve(seqs, fs, rs, need_pt + 2)
+            seen = set()
+            for tx in [_subst(t, at) for t in texts] + fs:
+                for _, _, inner in zr._calls(tx, "app"):
+                    a = _idx(inner.partition(",")[2].strip())
+                    if a is not None and abs(Fraction(a)) <= 64:
+                        seen.add(Fraction(a))
+            cache[key] = solve(seqs, fs, rs, need_pt + 2, seen)
         vals, left = cache[key]
         if vals is None:
             return {"translated": False, "untr": "a rule over more than one index"}
@@ -335,7 +474,7 @@ def read_seq(raw, conv=False, only=None):
                 q, _, t = inner.partition(",")
                 i = _idx(t.strip())
                 if i is not None and i in vals.get(q.strip(), {}):
-                    used.setdefault(q.strip(), {})[i] = zr._end(vals[q.strip()][i])
+                    used.setdefault(q.strip(), {})[str(i)] = zr._end(vals[q.strip()][i])
             found = {"refuted_at": {n: zr._end(x) for n, x in at.items()}, "values": used,
                      "existence": "recursion" if rec and not left else "conditional"}
             break

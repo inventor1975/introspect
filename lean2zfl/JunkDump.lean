@@ -660,14 +660,16 @@ def zTry (k : MetaM String) : MetaM Json := do
     let m ← ex.toMessageData.toString
     return Json.mkObj [("untr", Json.str ((m.dropPrefix "untr: ").toString))]
 
-/-- `ℕ → K` with K a number type: a SEQUENCE (its codomain's kind), or none -/
+/-- `D → K` with D, K number types: a SEQUENCE when D = ℕ ("seq:K"), a FUNCTION AT POINTS otherwise ("fun:D:K",
+2026-11-25, the curator's "да": its values forced at points, refuted at a point, never EARNED), or none -/
 def seqKind (t : Lean.Expr) : MetaM (Option String) := do
   let t ← whnfR t
   if let .forallE _ d c _ := t then
     if c.hasLooseBVars then return none
-    if (← numKind d) != "nat" then return none
+    let dk ← numKind d
     let k ← numKind c
-    return if k == "" then none else some k
+    if dk == "" || k == "" then return none
+    return some (if dk == "nat" then "seq:" ++ k else "fun:" ++ dk ++ ":" ++ k)
   return none
 
 /-- a hypothesis ∀ n₁ … nₖ : ℕ/ℤ, body — a RULE over a sequence (a recurrence, a bound for every index): the body is
@@ -678,7 +680,7 @@ partial def ruleOf (names : ZNames) (ex : ZExtra) (t : Lean.Expr) (bound : Array
   if let .forallE nm d b bi := t then
     if !(← isProp d) then
       let k ← numKind d
-      if k == "nat" || k == "int" then
+      if k == "nat" || k == "int" || k == "real" || k == "rat" then
         return ← withLocalDecl nm bi d fun x => do
           let (vs, taken) ← ex.get
           let zn := "r_" ++ ((zflName nm.toString taken).drop 2).toString
@@ -712,12 +714,12 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
                                ("type", Json.str "real")])
       else if kind == "" then
         match ← seqKind t with
-        | some cod =>
+        | some ty =>
           let nm := "q_" ++ ((zflName decl.userName.toString taken).drop 2).toString
           taken := nm :: taken
           names := names.insert x.fvarId! nm
           vars := vars.push (Json.mkObj [("name", Json.str nm), ("lean", Json.str decl.userName.toString),
-                                         ("type", Json.str ("seq:" ++ cod))])
+                                         ("type", Json.str ty)])
         | none => bad := bad <|> some s!"a variable of type {← ppExpr t}"
       else
         let nm := zflName decl.userName.toString taken
@@ -728,7 +730,9 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
   -- a hypothesis is ASSUMED: a negative place (its ∀ is not the box's); the conclusion is the positive one
   let ex : ZExtra ← IO.mkRef (#[], taken)
   let mut hyps := #[]
-  let hasSeq := vars.any fun v => (v.getObjValAs? String "type").toOption.getD "" |>.startsWith "seq:"
+  let hasSeq := vars.any fun v =>
+    let ty := (v.getObjValAs? String "type").toOption.getD ""
+    ty.startsWith "seq:" || ty.startsWith "fun:"
   for t in hypTs do
     hyps := hyps.push (← if hasSeq then ruleOf names ex t #[] else zTry (zProp names (-1) ex t))
   let c ← withExists names ex concl fun nm body => zTry (zProp nm 1 ex body)
