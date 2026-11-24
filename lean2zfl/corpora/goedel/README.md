@@ -9,7 +9,8 @@ of their statements. These files are the evidence for the counts below. The data
   The informal statement is taken from the comment inside each proof.
 - Problems: Hugging Face `internlm/Lean-Workbook` (Lean Workbook and Lean Workbook Plus), Apache-2.0.
 - Elaborated with Lean 4 v4.29.1 and Mathlib v4.29.1, in a Lake project of our own (`LEAN2ZFL_PROJECT`).
-- The tools: this repository at the commits of the run (`lean2zfl` 9947124 / c86913e), and inventor1975/ZTL 365cfde.
+- The tools: this repository at the run's commits (the ZTL readings are "v3": an admissible point required, a
+  leading ∃ read as a witness), and inventor1975/ZTL 365cfde.
 
 ## Files
 
@@ -19,7 +20,8 @@ of their statements. These files are the evidence for the counts below. The data
 | `full_rows.jsonl.gz` | All 29,750 rows: lean2zfl's disposition per theorem and why. |
 | `ids_e_open.txt`, `ztl_e_open_rows.jsonl.gz` | The 2,451 E / OPEN / IF STABLE theorems, with ZTL's reading (`ztl`). |
 | `ids_control_earned.txt`, `ztl_control_rows.jsonl.gz` | The control: 1,000 EARNED theorems, randomly drawn (seed 20261124), with ZTL's reading. |
-| `findings.jsonl` | The classified readings below, one per line: statement, ZFL claim, box, witness, informal text. |
+| `findings.jsonl` | The classified readings below, one per line: statement, ZFL claim, hypotheses, box, witness, informal text. |
+| `false_math_rows.jsonl.gz`, `Certificates.lean`, `certificates.jsonl` | The refutations re-read and turned into Lean theorems over ℝ ("hypotheses at the point ∧ ¬ conclusion"), closed by tactics with no `sorry` (`../../certify.py`). |
 
 ## The counts
 
@@ -33,14 +35,24 @@ of their statements. These files are the evidence for the counts below. The data
 
 | class | count | meaning |
 |---|---|---|
-| `false_math_both_readings` | 9 | A point satisfies every translated hypothesis and refutes the conclusion, both in the exact reading and in Lean's ℕ convention. |
-| `false_math_nat_convention` | 101 | The conclusion is refuted in the exact reading of ℕ's `/` and `−`; Lean's convention (floor, truncation) holds there. Whether the author meant the floor is a question for the informal text: `lean_workbook_plus_26988` (⌊2017/3⌋) is such a case. |
-| `true_math_lean_via_convention` | 112 | lean2zfl said E (a convention was used), yet ZTL proves the exact mathematics. |
+| `false_math_both_readings` | 7 | At an ADMISSIBLE point (every translated hypothesis holds; the empty point for a closed statement) the conclusion is refuted both in the exact reading and in Lean's ℕ convention. |
+| `false_math_nat_convention` | 99 | Refuted at an admissible point in the exact reading of ℕ's `/` and `−`; Lean's convention (floor, truncation) holds there. Whether the author meant the floor is a question for the informal text: `lean_workbook_plus_26988` (⌊2017/3⌋) is such a case. |
+| `vacuous_hypotheses` | 3 | The conclusion is refuted, but so are the hypotheses: the statement is vacuously true (`lean_workbook_53067`: its hypothesis IS its false conclusion). |
+| `refuted_admissibility_unknown` | 2 | The conclusion is refuted; untranslated hypotheses leave open whether any point is admissible. |
+| `true_math_lean_via_convention` | 114 | lean2zfl said E (a convention was used), yet ZTL proves the exact mathematics. |
 | `no_value_at_admissible_point` | 270 | At an admissible point an operation has no value, for example `x / 0` with no `x ≠ 0` hypothesis. |
 
-Untranslated: 470 (`∃` 186, function variables about 150, `tsum` 41, `ℂ` 21, and others).
+Untranslated: 366 (function variables about 150, `tsum` 58, `∃` under a connective 43, `ℂ` 21, and others).
+
+**Lean kernel certificates:** of 102 refutations that could be written as ℝ theorems, **22** are closed by tactics
+(`Certificates.lean`, `[propext, Classical.choice, Quot.sound]`); most of the rest involve `rpow` with fractional
+exponents and stay ZTL's verdict only.
 
 **Control:** of the 1,000 EARNED theorems, 0 got a counterexample.
+
+An earlier reading (v2) counted 101 and 9: it took a conclusion refuted over the box as a refutation without
+asking whether any point satisfies the hypotheses. Lean's kernel exposed it: the certificate "hypotheses ∧ ¬
+conclusion" for `lean_workbook_53067` would not close.
 
 ## Limits
 
