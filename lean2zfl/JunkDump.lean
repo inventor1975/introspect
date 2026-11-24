@@ -311,11 +311,90 @@ def numKind (t : Lean.Expr) : MetaM String := do
          else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat" else ""
 
 
+def isComplexTy (t : Lean.Expr) : MetaM Bool := do return (← whnfR t).isConstOf `Complex
+
+/-- A COMPLEX NUMBER AS ITS TWO REAL PARTS (2026-11-25, the curator's "да"; VR's GaussQ — VRClassical/Continuum/
+GaussianRational.lean — is ℂ below the choice floor: a pair of rationals). A term of type ℂ becomes (re, im), each a
+ZFL real term, by the field's own rules: (a,b)(c,d) = (ac − bd, ad + bc); (a,b)/(c,d) has the divisor c² + d² — no
+value at 0, as for reals; z^n by the binomial theorem. `real` translates a real subterm (zTerm). -/
+partial def zCTermWith (real : Lean.Expr → MetaM String) (names : ZNames) (e : Lean.Expr) : MetaM (String × String) := do
+  let e := e.consumeMData
+  let rec' := zCTermWith real names
+  if let .fvar id := e then
+    match names.get? id with
+    | some s => if s.startsWith "C:" then return ((s.drop 2).toString ++ "_re", (s.drop 2).toString ++ "_im")
+                else throwError "untr: a complex variable not read"
+    | none => throwError "untr: a variable that is not a number of the statement"
+  let args := e.getAppArgs
+  match e.getAppFn.constName? with
+  | some `Complex.I => return ("0", "1")
+  | some `OfNat.ofNat => return (← real e, "0")
+  | some `Complex.ofReal | some `Complex.ofReal' | some `Nat.cast | some `Int.cast | some `Rat.cast
+  | some `NatCast.natCast | some `IntCast.intCast =>
+    if args.size == 0 then throwError "untr: cast" else return (← real args[args.size - 1]!, "0")
+  | some `Complex.mk => if args.size == 2 then return (← real args[0]!, ← real args[1]!) else throwError "untr: ⟨re, im⟩"
+  | some `HAdd.hAdd =>
+    let (a, b) ← rec' args[4]!; let (c, d) ← rec' args[5]!
+    return (s!"({a} + {c})", s!"({b} + {d})")
+  | some `HSub.hSub =>
+    let (a, b) ← rec' args[4]!; let (c, d) ← rec' args[5]!
+    return (s!"({a} - {c})", s!"({b} - {d})")
+  | some `Neg.neg =>
+    let (a, b) ← rec' args[2]!
+    return (s!"(0 - {a})", s!"(0 - {b})")
+  | some `HMul.hMul =>
+    let (a, b) ← rec' args[4]!; let (c, d) ← rec' args[5]!
+    return (s!"(({a} * {c}) - ({b} * {d}))", s!"(({a} * {d}) + ({b} * {c}))")
+  | some `HDiv.hDiv =>
+    let (a, b) ← rec' args[4]!; let (c, d) ← rec' args[5]!
+    let n := s!"(({c} * {c}) + ({d} * {d}))"
+    return (s!"((({a} * {c}) + ({b} * {d})) / {n})", s!"((({b} * {c}) - ({a} * {d})) / {n})")
+  | some `Inv.inv =>
+    let (c, d) ← rec' args[2]!
+    let n := s!"(({c} * {c}) + ({d} * {d}))"
+    return (s!"({c} / {n})", s!"((0 - {d}) / {n})")
+  | some `HPow.hPow =>
+    if args.size != 6 then throwError "untr: ^ partially applied"
+    let x := args[5]!.consumeMData
+    let lit : Option Nat := match x with
+      | .lit (.natVal n) => some n
+      | _ => if x.isAppOfArity `OfNat.ofNat 3 then
+               (match x.getAppArgs[1]!.consumeMData with | Lean.Expr.lit (Lean.Literal.natVal n) => some n | _ => none)
+             else none
+    match lit with
+    | some n =>
+      if n > 40 then throwError "untr: a complex power above 40"
+      let (a, b) ← rec' args[4]!
+      -- (a + bi)^n = Σ_k C(n,k) a^(n−k) (bi)^k : even k to re with sign (−1)^(k/2), odd k to im with (−1)^((k−1)/2)
+      let mut re : Array String := #[]
+      let mut im : Array String := #[]
+      for k in List.range (n + 1) do
+        let t := s!"({Nat.choose n k} * (({a})**{n - k}) * (({b})**{k}))"
+        if k % 2 == 0 then re := re.push (if (k / 2) % 2 == 0 then t else s!"(0 - {t})")
+        else im := im.push (if ((k - 1) / 2) % 2 == 0 then t else s!"(0 - {t})")
+      let sumOf (xs : Array String) : String := if xs.isEmpty then "0" else "(" ++ " + ".intercalate xs.toList ++ ")"
+      return (sumOf re, sumOf im)
+    | none => throwError "untr: a complex power with a symbolic exponent"
+  | some `riemannZeta =>
+    -- ζ at a REAL point (imaginary part literally 0) is real: zeta(re), read by zflread at an integer ≤ 0
+    if args.size == 0 then throwError "untr: zeta"
+    let (a, b) ← rec' args[args.size - 1]!
+    if b == "0" || b == "(0 - 0)" then return (s!"zeta({a})", "0")
+    throwError "untr: zeta off the real line"
+  | some `DFunLike.coe =>
+    -- conj z = (starRingEnd ℂ) z
+    if args.size ≥ 6 && args[4]!.getAppFn.constName? == some `starRingEnd then
+      let (a, b) ← rec' args[5]!
+      return (a, s!"(0 - {b})")
+    throwError "untr: a complex function"
+  | some c => throwError s!"untr: {c} (in ℂ)"
+  | none => throwError s!"untr: {e.ctorName} (in ℂ)"
+
 partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
   let e := e.consumeMData
   match e with
   | .fvar id => match names.get? id with
-    | some s => return s
+    | some s => if s.startsWith "C:" then throwError "untr: a complex number where a real is read" else return s
     | none => throwError "untr: a variable that is not a number of the statement"
   | .lit (.natVal n) => return toString n
   | _ => pure ()
@@ -416,6 +495,21 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
         let sn := "s_" ++ (zflName nm.toString []).drop 2
         return s!"{which}({sn}, {lo}, {hi}, {← zTerm (names.insert x.fvarId! sn) (b.instantiate1 x)})"
     | _, _ => throwError "untr: a finite sum over a set that is not an interval"
+  | some `Complex.re => if args.size == 1 then return (← zCTermWith (zTerm names) names args[0]!).1 else throwError "untr: re"
+  | some `Complex.im => if args.size == 1 then return (← zCTermWith (zTerm names) names args[0]!).2 else throwError "untr: im"
+  | some `Complex.normSq =>
+    if args.size == 0 then throwError "untr: normSq"
+    let (a, b) ← zCTermWith (zTerm names) names args[args.size - 1]!
+    return s!"(({a} * {a}) + ({b} * {b}))"
+  | some `Complex.abs =>
+    if args.size == 0 then throwError "untr: abs"
+    let (a, b) ← zCTermWith (zTerm names) names args[args.size - 1]!
+    return s!"sqrt((({a} * {a}) + ({b} * {b})))"
+  | some `Norm.norm =>
+    if args.size == 3 && (← isComplexTy args[0]!) then
+      let (a, b) ← zCTermWith (zTerm names) names args[2]!
+      return s!"sqrt((({a} * {a}) + ({b} * {b})))"
+    throwError "untr: a norm outside ℂ"
   | some `riemannZeta => fn1 "zeta"           -- read exactly by zflread at an integer ≤ 0 (−B_{k+1}/(k+1)), else untr
   | some `Real.sqrt => fn1 "sqrt"
   | some `Real.log => fn1 "ln"
@@ -458,6 +552,14 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
       return s!"({← zProp names (-pol) ex t} -> {← zProp names pol ex b})"
     if pol != 1 then throwError "untr: an inner quantifier (not in a positive place)"
     let k ← numKind t
+    if k == "" && (← isComplexTy t) then          -- ∀ z : ℂ — two real universals, its parts
+      return ← withLocalDecl nm bi t fun x => do
+        let (vs, taken) ← ex.get
+        let zn := zflName nm.toString taken
+        ex.set ((vs.push (Json.mkObj [("name", Json.str (zn ++ "_re")), ("lean", Json.str (nm.toString ++ ".re")),
+                  ("type", Json.str "real"), ("inner", Json.bool true)])).push (Json.mkObj [("name", Json.str (zn ++ "_im")),
+                  ("lean", Json.str (nm.toString ++ ".im")), ("type", Json.str "real"), ("inner", Json.bool true)]), zn :: taken)
+        zProp (names.insert x.fvarId! ("C:" ++ zn)) pol ex (b.instantiate1 x)
     if k == "" then throwError "untr: an inner quantifier over a non-number"
     return ← withLocalDecl nm bi t fun x => do
       let (vs, taken) ← ex.get
@@ -477,9 +579,17 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
   | some `Eq =>
     if args.size != 3 then throwError "untr: ="
     if ← isProp args[1]! then throwError "untr: an equality of statements"
+    if ← isComplexTy args[0]! then                 -- z = w in ℂ: both parts equal
+      let (a, b) ← zCTermWith (zTerm names) names args[1]!
+      let (c, d) ← zCTermWith (zTerm names) names args[2]!
+      return s!"(({a} == {c}) & ({b} == {d}))"
     return s!"({← zTerm names args[1]!} == {← zTerm names args[2]!})"
   | some `Ne =>
     if args.size != 3 then throwError "untr: ≠"
+    if ← isComplexTy args[0]! then                 -- z ≠ w in ℂ: APART in a part (VR's apartness; != is a gap)
+      let (a, b) ← zCTermWith (zTerm names) names args[1]!
+      let (c, d) ← zCTermWith (zTerm names) names args[2]!
+      return s!"(({a} != {c}) | ({b} != {d}))"
     return s!"({← zTerm names args[1]!} != {← zTerm names args[2]!})"
   | some `And => if args.size == 2 then return s!"({← zProp names pol ex args[0]!} & {← zProp names pol ex args[1]!})" else throwError "untr: ∧"
   | some `Or => if args.size == 2 then return s!"({← zProp names pol ex args[0]!} | {← zProp names pol ex args[1]!})" else throwError "untr: ∨"
@@ -498,11 +608,19 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
     match args[1]?.map Lean.Expr.consumeMData with
     | some (.lam nm t b bi) =>
       let k ← numKind t
+      let mark := if pol == 1 then ("exists", Json.bool true) else ("inner", Json.bool true)
+      if k == "" && (← isComplexTy t) then        -- ∃ z : ℂ — its two real parts, each marked as the place says
+        return ← withLocalDecl nm bi t fun x => do
+          let (vs, taken) ← ex.get
+          let zn := zflName nm.toString taken
+          ex.set ((vs.push (Json.mkObj [("name", Json.str (zn ++ "_re")), ("lean", Json.str (nm.toString ++ ".re")),
+                    ("type", Json.str "real"), mark])).push (Json.mkObj [("name", Json.str (zn ++ "_im")),
+                    ("lean", Json.str (nm.toString ++ ".im")), ("type", Json.str "real"), mark]), zn :: taken)
+          zProp (names.insert x.fvarId! ("C:" ++ zn)) pol ex (b.instantiate1 x)
       if k == "" then throwError "untr: an inner quantifier (∃) over a non-number"
       withLocalDecl nm bi t fun x => do
         let (vs, taken) ← ex.get
         let zn := zflName nm.toString taken
-        let mark := if pol == 1 then ("exists", Json.bool true) else ("inner", Json.bool true)
         ex.set (vs.push (Json.mkObj [("name", Json.str zn), ("lean", Json.str nm.toString), ("type", Json.str k),
                                      mark]), zn :: taken)
         zProp (names.insert x.fvarId! zn) pol ex (b.instantiate1 x)
@@ -584,7 +702,15 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
     else
       let kind ← numKind t
       let decl ← x.fvarId!.getDecl
-      if kind == "" then
+      if kind == "" && (← isComplexTy t) then       -- z : ℂ — two real variables of the box, its parts
+        let nm := zflName decl.userName.toString taken
+        taken := nm :: taken
+        names := names.insert x.fvarId! ("C:" ++ nm)
+        vars := (vars.push (Json.mkObj [("name", Json.str (nm ++ "_re")), ("lean", Json.str (decl.userName.toString ++ ".re")),
+                                        ("type", Json.str "real")])).push
+                  (Json.mkObj [("name", Json.str (nm ++ "_im")), ("lean", Json.str (decl.userName.toString ++ ".im")),
+                               ("type", Json.str "real")])
+      else if kind == "" then
         match ← seqKind t with
         | some cod =>
           let nm := "q_" ++ ((zflName decl.userName.toString taken).drop 2).toString

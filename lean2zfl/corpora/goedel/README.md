@@ -122,3 +122,15 @@ Rescanned: the 61 statements (43 E/OPEN, 18 control) whose only blocker was an i
 - **10 now translate.** All are OPEN or ON CREDIT; none is refuted.
 - **31 are blocked by an ∃ over a non-number** (a set, a function, ℂ).
 - **18 are blocked by an ∃ under ¬ or ↔.**
+
+## Complex numbers, 2026-11-25 (measured)
+
+`z : ℂ` is read as its two real parts (VR's GaussQ), by the field's rules: the product, the quotient with divisor
+c² + d², the binomial theorem for zⁿ, conj, ‖z‖ = √(re² + im²), ζ at a real point. `z = w` is both parts equal;
+`z ≠ w` is apartness in some part.
+
+Rescanned: the 33 statements (21 E/OPEN, 12 control) blocked by a `ℂ` variable. **30 now translate.** None is
+refuted, and all but one stay OPEN. They are algebraic identities under hypotheses: a + b + c = 0 ⇒ 2(a⁵+b⁵+c⁵) =
+…; partial fractions; the triangle inequality. Proving them needs elimination (algebra), not reading.
+
+The box now folds a side that has no name (`re == 3 + 4·0 − 0·1`), and it splits a comparison whose sides have spaces.

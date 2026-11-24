@@ -70,6 +70,38 @@ def _const(s):
         return None
 
 
+def _cmp_split(c):
+    """(left, op, right) at the one comparison at parenthesis depth 0 of c (outer parentheses stripped), or None"""
+    t = c.strip()
+    while t.startswith("(") and t.endswith(")"):
+        depth, whole = 0, True
+        for k, ch in enumerate(t):
+            depth += (ch == "(") - (ch == ")")
+            if depth == 0 and k < len(t) - 1:
+                whole = False
+                break
+        if not whole:
+            break
+        t = t[1:-1].strip()
+    depth, found = 0, []
+    k = 0
+    while k < len(t):
+        ch = t[k]
+        depth += (ch == "(") - (ch == ")")
+        if depth == 0:
+            for op in ("<=", ">=", "==", "!=", "<", ">"):
+                if t.startswith(op, k) and not t.startswith("->", k - 1 if k else 0):
+                    found.append((k, op))
+                    k += len(op) - 1
+                    break
+        k += 1
+    if len(found) != 1 or found[0][1] == "!=":
+        return None
+    k, op = found[0]
+    l, r = t[:k].strip(), t[k + len(op):].strip()
+    return (l, op, r) if l and r else None
+
+
 def box(zfl):
     """{name: [lo, hi, lo_open, hi_open, type]} from the variables and the hypotheses bounding one variable by a
     constant; plus the hypotheses left unused."""
@@ -85,14 +117,24 @@ def box(zfl):
             continue
         for c in _conjuncts(h["zfl"]):
             m = re.match(r"^(\S+)\s*(<=|>=|<|>|==)\s*(\S+)$", c.replace("(-", "(-").strip())
-            if not m:
-                unused += 1
-                continue
-            l, op, r = m.group(1), _CMP[m.group(2)], m.group(3)
-            if l in b and _const(r) is not None:
-                name, k = l, _const(r)
-            elif r in b and _const(l) is not None:
-                name, k, op = r, _const(l), _FLIP[op]
+            if m:
+                l, op, r = m.group(1), _CMP[m.group(2)], m.group(3)
+            else:                                        # a side with spaces: split at the comparison at depth 0
+                sp = _cmp_split(c)
+                if sp is None:
+                    unused += 1
+                    continue
+                l, op, r = sp[0], _CMP[sp[1]], sp[2]
+            cr, cl = _const(r), _const(l)
+            # a side with no name at all is folded exactly (2026-11-25: z = 3 + 4i gives re == (3 + ((4 * 0) − (0 * 1))))
+            if cr is None and l in b and not re.search(r"[A-Za-z_]\w*", re.sub(r"\b(min|max|idiv|sqrt)\(", "(", r)):
+                cr = _exact_of(r)
+            if cl is None and r in b and not re.search(r"[A-Za-z_]\w*", re.sub(r"\b(min|max|idiv|sqrt)\(", "(", l)):
+                cl = _exact_of(l)
+            if l in b and cr is not None:
+                name, k = l, cr
+            elif r in b and cl is not None:
+                name, k, op = r, cl, _FLIP[op]
             else:
                 unused += 1
                 continue

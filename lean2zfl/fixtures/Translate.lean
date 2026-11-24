@@ -178,4 +178,20 @@ theorem t_ex_and (a : ℝ) (ha : 0 < a) : a > 0 ∧ ∃ x : ℝ, x * x = 4 := by
 -- UNTR: under ¬ the place is neither — ¬∃ is not ∀¬ in ZTL (zfo: "¬∃ ⊭ ∀¬, Z hides")
 theorem t_ex_not : ¬ ∃ n : ℕ, n * n = 2 := by sorry
 
+-- COMPLEX NUMBERS (2026-11-25): z as its two real parts (VR's GaussQ), the field's rules exactly
+-- ZTL EARNED: (1 + i)² = 2i, by the binomial theorem on the parts
+theorem t_cx_square : (1 + Complex.I) ^ 2 = 2 * Complex.I := by sorry
+
+-- ZTL REFUTED: (1 + i)² is not 2 — the imaginary parts differ (2 ≠ 0)
+theorem t_cx_wrong : (1 + Complex.I) ^ 2 = 2 := by sorry
+
+-- ZTL EARNED: z = 3 + 4i pins both parts in the box; ‖z‖ = √(9 + 16) = 5
+theorem t_cx_norm (z : ℂ) (h : z = 3 + 4 * Complex.I) : ‖z‖ = 5 := by sorry
+
+-- ZTL EARNED: z · conj z is real, for every z (a polynomial identity in the parts)
+theorem t_cx_conj (z : ℂ) : (z * (starRingEnd ℂ) z).im = 0 := by sorry
+
+-- ZTL EARNED: a quotient in ℂ, divisor (1 − i)(1 + i) = 2
+theorem t_cx_div : (2 + Complex.I) / (1 - Complex.I) = (1 + 3 * Complex.I) / 2 := by sorry
+
 end ZFLReadFix
