@@ -107,3 +107,18 @@ Example: `lean_workbook_5663` is in the control (Lean proved it). It gives `a 1 
 
 "Conditional" means: false, or vacuously true; the reader does not decide which. By the curator's word, nothing here is
 EARNED: a prefix of a sequence proves nothing about every n.
+
+## ∃ under a connective, 2026-11-25 (measured)
+
+The rules come from ZTL's own first-order tableau (`zfo.prove`):
+- For ∧, ∨ and the consequent of →, moving the ∃ to the front is valid in both directions. In a positive place, x
+  becomes the leading ∃.
+- In a negative place only `∀x (P → C) ⊨ (∃x P) → C` holds; the converse has a countermodel with Z. There x joins
+  the box as a universal.
+- Under ¬ or ↔ the ∃ stays untranslated.
+- A witness may pin only the ∃ variables and keep every universal's whole box (a uniform witness).
+
+Rescanned: the 61 statements (43 E/OPEN, 18 control) whose only blocker was an inner ∃.
+- **10 now translate.** All are OPEN or ON CREDIT; none is refuted.
+- **31 are blocked by an ∃ over a non-number** (a set, a function, ℂ).
+- **18 are blocked by an ∃ under ¬ or ↔.**

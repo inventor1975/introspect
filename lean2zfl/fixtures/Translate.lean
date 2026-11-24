@@ -81,7 +81,7 @@ theorem t_ex_false : ∃ x : ℝ, x ^ 2 + 1 < 0 := by sorry
 -- WITNESS none: an ∃ whose conclusion fails at many points is NOT refuted by one of them (x = 3 works)
 theorem t_ex_somewhere : ∃ x : ℕ, x * x = 9 := ⟨3, rfl⟩
 
--- UNTR: an ∃ under a connective
+-- ZTL OPEN: an ∃ under ∧ (translated since 2026-11-25) — true, but no ONE x serves every y: never EARNED, never refuted
 theorem t_ex_inner (y : ℝ) : y = y ∧ ∃ x : ℝ, x > y := by sorry
 
 -- HYPDOMAIN: logarithms in the HYPOTHESES over a box where a may be negative (aime_1984_p5's shape): the domain check
@@ -164,5 +164,18 @@ theorem t_seq_exists (v : ℕ → ℤ) (h0 : v 0 = 1) (h : ∀ n, v (n + 1) = 3 
 
 -- UNTR: a function ℝ → ℝ is not a sequence — the curator's word: untranslated, said so
 theorem t_fun (f : ℝ → ℝ) (h : ∀ x, f x = 2 * x) : f 1 = 2 := by sorry
+
+-- ∃ UNDER A CONNECTIVE (2026-11-25): lifted by ZTL's own first-order calculus (zfo)
+-- WITNESS refuted: an ∃ in a hypothesis joins the box as a universal; at a = 1, x = 1/2 the hypothesis holds, a < 1 not
+theorem t_ex_hyp (a : ℝ) (h : ∃ x : ℝ, 0 < x ∧ x < 1 ∧ a = 2 * x) : a < 1 := by sorry
+
+-- ZTL EARNED: an ∃ under → in the conclusion is lifted (C → ∃x P ⟺ ∃x (C → P)); the witness n = 3
+theorem t_ex_imp : 1 < 2 → ∃ n : ℕ, n * n = 9 := by sorry
+
+-- ZTL EARNED: an ∃ under ∧ beside a universal: x = −2 (or 2) is a witness uniform in a
+theorem t_ex_and (a : ℝ) (ha : 0 < a) : a > 0 ∧ ∃ x : ℝ, x * x = 4 := by sorry
+
+-- UNTR: under ¬ the place is neither — ¬∃ is not ∀¬ in ZTL (zfo: "¬∃ ⊭ ∀¬, Z hides")
+theorem t_ex_not : ¬ ∃ n : ℕ, n * n = 2 := by sorry
 
 end ZFLReadFix

@@ -487,7 +487,26 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
   -- under ¬ the place is NEITHER (2026-11-24, the curator: "∧, ∨ — из них операторы ZTL не выводятся"): a flip to
   -- the opposite place would let ¬¬∀ pass as positive — classical ¬¬p = p, which falls in ZTL on a marked atom
   | some `Not => if args.size == 1 then return s!"(~{← zProp names 0 ex args[0]!})" else throwError "untr: ¬"
-  | some `Exists => throwError "untr: an inner quantifier (∃)"
+  -- ∃ UNDER A CONNECTIVE (2026-11-25), by ZTL's OWN first-order calculus (zfo.prove, measured that day):
+  --   (∃x P) ∧ C ⟺ ∃x (P ∧ C),  (∃x P) ∨ C ⟺ ∃x (P ∨ C),  C → ∃x P ⟺ ∃x (C → P)   — both directions valid;
+  --   ∀x (P → C) ⊨ (∃x P) → C   valid,  but  (∃x P) → C ⊭ ∀x (P → C)  (a countermodel with Z).
+  -- So in a POSITIVE place the ∃ is lifted to the front: x joins the box marked `exists` (read as the leading ∃);
+  -- in a NEGATIVE place x joins the box as one more universal — sound for EARNED (the valid direction), and a
+  -- refuting point is a point where P is decided T (P(a) ⊨ ∃x P). Under ¬ or ↔ (neither place): untranslated.
+  | some `Exists =>
+    if pol == 0 then throwError "untr: an inner quantifier (∃) under ¬ or ↔"
+    match args[1]?.map Lean.Expr.consumeMData with
+    | some (.lam nm t b bi) =>
+      let k ← numKind t
+      if k == "" then throwError "untr: an inner quantifier (∃) over a non-number"
+      withLocalDecl nm bi t fun x => do
+        let (vs, taken) ← ex.get
+        let zn := zflName nm.toString taken
+        let mark := if pol == 1 then ("exists", Json.bool true) else ("inner", Json.bool true)
+        ex.set (vs.push (Json.mkObj [("name", Json.str zn), ("lean", Json.str nm.toString), ("type", Json.str k),
+                                     mark]), zn :: taken)
+        zProp (names.insert x.fvarId! zn) pol ex (b.instantiate1 x)
+    | _ => throwError "untr: an inner quantifier (∃)"
   -- the integer words as statements (VR/Numbers/Division.lean): a ∣ b is a witnessed divisibility; a ≡ b [MOD n] is
   -- n ∣ (a − b) in ℤ (Lean's a % n = b % n, the same for every n, n = 0 included)
   | some `Dvd.dvd =>

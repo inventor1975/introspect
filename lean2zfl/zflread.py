@@ -280,11 +280,13 @@ def _core_arrows(z):
     return z
 
 
-def exists_witness(z, b, seed=20261124):
-    """a point of the box where every translated hypothesis holds and the conclusion is EARNED (the ∃'s witness)"""
+def exists_witness(z, b, seed=20261124, only=None):
+    """a point of the box where every translated hypothesis holds and the conclusion is EARNED (the ∃'s witness);
+    `only`: pin just these names, the others keep their whole box (a witness uniform in them)"""
     import itertools
     import random
-    names = list(b)
+    names = list(b) if only is None else [n for n in b if n in only]
+    rest = "" if only is None else sheet({n: q for n, q in b.items() if n not in only})
     pools = [[x for x in _CANDS if _inside(x, b[n])] for n in names]
     if any(not p for p in pools):
         return None
@@ -293,7 +295,7 @@ def exists_witness(z, b, seed=20261124):
     if len(combos) > WITNESS_TRIES:
         combos = rnd.sample(combos, WITNESS_TRIES)
     for pt in combos:
-        text = ", ".join(f"{n}={_end(x)} earned:pt" for n, x in zip(names, pt))
+        text = ", ".join([f"{n}={_end(x)} earned:pt" for n, x in zip(names, pt)] + ([rest] if rest else []))
         try:
             qs, marks = parse_quantities(text) if text else ({}, {})
             if all(judge_sheet_claim(h["zfl"], dict(qs), marks)["disposition"] == "EARNED" for h in z.get("hyps", [])
@@ -935,6 +937,14 @@ def _read(z, partial_lean=False):
             w = exists_witness(z, b)
             if w:
                 out["exists_witness"] = w
+                out["ztl"] = "EARNED"
+        elif r["disposition"] == "OPEN":
+            # A UNIFORM WITNESS (2026-11-25): pin only the ∃ variables, keep every universal's whole box — EARNED there
+            # is ∀ … ∃ with one witness for all, stronger than the claim, so it stands (∃x∀y ⊨ ∀y∃x, zfo-valid)
+            w = exists_witness(z, b, only=ex_vars)
+            if w:
+                out["exists_witness"] = w
+                out["exists_uniform"] = True
                 out["ztl"] = "EARNED"
         return out
     if r["disposition"] in ("OPEN", "E", "REFUTED"):
