@@ -66,6 +66,15 @@ def proves1 (goal : Lean.Expr) (tac : String) : TermElabM Bool := do
   match Parser.runParserCategory (← getEnv) `tactic tac with
   | .error _ => return false                      -- a tactic this environment does not have (no Mathlib): skipped
   | .ok stx =>
+    -- A FAILED ATTEMPT LEAVES NO MESSAGE (MEASURED 2026-11-24): some tactics LOG their "unsolved goals" instead of
+    -- throwing; ten E/OPEN theorems in one file reached Lean's 100-error limit and the whole file stopped before the
+    -- dump — 1690 of 2451 came back unread. The message log is put back as it was after every attempt.
+    let saved := (← getThe Core.State).messages
+    let r ← proves1Core goal stx
+    modifyThe Core.State fun st => { st with messages := saved }
+    return r
+
+where proves1Core (goal : Lean.Expr) (stx : Syntax) : TermElabM Bool := do
     let g ← mkFreshExprMVar goal
     try
       -- NO ERROR RECOVERY (MEASURED 2026-11-24): with it, a failing tactic is logged and the goal is closed by
@@ -258,6 +267,163 @@ partial def junkReach (junkMemo : JunkMemo) (c : Name) : CoreM (Array Name) := d
   junkMemo.modify (·.insert c out)
   return out
 
+/-! ### The statement in ZFL (2026-11-24, the curator: "делаем" — Lean read by ZTL, VR as the frame)
+
+The statement's MATHEMATICS written in ZFL's numeric language, for ZTL's numeric floor to read: + - * / as exact
+rational arithmetic (ℕ's truncating `/` and `-` are written as the operations they abbreviate — the very difference
+the floor then shows), `x ^ n` with a literal n as `x**n`, a real exponent as `pow`, √ ln exp sin cos tan arctan π,
+|a| as max(a, -a), casts dropped (the number is the same number). What has no word in ZFL is NOT guessed: the part is
+reported `untr` with the head it stopped at. Variables are named `v_<name>` (ASCII, unique), so no name of a
+statement can collide with a ZFL word. -/
+
+def zflName (s : String) (taken : List String) : String := Id.run do
+  let sub := "₀₁₂₃₄₅₆₇₈₉".toList
+  let mut out := "v_"
+  for c in s.toList do
+    if c.isAlphanum && c.toNat < 128 || c == '_' then out := out.push c
+    else match (sub.zip (List.range 10)).find? (·.1 == c) with
+      | some (_, i) => out := out ++ toString i
+      | none => out := out.push '_'
+  let mut name := out
+  let mut k := 2
+  while taken.contains name do
+    name := out ++ "_" ++ toString k
+    k := k + 1
+  return name
+
+abbrev ZNames := Std.HashMap FVarId String
+
+partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
+  let e := e.consumeMData
+  match e with
+  | .fvar id => match names.get? id with
+    | some s => return s
+    | none => throwError "untr: a variable that is not a number of the statement"
+  | .lit (.natVal n) => return toString n
+  | _ => pure ()
+  let args := e.getAppArgs
+  let bin (op : String) (a b : Lean.Expr) : MetaM String := do
+    return s!"({← zTerm names a} {op} {← zTerm names b})"
+  let fn1 (f : String) : MetaM String := do
+    if args.size == 0 then throwError s!"untr: {f} unapplied"
+    return s!"{f}({← zTerm names args[args.size - 1]!})"
+  match e.getAppFn.constName? with
+  | some `OfNat.ofNat =>
+    let lit : Option Lean.Expr := args[1]?
+    match lit.map Lean.Expr.consumeMData with
+    | some (Lean.Expr.lit (Lean.Literal.natVal n)) => return toString n
+    | _ => throwError "untr: a numeral that is not a literal"
+  | some `HAdd.hAdd => if args.size == 6 then bin "+" args[4]! args[5]! else throwError "untr: + partially applied"
+  | some `HSub.hSub => if args.size == 6 then bin "-" args[4]! args[5]! else throwError "untr: - partially applied"
+  | some `HMul.hMul => if args.size == 6 then bin "*" args[4]! args[5]! else throwError "untr: * partially applied"
+  | some `HDiv.hDiv => if args.size == 6 then bin "/" args[4]! args[5]! else throwError "untr: / partially applied"
+  | some `Neg.neg => if args.size == 3 then return s!"(-{← zTerm names args[2]!})" else throwError "untr: neg"
+  | some `Inv.inv => if args.size == 3 then return s!"(1 / {← zTerm names args[2]!})" else throwError "untr: inv"
+  | some `HPow.hPow =>
+    if args.size != 6 then throwError "untr: ^ partially applied"
+    let b ← zTerm names args[4]!
+    let x := args[5]!.consumeMData
+    let lit : Option Nat := match x with
+      | .lit (.natVal n) => some n
+      | _ => if x.isAppOfArity `OfNat.ofNat 3 then
+               (match x.getAppArgs[1]!.consumeMData with | Lean.Expr.lit (Lean.Literal.natVal n) => some n | _ => none)
+             else none
+    let xty ← whnfR (← inferType x)
+    match lit with
+    | some n => if xty.isConstOf `Nat then return s!"({b})**{n}" else return s!"pow({b}, {n})"
+    | none =>
+      if xty.isConstOf `Real then return s!"pow({b}, {← zTerm names x})"
+      -- a CLOSED exponent (no variable): its mathematics is a number, written as one — `a ^ (1 / 3)` over ℕ is
+      -- Lean's a ^ 0 and the author's cube root, and the floor reads the author's (pow, exact 1/3)
+      if !x.hasFVar then return s!"pow({b}, {← zTerm names x})"
+      throwError "untr: a power with a symbolic natural exponent"
+  | some `Real.sqrt => fn1 "sqrt"
+  | some `Real.log => fn1 "ln"
+  | some `Real.exp => fn1 "exp"
+  | some `Real.sin => fn1 "sin"
+  | some `Real.cos => fn1 "cos"
+  | some `Real.tan => fn1 "tan"
+  | some `Real.arctan => fn1 "atan"
+  | some `Real.pi => return "pi"
+  | some `Real.logb =>
+    if args.size == 2 then return s!"(ln({← zTerm names args[1]!}) / ln({← zTerm names args[0]!}))"
+    else throwError "untr: logb"
+  | some `abs =>
+    if args.size == 0 then throwError "untr: abs"
+    let a ← zTerm names args[args.size - 1]!
+    return s!"max({a}, (-{a}))"
+  | some `Min.min => if args.size == 4 then return s!"min({← zTerm names args[2]!}, {← zTerm names args[3]!})" else throwError "untr: min"
+  | some `Max.max => if args.size == 4 then return s!"max({← zTerm names args[2]!}, {← zTerm names args[3]!})" else throwError "untr: max"
+  | some `Nat.cast | some `Int.cast | some `Rat.cast | some `NNRatCast.nnratCast | some `IntCast.intCast
+  | some `NatCast.natCast =>
+    if args.size == 0 then throwError "untr: cast" else zTerm names args[args.size - 1]!
+  | some c => throwError s!"untr: {c}"
+  | none => throwError s!"untr: {e.ctorName}"
+
+partial def zProp (names : ZNames) (e : Lean.Expr) : MetaM String := do
+  let e := e.consumeMData
+  if let .forallE _ t b _ := e then
+    if !b.hasLooseBVars && (← isProp t) then
+      return s!"({← zProp names t} -> {← zProp names b})"
+    throwError "untr: an inner quantifier"
+  let args := e.getAppArgs
+  let cmp (op : String) : MetaM String := do
+    if args.size != 4 then throwError s!"untr: {op} partially applied"
+    return s!"({← zTerm names args[2]!} {op} {← zTerm names args[3]!})"
+  match e.getAppFn.constName? with
+  | some `LT.lt => cmp "<"
+  | some `LE.le => cmp "<="
+  | some `GT.gt => cmp ">"
+  | some `GE.ge => cmp ">="
+  | some `Eq =>
+    if args.size != 3 then throwError "untr: ="
+    if ← isProp args[1]! then throwError "untr: an equality of statements"
+    return s!"({← zTerm names args[1]!} == {← zTerm names args[2]!})"
+  | some `Ne =>
+    if args.size != 3 then throwError "untr: ≠"
+    return s!"({← zTerm names args[1]!} != {← zTerm names args[2]!})"
+  | some `And => if args.size == 2 then return s!"({← zProp names args[0]!} & {← zProp names args[1]!})" else throwError "untr: ∧"
+  | some `Or => if args.size == 2 then return s!"({← zProp names args[0]!} | {← zProp names args[1]!})" else throwError "untr: ∨"
+  | some `Iff => if args.size == 2 then return s!"({← zProp names args[0]!} <-> {← zProp names args[1]!})" else throwError "untr: ↔"
+  | some `Not => if args.size == 1 then return s!"(~{← zProp names args[0]!})" else throwError "untr: ¬"
+  | some `Exists => throwError "untr: an inner quantifier"
+  | some c => throwError s!"untr: {c}"
+  | none => throwError s!"untr: {e.ctorName}"
+
+def zTry (k : MetaM String) : MetaM Json := do
+  try return Json.mkObj [("zfl", Json.str (← k))]
+  catch ex =>
+    let m ← ex.toMessageData.toString
+    return Json.mkObj [("untr", Json.str ((m.dropPrefix "untr: ").toString))]
+
+/-- the binders of the statement: the number variables (named for ZFL), the hypotheses, the conclusion -/
+def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
+  let mut names : ZNames := {}
+  let mut taken : List String := []
+  let mut vars := #[]
+  let mut hyps := #[]
+  let mut bad : Option String := none
+  for x in xs do
+    let t ← inferType x
+    if ← isProp t then
+      hyps := hyps.push (← zTry (zProp names t))
+    else
+      let ty ← whnfR t
+      let kind := if ty.isConstOf `Real then "real" else if ty.isConstOf `Nat then "nat"
+                  else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat" else ""
+      let decl ← x.fvarId!.getDecl
+      if kind == "" then
+        bad := bad <|> some s!"a variable of type {← ppExpr t}"
+      else
+        let nm := zflName decl.userName.toString taken
+        taken := nm :: taken
+        names := names.insert x.fvarId! nm
+        vars := vars.push (Json.mkObj [("name", Json.str nm), ("lean", Json.str decl.userName.toString),
+                                       ("type", Json.str kind)])
+  let c ← zTry (zProp names concl)
+  return Json.mkObj ([("vars", Json.arr vars), ("hyps", Json.arr hyps), ("concl", c)] ++
+                     (match bad with | some b => [("untr_vars", Json.str b)] | none => []))
+
 def dumpOne (memo : JunkMemo) (n : Name) : TermElabM Json := do
   let ci ← getConstInfo n
   let used := (ci.value?.map (·.getUsedConstants)).getD #[]
@@ -282,7 +448,8 @@ def dumpOne (memo : JunkMemo) (n : Name) : TermElabM Json := do
                        ("hyps", Json.arr hyps), ("junk_ops", Json.arr ops),
                        ("junk_lemmas", Json.arr (lemmas.map (Json.str ·.toString))),
                        ("junk_reach", Json.arr ((← junkReach memo n).map (Json.str ·.toString))),
-                       ("axioms", Json.arr (axs.map (Json.str ·.toString)))]
+                       ("axioms", Json.arr (axs.map (Json.str ·.toString))),
+                       ("zfl", ← zflOf xs concl)]
 
 /-- every theorem declared in THIS file (not imported), auxiliary declarations skipped -/
 elab "#lean2zfl_dump_here" : command => liftTermElabM do

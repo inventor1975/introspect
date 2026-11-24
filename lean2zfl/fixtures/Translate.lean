@@ -1,0 +1,35 @@
+import Mathlib
+/-! zflread fixtures: a Lean statement READ BY ZTL's numeric floor. Each theorem's expected reading is in its comment:
+`ZTL <disposition>` for the conclusion over the box, `WITNESS refuted` / `WITNESS none` for the point search,
+`UNTR` for a statement with no ZFL word. `sorry` is fine here: what is read is the statement, not the proof. -/
+
+namespace ZFLReadFix
+
+-- ZTL EARNED: 0 < x ≤ 2 is the box (0, 2]; ln is defined on all of it (the strict bound) and ln 2 < 1
+theorem t_log (x : ℝ) (hx : 0 < x) (h2 : x ≤ 2) : Real.log x ≤ 1 := by sorry
+
+-- ZTL REFUTED: ℕ's 7 / 2 is 3, the mathematics' 7/2 is not
+theorem t_nat : (7 : ℕ) / 2 = 3 := by norm_num
+
+-- WITNESS refuted: ℕ's 1 / 3 is 0 (Lean: a ^ 0 = 1); the cube root of 1/4 is not 1
+theorem t_cube (a : ℝ) (ha : 0 < a) : a ^ ((1:ℕ) / 3) = 1 := by sorry
+
+-- WITNESS none: TRUE for every b ≠ 0 — no point may refute it (the other side of the bracket)
+theorem t_div (a b : ℝ) (hb : b ≠ 0) : a / b * b = a := by sorry
+
+-- ZTL EARNED: x^2 - 2x + 1 = (x - 1)^2 >= 0 on the whole line, read exactly
+theorem t_pow (x : ℝ) : x ^ 2 - 2 * x + 1 ≥ 0 := by nlinarith [sq_nonneg (x - 1)]
+
+-- ZTL EARNED: 0 < n in ℕ reads n >= 1, so 1/n > 0
+theorem t_cast (n : ℕ) (h : 0 < n) : (1 : ℝ) / n > 0 := by positivity
+
+-- UNTR: an inner quantifier has no ZFL word
+theorem t_ex : ∃ x : ℝ, x > 0 := ⟨1, one_pos⟩
+
+-- WITNESS none: the triangle inequality is true, |a| read as max(a, -a)
+theorem t_abs (x y : ℝ) : |x + y| ≤ |x| + |y| := by sorry
+
+-- ZTL REFUTED: 1/21 + 1/22 is 43/462 (Lean_workbook_plus_76820's shape: ℕ makes both sides 0)
+theorem t_sum : (1 : ℕ) / 21 + 1 / 22 = 1 / 462 := by norm_num
+
+end ZFLReadFix
