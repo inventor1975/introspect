@@ -54,3 +54,21 @@ def judge_taint(st, ctx, source="input", sink="sink"):
     # ALL SEVEN dispositions pass through (contract §1, 2026-11-24). They used to be folded into OPEN here; the
     # judge's own word is now the report's word, and the report says what each one rests on.
     return r["report"]["judge"]["disposition"]
+
+
+def judge_if_stable(ctx, checked="value", sink="sink"):
+    """The shape of a CHECK on one read and a USE on a RE-READ of the same value (contract §2, 2026-11-24).
+
+    One dirty atom, `ok` = "the value passes the check", with TWO occurrences: where it was checked and where it is
+    used. The claim "the use is covered by the check" is `~ok | ok`. The judge reads each occurrence on its own (so
+    not EARNED: the value may differ between the reads) and in every completion it holds: EARNED IF STABLE.
+    MEASURED on ZTL @ efbbbc2: claim `~ok | ok` over an unverified row -> EARNED IF STABLE."""
+    doc = {"rows": [{"name": "ok", "status": "unverified",
+                     "means": f"the re-read value passes the check: {checked} (read at the check and again at the "
+                              f"{ctx} sink {sink}; it may change in between)"}],
+           "claim": "~ok | ok"}
+    r = zfl.run(doc)
+    errs = [i for i in r.get("issues", []) if i.get("level") == "error"]
+    if errs or not r.get("ok", True):
+        return "OPEN"
+    return r["report"]["judge"]["disposition"]

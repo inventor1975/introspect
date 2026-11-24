@@ -1,5 +1,18 @@
 # py2zfl — calibration
 
+## 2026-11-24 — the seven dispositions: a CHECKED RE-READ is EARNED IF STABLE (MEASURED)
+`if request.args.get("f") in ALLOWED: os.system("cat " + request.args.get("f"))` checks ONE read of the source and
+uses ANOTHER. The engine said REFUTED (a false accusation: if the source gives the same value twice, the use is
+covered); env-var re-reads said OPEN. Now a guard narrows a re-readable expression (call / attribute / subscript)
+as well as a name; a sink that is clean ONLY through such a checked re-read is judged with the TOCTOU shape
+(`~ok | ok`, `ok` dirty, two occurrences) -> EARNED IF STABLE. A local read once and checked stays plain EARNED.
+Fixtures t01–t05 (t01, t04 were REFUTED, t05 OPEN on 2ecc659). Not built yet: the rule on the summary path
+(a checked re-read passed into a helper) and on `_more_sinks`.
+Measured, before vs after: blind round 1 and round 2 scores IDENTICAL (no re-read after a check in either corpus);
+our own Python (ztlstudio, ztl-space/api, LogicBridge, gemma4-kaggle/lab, veip-use: 3,014 findings) IDENTICAL.
+So the rule is exact where it applies and moves nothing else; how often it applies in the wild is NOT measured.
+Scoring buckets in blind*/score.py: ON CREDIT, EARNED IF STABLE, REFUTED IF STABLE, E -> the OPEN bucket.
+
 ## 2026-09-27 night — blind ROUND 2 (cloud, PR #6) on slice 5 (`b49bb74`), then slice 6 (MEASURED)
 A new corpus by new authors (204 cases: sqli 66, xss 71, file 67; code and cmdi refused by the filter),
 committed at `195a2d9` before the run. **Blind: 71.3% found, 5.4% false alarms, 9 silent** of 94 decided

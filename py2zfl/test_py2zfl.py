@@ -48,6 +48,12 @@ EXPECT = {
     "w07_sinks_sources2.py":   ["REFUTED","REFUTED","REFUTED"],  # get_json, exec_driver_sql, tempfile prefix, unquote(escape)
     "w08_helpers.py":          ["REFUTED"],  # call-result receiver; module set guard inside a helper; tuple return; loop guard
     "w09_annotations.py":      ["REFUTED"],  # UUID param clean; declared-HTML body judged
+    # 2026-11-24, the seven dispositions (contract §1): a CHECK on one read of a source, a USE on a re-read
+    "t01_toctou_reread.py":    ["EARNED IF STABLE"],  # clean only if the source gives the same value twice
+    "t02_toctou_local.py":     [],                    # read once into a local: clean (EARNED is not listed in a function body)
+    "t03_toctou_other.py":     ["REFUTED"],           # another parameter: the check does not cover it
+    "t04_toctou_negguard.py":  ["EARNED IF STABLE"],  # not in ALLOWED -> abort; then the source is re-read
+    "t05_toctou_env.py":       ["EARNED IF STABLE"],  # an env var checked, then read again
 }
 def main():
     fails=[]

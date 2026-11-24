@@ -64,7 +64,10 @@ def main():
     unparsed = {rel(p): why for p, why in getattr(M, "UNPARSED", [])}
     recs = defaultdict(list)
     for t in out:
-        d = {"ON CREDIT": "OPEN", "R": "REFUTED", "O": "OPEN", "F": "EARNED", "E": "OPEN"}.get(t[4], t[4])  # as introspect.py
+        # scoring buckets (2026-11-24): the judge's conditional dispositions are neither a clear nor an
+        # accusation -> the OPEN bucket; introspect.py itself now reports all seven
+        d = {"ON CREDIT": "OPEN", "R": "REFUTED", "O": "OPEN", "F": "EARNED", "E": "OPEN",
+             "EARNED IF STABLE": "OPEN", "REFUTED IF STABLE": "OPEN"}.get(t[4], t[4])
         recs[rel(t[0])].append({"line": t[1], "name": t[2], "ctx": t[3], "disp": d,
                                 "why": (t[5] if len(t) > 5 else "")})
 

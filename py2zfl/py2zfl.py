@@ -211,8 +211,27 @@ def _is_spring_source(param):
 def _ejoin(*envs):
     out, keys = {}, set()
     for e in envs: keys |= set(e)
-    for k in keys: out[k] = join(*[e[k] for e in envs if k in e])
+    for k in keys:
+        if k.startswith(_CHK):          # a checked RE-READ survives a merge only if every branch checked it
+            if all(e.get(k) == F for e in envs): out[k] = F
+            continue
+        out[k] = join(*[e[k] for e in envs if k in e])
     return out
+
+
+# A CHECKED RE-READ (2026-11-24, contract §1-2). `if request.args.get("f") in ALLOWED:` validates ONE read of a
+# source; a use that reads it again is covered only if the source gives the same value both times. Such an
+# expression is remembered in the env under this key; the taint of a re-read inside the branch is F, and the sink
+# is judged with the TOCTOU shape (EARNED IF STABLE), not as plainly clean. A local Name is one read: plain EARNED.
+_CHK = "__chk__:"
+_REREAD = (ast.Call, ast.Attribute, ast.Subscript)
+
+
+def _gkey(node):
+    """The env key a guard narrows: a variable's name, or a re-readable expression's key; else None."""
+    if isinstance(node, ast.Name): return node.id
+    if isinstance(node, _REREAD): return _CHK + ast.dump(node)
+    return None
 
 def _set_env(env, new):
     env.clear(); env.update(new)
@@ -439,17 +458,17 @@ class Engine:
                 and isinstance(t.comparators[0], ast.Constant) and t.comparators[0].value is None:
             v, n = self._atom_guard(t.left)                 # RE.fullmatch(x) is None -> the negation
             return (v, (n != isinstance(t.ops[0], ast.Is))) if v else (None, False)
-        if isinstance(t, ast.Compare) and len(t.ops) == 1 and isinstance(t.left, ast.Name) \
+        if isinstance(t, ast.Compare) and len(t.ops) == 1 and _gkey(t.left) \
                 and isinstance(t.ops[0], (ast.In, ast.NotIn)):
             c = t.comparators[0]
             if literal_collection(c) or (dotted(c) in self.const_coll):
-                return (t.left.id, neg != isinstance(t.ops[0], ast.NotIn))
+                return (_gkey(t.left), neg != isinstance(t.ops[0], ast.NotIn))
         if isinstance(t, ast.Call) and isinstance(t.func, ast.Attribute):
-            if t.func.attr in VALIDATING_METHODS and isinstance(t.func.value, ast.Name) and not t.args:
-                return (t.func.value.id, neg)          # x.isdigit()
+            if t.func.attr in VALIDATING_METHODS and _gkey(t.func.value) and not t.args:
+                return (_gkey(t.func.value), neg)      # x.isdigit()
             if t.func.attr == "fullmatch" and t.args:  # RE.fullmatch(x) / re.fullmatch(p, x)
                 a = t.args[-1] if dotted(t.func.value) == "re" else t.args[0]
-                if isinstance(a, ast.Name): return (a.id, neg)
+                if _gkey(a): return (_gkey(a), neg)
         return (None, False)
 
     def _guards(self, test):
@@ -511,6 +530,7 @@ class Engine:
     # ---------- taint of an expression ----------
     def taint(self, node, env):
         if node is None: return F
+        if isinstance(node, _REREAD) and env.get(_CHK + ast.dump(node)) == F: return F   # a checked re-read
         if isinstance(node, ast.Await): return self.taint(node.value, env)
         if isinstance(node, ast.Constant): return F
         if isinstance(node, ast.Name):
@@ -857,7 +877,12 @@ class Engine:
             if ctx and first is not None:
                 # a query with bind parameters is still injectable when its TEXT is tainted (was: any second
                 # argument -> "parameterised" -> clean, an unverified clean)
-                self._judge(c, callee, ctx, self.taint(first, env), False, report_earned)
+                st = self.taint(first, env)
+                stable = None
+                if st == F and any(k.startswith(_CHK) for k in env):
+                    raw = self.taint(first, {k: v for k, v in env.items() if not k.startswith(_CHK)})
+                    if raw != F: stable = ast.unparse(first)          # clean ONLY through a checked re-read
+                self._judge(c, callee, ctx, st, False, report_earned, stable=stable)
                 continue
             self._more_sinks(c, callee, env, report_earned)
 
@@ -1073,10 +1098,13 @@ class Engine:
         self._walk(st.orelse, out, report_earned)
         _set_env(env, out)
 
-    def _judge(self, c, callee, ctx, st, parameterised=False, report_earned=True):
+    def _judge(self, c, callee, ctx, st, parameterised=False, report_earned=True, stable=None):
         st = _at(st, ctx)
         eff = F if parameterised else st              # parameterised query is safe (F)
-        d = taintjudge.judge_taint(eff, ctx, source=callee, sink=callee)   # the ONE ZTL judge
+        if stable and eff == F and not parameterised:  # clean only through a re-read of a checked source
+            d = taintjudge.judge_if_stable(ctx, checked=stable, sink=callee)
+        else:
+            d = taintjudge.judge_taint(eff, ctx, source=callee, sink=callee)   # the ONE ZTL judge
         if d == "EARNED":
             if not report_earned: return
             w = "parameterised" if parameterised else "nothing attacker-controlled reaches the sink"
