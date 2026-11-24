@@ -311,7 +311,8 @@ def _read(z):
                 except Exception as ex:                       # an argument the floor cannot read: say so
                     doms.append((op, f"UNREAD: {ex}"[:80]))
     except Exception as ex:
-        return {"translated": True, "claim": c["zfl"], "sheet": text, "ztl": "UNREAD", "why": str(ex)[:200]}
+        return {"translated": True, "claim": c["zfl"], "sheet": text, "ztl": "UNREAD",
+                "why": f"{type(ex).__name__}: {ex}"[:200]}
     out = {"translated": True, "claim": c["zfl"], "sheet": text, "ztl": r["disposition"],
            "why": r.get("why"), "domain": doms, "context_unused": unused}
     if r["disposition"] in ("OPEN", "E"):
@@ -331,7 +332,13 @@ def read_safe(t, mem_bytes=3 << 30, seconds=120):
     rd, wr = ctx.Pipe(duplex=False)
 
     def work():
-        resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+        # the limit is ON TOP of what the forked child already maps (MEASURED 2026-11-24: a flat 3 GB inside a scan that
+        # holds 29750 proofs and pyarrow left nothing — 15 of 1000 readings died as an empty MemoryError at once)
+        try:
+            base = int(open("/proc/self/statm").read().split()[0]) * resource.getpagesize()
+        except OSError:
+            base = 0
+        resource.setrlimit(resource.RLIMIT_AS, (base + mem_bytes, base + mem_bytes))
         try:
             wr.send(read(t))
         except MemoryError:
