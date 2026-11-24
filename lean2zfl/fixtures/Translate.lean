@@ -44,4 +44,10 @@ theorem t_inner_neg (x : ℝ) : x > 0 ∧ ((∀ y : ℝ, y ≤ x) → x > 1) := 
 -- UNTR: ¬¬∀ is not positive here — classical ¬¬p = p falls in ZTL on a marked atom
 theorem t_notnot_all : ¬¬ (∀ y : ℝ, y ^ 2 ≥ 0) := by sorry
 
+-- ZTL EARNED: x > 1 and n a natural: x ^ n >= 1 for every n (the power over the exponent's integer range)
+theorem t_npow (x : ℝ) (n : ℕ) (hx : 1 < x) : x ^ n ≥ 1 := by sorry
+
+-- WITNESS refuted: 2 ^ n >= n + 2 fails at n = 0 (1 >= 2)
+theorem t_npow_false (n : ℕ) : 2 ^ n ≥ n + 2 := by sorry
+
 end ZFLReadFix

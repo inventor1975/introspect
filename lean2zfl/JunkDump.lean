@@ -336,7 +336,10 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
       -- a CLOSED exponent (no variable): its mathematics is a number, written as one — `a ^ (1 / 3)` over ℕ is
       -- Lean's a ^ 0 and the author's cube root, and the floor reads the author's (pow, exact 1/3)
       if !x.hasFVar then return s!"pow({b}, {← zTerm names x})"
-      throwError "untr: a power with a symbolic natural exponent"
+      -- a VARIABLE natural/integer exponent (2026-11-24, step 2): pow(b, n), n a quantity of the box on the integer
+      -- lattice — ZTL's floor reads the power over the exponent's integer range (VR's vpow: repeated multiplication)
+      if xty.isConstOf `Nat || xty.isConstOf `Int then return s!"pow({b}, {← zTerm names x})"
+      throwError "untr: a power with a symbolic exponent of another type"
   | some `Real.sqrt => fn1 "sqrt"
   | some `Real.log => fn1 "ln"
   | some `Real.exp => fn1 "exp"
