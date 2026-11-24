@@ -121,4 +121,23 @@ theorem t_geo_nat : ∑' i : ℕ, 1 / 2 ^ i = 1 := by sorry
 -- READINGS DEPENDS zeta=T mathlib=F limit=E: Euler's 1 + 2 + 4 + 8 + … = −1
 theorem t_euler : ∑' n : ℕ, (2 : ℝ) ^ n = -1 := by sorry
 
+-- FINITE SUMS (2026-11-25): Finset.sum / Finset.prod over an interval, read as ordinary mathematics
+-- ZTL EARNED: Gauss — a concrete interval, written out and summed exactly
+theorem t_gauss : ∑ i ∈ Finset.range 101, i = 5050 := by decide
+
+-- ZTL EARNED: Faulhaber's Σ i² over a variable bound — a cubic identity, read by the floor's exact polynomial path
+theorem t_squares (n : ℕ) : ∑ i ∈ Finset.Icc 1 n, (i : ℝ) ^ 2 = n * (n + 1) * (2 * n + 1) / 6 := by sorry
+
+-- WITNESS refuted: Σ_{i<n} (2i + 1) = n², not n² + 1 (n = 0: the empty sum is 0)
+theorem t_odd_wrong (n : ℕ) : ∑ i ∈ Finset.range n, (2 * (i : ℝ) + 1) = n ^ 2 + 1 := by sorry
+
+-- ZTL EARNED: a finite geometric sum, the telescoping closed form against 2^n − 1
+theorem t_geo_fin (n : ℕ) : ∑ i ∈ Finset.range n, (2 : ℝ) ^ i = 2 ^ n - 1 := by sorry
+
+-- WITNESS refuted: Σ_{i=1}^{n} i/2^i ≤ 1 fails at n = 3 (1/2 + 2/4 + 3/8 = 11/8)
+theorem t_geo_poly (n : ℕ) : ∑ i ∈ Finset.Icc 1 n, (i : ℝ) / 2 ^ i ≤ 1 := by sorry
+
+-- ZTL EARNED: a product over a concrete interval: 5! = 120
+theorem t_prod5 : ∏ i ∈ Finset.Icc 1 5, i = 120 := by decide
+
 end ZFLReadFix

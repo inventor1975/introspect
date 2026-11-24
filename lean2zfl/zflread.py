@@ -243,9 +243,25 @@ def _unmark(text, conv):
 def _reading(z, conv):
     import copy
     z = copy.deepcopy(z)
-    for part in [z.get("concl", {})] + list(z.get("hyps", [])):
+    parts = [z.get("concl", {})] + list(z.get("hyps", []))
+    for part in parts:
         if "zfl" in part:
             part["zfl"] = _unmark(part["zfl"], conv)
+    if any(_has_fsum(p.get("zfl", "")) for p in parts):
+        try:                                             # the box decides a closed form's guard hi >= lo - 1
+            b, _ = box(z)
+            text = sheet(b)
+            qs, marks = parse_quantities(text) if text else ({}, {})
+        except Exception:
+            qs = marks = None
+        for part in parts:
+            if _has_fsum(part.get("zfl", "")):
+                r = _fsum_reading(part["zfl"], qs, marks)
+                if r is None:
+                    del part["zfl"]
+                    part["untr"] = "a finite sum outside the readable classes"
+                else:
+                    part["zfl"] = r
     return z
 
 
@@ -606,6 +622,120 @@ def _zeta_exact(text):
         last = k
     out.append(text[last:])
     return "".join(out)
+
+
+# FINITE SUMS (2026-11-25): the dumper's fsum(i, lo, hi, body) / fprod(...) is Lean's Finset.sum / Finset.prod over an
+# interval of ℕ or ℤ, hi INCLUSIVE. Ordinary mathematics — no convention and no method: the empty interval sums to 0
+# (multiplies to 1). Read three ways, each exact:
+#   * concrete bounds, at most _FSUM_EXPAND terms: written out term by term (any body, other variables included);
+#   * concrete bounds, more terms, a body with no other name: summed exactly term by term (at most _FSUM_EXACT);
+#   * otherwise Σ P(i) r^i with r rational ≠ 0: zsummation's closed form (Faulhaber for r = 1, the telescoping Q for
+#     r ≠ 1), valid for hi ≥ lo − 1 — that guard is DECIDED on the box by the floor itself; undecided, it stays an
+#     ifpos the floor reads as a mark. Anything else (a product with a variable bound, a body with other names under a
+#     variable bound, ℕ's floor in the body): not read — the part goes untranslated, never guessed.
+_FSUM_EXPAND = 300
+_FSUM_EXACT = 20000
+_NAME = r"\b[A-Za-z_][A-Za-z0-9_]*\b"
+
+
+def _split_top(inner):
+    parts, depth, last = [], 0, 0
+    for k, ch in enumerate(inner):
+        depth += (ch == "(") - (ch == ")")
+        if ch == "," and depth == 0:
+            parts.append(inner[last:k])
+            last = k + 1
+    parts.append(inner[last:])
+    return [x.strip() for x in parts]
+
+
+def _exact_of(text):
+    """the exact rational value of a text with no name, or None"""
+    try:
+        from znumjudge import _parse_arith
+        from znum import _ev_exact
+        v = _ev_exact(_parse_arith(text, {}), {})
+    except Exception:
+        return None
+    return v if isinstance(v, _Fr) else None
+
+
+def _ptext(p, x):
+    terms = [f"({_print(c)} * ({x})**{k})" if k else _print(c) for k, c in sorted(p.items())]
+    return "(" + " + ".join(terms) + ")" if terms else "0"
+
+
+def _fsum_one(name, var, lo, hi, body, qs, marks):
+    a, b = _exact_of(lo), _exact_of(hi)
+    a = int(a) if a is not None and a.denominator == 1 else None
+    b = int(b) if b is not None and b.denominator == 1 else None
+    empty = "0" if name == "fsum" else "1"
+    others = [w for w in re.findall(_NAME, body) if w not in _zfun_words and w != var]
+    sub = lambda i: re.sub(rf"\b{re.escape(var)}\b", f"({i})", body)          # noqa: E731
+    if a is not None and b is not None:
+        if b < a:
+            return empty
+        if b - a + 1 <= _FSUM_EXPAND:
+            return "(" + (" + " if name == "fsum" else " * ").join(f"({sub(i)})" for i in range(a, b + 1)) + ")"
+        if not others and b - a + 1 <= _FSUM_EXACT:
+            acc = _Fr(0) if name == "fsum" else _Fr(1)
+            for i in range(a, b + 1):
+                v = _exact_of(sub(i))
+                if v is None:
+                    return None
+                acc = acc + v if name == "fsum" else acc * v
+            return _print(acc)
+    if name != "fsum":
+        return None
+    pr = _series_poly(var, body)
+    if pr is None or pr[0] == "finite":
+        return None
+    p, r = pr
+    if not isinstance(r, _Fr) or r == 0:
+        return None
+    if r == 1:
+        F = _zs.faulhaber(p)
+        closed = f"({_ptext(F, hi)} - {_ptext(F, f'({lo}) - 1')})"
+    else:
+        Q, R = _zs.geo_q(p, r), _print(r)
+        closed = f"(({_ptext(Q, lo)} * pow({R}, {lo})) - ({_ptext(Q, f'({hi}) + 1')} * pow({R}, (({hi}) + 1))))"
+    if a is not None and b is not None:
+        return closed                                    # b >= a here
+    guard = f"((({hi}) - ({lo})) + 1)"
+    if qs is not None:
+        try:
+            if judge_sheet_claim(f"{guard} >= 0", dict(qs), marks)["disposition"] == "EARNED":
+                return closed
+            if judge_sheet_claim(f"{guard} < 0", dict(qs), marks)["disposition"] == "EARNED":
+                return empty
+        except Exception:
+            pass
+    return f"ifpos(({guard} + (1 / 2)), {closed}, 0)"
+
+
+def _fsum_reading(text, qs=None, marks=None):
+    """every fsum / fprod in text read as ordinary mathematics (innermost first); None if one cannot be read"""
+    for name in ("fsum", "fprod"):
+        out, last = [], 0
+        for j, k, inner in _calls(text, name):
+            parts = _split_top(inner)
+            if len(parts) != 4:
+                return None
+            var, rest = parts[0], [_fsum_reading(x, qs, marks) for x in parts[1:]]
+            if None in rest:
+                return None
+            r = _fsum_one(name, var, *rest, qs, marks)
+            if r is None:
+                return None
+            out += [text[last:j], f"({r})"]
+            last = k
+        out.append(text[last:])
+        text = "".join(out)
+    return text
+
+
+def _has_fsum(t):
+    return bool(re.search(r"\bf(sum|prod)\(", t))
 
 
 def _map_texts(z, f):

@@ -305,6 +305,12 @@ def zflName (s : String) (taken : List String) : String := Id.run do
 
 abbrev ZNames := Std.HashMap FVarId String
 
+def numKind (t : Lean.Expr) : MetaM String := do
+  let ty ← whnfR t
+  return if ty.isConstOf `Real then "real" else if ty.isConstOf `Nat then "nat"
+         else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat" else ""
+
+
 partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
   let e := e.consumeMData
   match e with
@@ -381,6 +387,30 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
           return s!"series({sn}, {← zTerm (names.insert x.fvarId! sn) (b.instantiate1 x)})"
       | _ => throwError "untr: tsum"
     | none => throwError "untr: tsum of a function that is not a λ"
+  -- FINITE SUMS AND PRODUCTS (2026-11-25): ∑ i ∈ s, f i over an interval of ℕ or ℤ -> fsum(s_i, lo, hi, f) with hi
+  -- INCLUSIVE (range n: 0..n−1, Icc a b: a..b, Ico a b: a..b−1, Ioc: a+1..b, Ioo: a+1..b−1); ∏ -> fprod. An empty
+  -- interval is the empty sum 0 (empty product 1) — ordinary mathematics, no convention
+  | some `Finset.sum | some `Finset.prod =>
+    if args.size != 5 then throwError "untr: a finite sum partially applied"
+    let which := if e.getAppFn.constName! == `Finset.sum then "fsum" else "fprod"
+    let s := args[3]!.consumeMData
+    let sa := s.getAppArgs
+    let bounds : Option (String × String) ← match s.getAppFn.constName? with
+      | some `Finset.range =>
+        if sa.size == 1 then pure (some ("0", s!"({← zTerm names sa[0]!} - 1)")) else pure none
+      | some `Finset.Icc => pure (some (← zTerm names sa[sa.size-2]!, ← zTerm names sa[sa.size-1]!))
+      | some `Finset.Ico => pure (some (← zTerm names sa[sa.size-2]!, s!"({← zTerm names sa[sa.size-1]!} - 1)"))
+      | some `Finset.Ioc => pure (some (s!"({← zTerm names sa[sa.size-2]!} + 1)", ← zTerm names sa[sa.size-1]!))
+      | some `Finset.Ioo => pure (some (s!"({← zTerm names sa[sa.size-2]!} + 1)", s!"({← zTerm names sa[sa.size-1]!} - 1)"))
+      | _ => pure none
+    match bounds, args[4]!.consumeMData with
+    | some (lo, hi), .lam nm t b bi =>
+      let k ← numKind t
+      if k != "nat" && k != "int" then throwError "untr: a finite sum over a non-integer index"
+      return ← withLocalDecl nm bi t fun x => do
+        let sn := "s_" ++ (zflName nm.toString []).drop 2
+        return s!"{which}({sn}, {lo}, {hi}, {← zTerm (names.insert x.fvarId! sn) (b.instantiate1 x)})"
+    | _, _ => throwError "untr: a finite sum over a set that is not an interval"
   | some `riemannZeta => fn1 "zeta"           -- read exactly by zflread at an integer ≤ 0 (−B_{k+1}/(k+1)), else untr
   | some `Real.sqrt => fn1 "sqrt"
   | some `Real.log => fn1 "ln"
@@ -404,11 +434,6 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
     if args.size == 0 then throwError "untr: cast" else zTerm names args[args.size - 1]!
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
-
-def numKind (t : Lean.Expr) : MetaM String := do
-  let ty ← whnfR t
-  return if ty.isConstOf `Real then "real" else if ty.isConstOf `Nat then "nat"
-         else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat" else ""
 
 /-- variables a conclusion's inner universals add to the box, and the ZFL names already taken -/
 abbrev ZExtra := IO.Ref (Array Json × List String)

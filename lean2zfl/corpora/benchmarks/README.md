@@ -45,3 +45,23 @@ What may be ours, unconfirmed:
 - counterexamples to the **exact** mathematical reading (ℚ points, partial functions, a box from the hypotheses);
 - reading ℕ's conventions **twice**, so a refutation that rests on them is labelled as such;
 - convention lemmas found **inside AI proof terms**, on Lean Workbook through Goedel-Prover's proofs.
+
+## Finite sums, 2026-11-25 (measured)
+
+`Finset.sum` / `Finset.prod` over an interval (`range`, `Icc`, `Ico`, `Ioc`, `Ioo`) now translate to `fsum` / `fprod`.
+zflread reads them exactly: it writes out a concrete interval term by term, and it uses closed forms for Σ P(i) r^i
+over a variable bound (Faulhaber; the telescoping form for r ≠ 1). The closed form needs the guard hi ≥ lo − 1, and
+the floor decides that guard on the box. ZTL got an exact polynomial-identity path, needed for Faulhaber's cubics,
+which its parabola reading had left OPEN.
+
+The fixtures pass: Gauss 5050, Σ i², Σ 2^i, 5! = 120, and two refutations (Σ (2i+1) = n² + 1 at n = 0; Σ i/2^i ≤ 1 at
+n = 3).
+
+**On the corpora the gain is zero:**
+- **Lean Workbook:** of 44 statements with `∑`/`∏`, none became readable. Every one sums a family of variables
+  (`a : Fin n → ℝ`), or ranges over a `Finset`, a matrix or a type.
+- **PutnamBench:** none of the 11 statements that `Finset.sum` had blocked became readable. Each now stops at the
+  next blocker: a sum over a non-interval set, a body where the bound appears (`choose n r`, `n^i / i!`), `floor`,
+  or a function.
+
+The next boundary is function variables, not finite sums.
