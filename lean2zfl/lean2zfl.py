@@ -51,6 +51,12 @@ FAMILY = {"tsum": {"tsum_eq_zero_of_not_summable"},
           "riemannZeta": {"riemannZeta_one"}}
 TRUNCATING_SUB = {"ℕ", "Nat", "ℝ≥0", "NNReal", "ℝ≥0∞", "ENNReal"}
 
+# NOT ADOPTED (MEASURED 2026-11-24): "no junk lemma of the family anywhere in the proof's chain -> EARNED" moved 75 of
+# 173 OPEN in six Mathlib modules, and some were FALSE clears — Real.log_zero itself (proved by `simp [log]`),
+# Real.exp_log_of_neg, inv_nonpos'. The convention is also reached by unfolding a definition and through class fields
+# (GroupWithZero.inv_zero), which a lemma-name chain does not see. The chain is kept in the dump (`junk_reach`) as
+# information only; it decides nothing.
+
 UNPARSED = []     # files that did not elaborate: NOT analysed, NOT clean
 
 

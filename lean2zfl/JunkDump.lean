@@ -167,7 +167,29 @@ partial def visitJunk (concl e : Expr) (under : Bool) (acc : IO.Ref (Array Json)
   | .proj _ _ b => visitJunk concl b under acc
   | _ => pure ()
 
-def dumpOne (n : Name) : TermElabM Json := do
+/-- The junk lemmas a theorem's proof reaches ANYWHERE in its chain of lemmas (theorems only: a definition is a term
+the statement talks about, not a step of the proof). Memoised for the whole run. Its blind spot, stated: a junk value
+reached by unfolding a definition, with no named lemma, is not seen. -/
+abbrev JunkMemo := IO.Ref (Std.HashMap Name (Array Name))
+
+partial def junkReach (junkMemo : JunkMemo) (c : Name) : CoreM (Array Name) := do
+  if let some r := (← junkMemo.get).get? c then return r
+  junkMemo.modify (·.insert c #[])               -- guard (the constant graph is acyclic; this only stops re-entry)
+  let env ← getEnv
+  let mut out : Array Name := #[]
+  match env.find? c with
+  | some (.thmInfo v) =>
+    for u in v.value.getUsedConstants do
+      if junkLemmas.contains u then
+        unless out.contains u do out := out.push u
+      else
+        for x in ← junkReach junkMemo u do
+          unless out.contains x do out := out.push x
+  | _ => pure ()
+  junkMemo.modify (·.insert c out)
+  return out
+
+def dumpOne (memo : JunkMemo) (n : Name) : TermElabM Json := do
   let ci ← getConstInfo n
   let used := (ci.value?.map (·.getUsedConstants)).getD #[]
   let lemmas := used.filter (junkLemmas.contains ·)
@@ -190,11 +212,13 @@ def dumpOne (n : Name) : TermElabM Json := do
                        ("statement", Json.str s!"{← ppExpr concl}"),
                        ("hyps", Json.arr hyps), ("junk_ops", Json.arr ops),
                        ("junk_lemmas", Json.arr (lemmas.map (Json.str ·.toString))),
+                       ("junk_reach", Json.arr ((← junkReach memo n).map (Json.str ·.toString))),
                        ("axioms", Json.arr (axs.map (Json.str ·.toString)))]
 
 /-- every theorem declared in THIS file (not imported), auxiliary declarations skipped -/
 elab "#lean2zfl_dump_here" : command => liftTermElabM do
   let env ← getEnv
+  let memo : JunkMemo ← IO.mkRef {}
   for (n, ci) in env.constants.map₂.toList do
     if n.isInternal || (`Lean2ZFL).isPrefixOf n then continue
     match ci with
@@ -202,13 +226,14 @@ elab "#lean2zfl_dump_here" : command => liftTermElabM do
       if (← findDeclarationRanges? n).isNone then continue   -- generated (equation lemmas): not the author's theorem
       -- a theorem the dumper cannot read is REPORTED, never dropped (MEASURED 2026-11-24: 4 of 342 vanished silently)
       -- runtime exceptions too (heartbeats, recursion depth): a plain `try` does not catch them and the command stops
-      tryCatchRuntimeEx (withCurrHeartbeats do IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress))
+      tryCatchRuntimeEx (withCurrHeartbeats do IO.println ("LEAN2ZFL " ++ (← dumpOne memo n).compress))
         (fun e => do IO.println s!"LEAN2ZFL_FAIL {n} {(← e.toMessageData.toString).replace "\n" " "}")
     | _ => pure ()
 
 /-- every theorem of an IMPORTED, already built module (read from its .olean; nothing is re-elaborated) -/
 elab "#lean2zfl_dump_module " m:ident : command => liftTermElabM do
   let env ← getEnv
+  let memo : JunkMemo ← IO.mkRef {}
   let some idx := env.getModuleIdx? m.getId | throwError s!"module {m.getId} is not imported"
   IO.println s!"LEAN2ZFL_MODULE {m.getId}"
   for (n, ci) in env.constants.map₁.toList do
@@ -218,7 +243,7 @@ elab "#lean2zfl_dump_module " m:ident : command => liftTermElabM do
       if (← findDeclarationRanges? n).isNone then continue   -- generated (equation lemmas): not the author's theorem
       -- a theorem the dumper cannot read is REPORTED, never dropped (MEASURED 2026-11-24: 4 of 342 vanished silently)
       -- runtime exceptions too (heartbeats, recursion depth): a plain `try` does not catch them and the command stops
-      tryCatchRuntimeEx (withCurrHeartbeats do IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress))
+      tryCatchRuntimeEx (withCurrHeartbeats do IO.println ("LEAN2ZFL " ++ (← dumpOne memo n).compress))
         (fun e => do IO.println s!"LEAN2ZFL_FAIL {n} {(← e.toMessageData.toString).replace "\n" " "}")
     | _ => pure ()
 
