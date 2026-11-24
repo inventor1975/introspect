@@ -269,7 +269,12 @@ def read(t):
     conventions, also LEAN'S reading of them (`ztl_conv`), and the mark `rests_on_nat_convention` when the mathematics
     is refuted (or refuted at a point) and Lean's convention holds there"""
     raw = _core_arrows(t.get("zfl") or {})
-    out = _read(_reading(raw, False) if raw else raw)
+    math = _reading(raw, False) if raw else raw
+    out = _read(math)
+    if out.get("translated"):
+        # the hypotheses in the exact reading: what a certificate must show at a witness point (certify.py)
+        out["hyps_zfl"] = [h["zfl"] for h in math.get("hyps", []) if "zfl" in h]
+        out["hyps_untr"] = sum(1 for h in math.get("hyps", []) if "zfl" not in h)
     if out.get("translated") and _marked(raw):
         zc = _reading(raw, True)
         try:
@@ -281,7 +286,7 @@ def read(t):
                 at = ", ".join(f"{n}={v} earned:pt" for n, v in w["refuted_at"].items())
                 q2, m2 = parse_quantities(at) if at else ({}, {})
                 w["conv_at_point"] = judge_sheet_claim(zc["concl"]["zfl"], q2, m2)["disposition"]
-            if (out.get("ztl") == "REFUTED" and out["ztl_conv"] == "EARNED") or w.get("conv_at_point") == "EARNED":
+            if w.get("conv_at_point") == "EARNED":       # only at an admissible point (the empty one included)
                 out["rests_on_nat_convention"] = True
         except Exception as ex:                          # the second reading is information; it never sinks the first
             out["ztl_conv"] = f"UNREAD: {ex}"[:120]
@@ -315,10 +320,24 @@ def _read(z):
                 "why": f"{type(ex).__name__}: {ex}"[:200]}
     out = {"translated": True, "claim": c["zfl"], "sheet": text, "ztl": r["disposition"],
            "why": r.get("why"), "domain": doms, "context_unused": unused}
-    if r["disposition"] in ("OPEN", "E"):
+    if r["disposition"] in ("OPEN", "E", "REFUTED"):
+        # A REFUTED CONCLUSION IS NOT A FALSE STATEMENT until a point satisfies the hypotheses (MEASURED 2026-11-24:
+        # lean_workbook_53067's hypothesis IS its conclusion — both false, the statement vacuously true; Lean's kernel
+        # refused the certificate "hypotheses ∧ ¬ conclusion"). A refutation counts only with `refuted_at`, the
+        # empty point included for a statement with no variables; hypotheses refuted over the box: `vacuous`.
         w = witness(z, b)
         if w:
             out["witness"] = w
+        if r["disposition"] == "REFUTED" and "refuted_at" not in (w or {}):
+            hs = []
+            for h in z.get("hyps", []):
+                if "zfl" in h:
+                    try:
+                        hs.append(judge_sheet_claim(h["zfl"], dict(qs), marks)["disposition"])
+                    except Exception:
+                        hs.append("?")
+            out["vacuous"] = any(d == "REFUTED" for d in hs)
+            out["admissible_unknown"] = not out["vacuous"]
     return out
 
 

@@ -71,4 +71,8 @@ theorem t_modeq : 17 ≡ 2 [MOD 5] := by decide
 -- WITNESS refuted: 3 ∣ n is false at n = 1
 theorem t_dvd_false (n : ℕ) : 3 ∣ n := by sorry
 
+-- VACUOUS: the hypothesis IS the conclusion and both are false mathematics — the statement is vacuously true, not a
+-- refutation (lean_workbook_53067's shape)
+theorem t_vacuous (h : (1 : ℕ) / 3 * 3 = 1) : (1 : ℕ) / 3 * 3 = 1 := h
+
 end ZFLReadFix

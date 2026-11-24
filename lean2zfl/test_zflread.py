@@ -36,6 +36,8 @@ for t in lean2zfl.dump_file(SRC):
     w, exp = r.get("witness") or {}, want[short]
     if exp == "UNTR":
         ok = not r.get("translated")
+    elif exp == "VACUOUS":                           # hypotheses refuted: no admissible point, no refutation
+        ok = r.get("vacuous") is True and "refuted_at" not in w
     elif exp == "NATCONV":                           # the mathematics refuted, Lean's ℕ convention holds (variant В)
         ok = r.get("rests_on_nat_convention") is True
     elif exp.startswith("ZTL "):
