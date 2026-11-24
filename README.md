@@ -88,8 +88,12 @@ every theorem from the elaborated environment and asks the ZTL judge, per junk o
 | **OPEN** | an unguarded operation, junk branch not seen |
 | **ON CREDIT** | the proof rests on an axiom beyond propext / choice / Quot.sound (`sorry` included), named |
 
-Measured on six Mathlib modules (342 theorems, generated equation lemmas excluded): EARNED 219, OPEN 110, E 13
-(e.g. `one_le_div_iff` at b = 0, `Real.log_le_self`), IF STABLE 0; on our ztl-classical (45 files, 310 theorems,
+Measured on six Mathlib modules (480 theorems, generated equation lemmas excluded, none lost): EARNED 285, OPEN 173,
+E 22 (e.g. `Real.log_pow` and `Real.log_inv` for every x, holding at 0 and below by the log convention;
+`one_le_div_iff` at b = 0), IF STABLE 0. An earlier count of 342 was short: 138 theorems were silently lost to a
+heartbeat limit shared by the whole command — now counted per theorem, and a theorem that cannot be read is listed
+as NOT ANALYSED. Most of the remaining OPEN are honest: a convention point really is in the statement (`(↑n)⁻¹` at
+n = 0 in a limit, `√(f y)` for every y in a derivative), and whether it matters is a semantic question; on our ztl-classical (45 files, 310 theorems,
 read from the built .olean files in one Lean run, 40 s): EARNED 306, OPEN 4. OPEN is coarse in v1 (terms under a binder, conditions phrased otherwise,
 summability known by a lemma); E is the precise part. Run: `python3 lean2zfl/lean2zfl.py FILE.lean` in a Lake
 project with Mathlib, or `--module PROJECT Mathlib.X.Y` for built modules.

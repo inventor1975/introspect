@@ -161,6 +161,7 @@ def dump_file(path, timeout=600):
     out = [json.loads(l[len("LEAN2ZFL "):]) for l in r.stdout.splitlines() if l.startswith("LEAN2ZFL ")]
     for t in out:
         t["line"] = max(0, int(t.get("line", 0)) - 1)
+    out += [{"_fail": l[len("LEAN2ZFL_FAIL "):][:300]} for l in r.stdout.splitlines() if l.startswith("LEAN2ZFL_FAIL ")]
     errs = [l for l in r.stdout.splitlines() if ": error" in l]
     if errs and not out:
         raise RuntimeError(f"{path}: does not elaborate: {errs[0][:300]}")
@@ -179,6 +180,7 @@ def dump_module(module, project, timeout=1800):
     finally:
         os.unlink(tmp)
     out = [json.loads(l[len("LEAN2ZFL "):]) for l in r.stdout.splitlines() if l.startswith("LEAN2ZFL ")]
+    out += [{"_fail": l[len("LEAN2ZFL_FAIL "):][:300]} for l in r.stdout.splitlines() if l.startswith("LEAN2ZFL_FAIL ")]
     if not out and r.returncode != 0:
         raise RuntimeError(f"{module}: {(r.stdout + r.stderr)[-300:]}")
     return out
@@ -194,6 +196,9 @@ def analyze_modules(modules, project):
             UNPARSED.append((m, str(e)[:300]))
             continue
         for t in ths:
+            if "_fail" in t:
+                UNPARSED.append((m, "theorem not read: " + t["_fail"]))
+                continue
             d, why, _c, _m = judge_theorem(t)
             fams = sorted({o["op"] for o in t.get("junk_ops", [])})
             rows.append((m, t.get("line", 0), t["name"], "junk:" + (",".join(fams) or "none"), d, why))
@@ -230,6 +235,8 @@ def dump_modules(modules, project, timeout=1800):
             cur = l.split(" ", 1)[1].strip(); out.setdefault(cur, [])
         elif l.startswith("LEAN2ZFL ") and cur:
             out[cur].append(json.loads(l[len("LEAN2ZFL "):]))
+        elif l.startswith("LEAN2ZFL_FAIL ") and cur:
+            out[cur].append({"_fail": l[len("LEAN2ZFL_FAIL "):][:300]})
     if not out and r.returncode != 0:
         raise RuntimeError((r.stdout + r.stderr)[-300:])
     return out
@@ -250,6 +257,9 @@ def analyze_app(paths, file_timeout=600):
 
     def emit(p, ths):
         for t in ths:
+            if "_fail" in t:
+                UNPARSED.append((p, "theorem not read: " + t["_fail"]))
+                continue
             d, why, _c, _m = judge_theorem(t)
             fams = sorted({o["op"] for o in t.get("junk_ops", [])})
             rows.append((p, t.get("line", 0), t["name"], "junk:" + (",".join(fams) or "none"), d, why))

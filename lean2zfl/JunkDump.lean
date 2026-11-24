@@ -71,7 +71,9 @@ def proves (goal : Expr) (tac : String) : TermElabM Bool := do
       -- NO ERROR RECOVERY (MEASURED 2026-11-24): with it, a failing tactic is logged and the goal is closed by
       -- `sorryAx`, which read as a PROVED guard (`m ≤ n` for arbitrary naturals came back "proved"). So: errors are
       -- exceptions here, and the proof term must contain neither a sorry nor an unassigned metavariable.
-      Term.withoutErrToSorry <| withOptions (fun o => maxHeartbeats.set o 20000) do
+      -- the budget counts from HERE (withCurrHeartbeats): without it the 20000 were measured from the start of the
+      -- whole command, so on later theorems of a module every attempt "ran out" at once = a false "not proved"
+      Term.withoutErrToSorry <| withCurrHeartbeats <| withOptions (fun o => maxHeartbeats.set o 20000) do
         let gs ← Tactic.run g.mvarId! (Tactic.withoutRecover (Tactic.evalTactic stx))
         if !gs.isEmpty then return false
         let pf ← instantiateMVars g
@@ -89,15 +91,15 @@ def domainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
       let d := args[args.size - 1]!
       if d.hasLooseBVars then return none
       return some (← mkAppM `Ne #[d, ← mkAppOptM `OfNat.ofNat #[← inferType d, mkRawNatLit 0, none]],
-                   "first | positivity | assumption | (intro h; norm_cast at h) | (intro h; norm_cast at h; omega) | (intro h; norm_num at h) | (intro h; norm_num at h; norm_cast at h; omega) | (intro h; norm_cast at h; simp [Nat.factorial_ne_zero] at h) | (norm_num; done)")
+                   "first | positivity | assumption | (intro h; norm_cast at h) | (intro h; norm_cast at h; omega) | (intro h; norm_num at h) | (intro h; norm_num at h; norm_cast at h; omega) | (intro h; norm_cast at h; simp [Nat.factorial_ne_zero] at h) | (intro h; linarith) | (norm_num; done)")
     | `Real.sqrt =>
       let x := args[0]!; if x.hasLooseBVars then return none
       return some (← mkAppM `LE.le #[← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none], x],
-                   "first | positivity | assumption | (norm_num; done)")
+                   "first | positivity | assumption | linarith | (norm_num; done)")
     | `Real.log =>
       let x := args[0]!; if x.hasLooseBVars then return none
       return some (← mkAppM `LT.lt #[← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none], x],
-                   "first | positivity | assumption | (norm_num; done)")
+                   "first | positivity | assumption | linarith | (norm_num; done)")
     | `HSub.hSub =>
       let x := args[4]!; let y := args[5]!
       if x.hasLooseBVars || y.hasLooseBVars then return none
@@ -121,6 +123,50 @@ def generalizes (concl t : Expr) : TermElabM Bool := do
   -- one tactic: `a; b` parses only inside parentheses (unparenthesised, the parse failed silently = "not proved")
   proves goal "(intro x; first | ring | (simp; done) | omega | rfl | (norm_num; done))"
 
+/-- One junk occurrence as JSON, judged IN the current local context (so a binder's fresh variable and the binder's
+own hypotheses — `∀ x, 0 < x → …` — are there for the guard's proof). -/
+def occJson (concl a : Expr) (under : Bool) : TermElabM Json := do
+  let op := a.getAppFn.constName!
+  let carrier ← if [`Real.sqrt, `Real.log, `riemannZeta].contains op then pure ""
+                 else ppOrRaw a.getAppArgs[0]!
+  let proved ← match ← domainGoal a with
+    | some (g, tac) => proves g tac
+    | none => pure false
+  let gen ← if proved || under then pure false else generalizes concl a
+  return Json.mkObj [("op", Json.str op.toString), ("type", Json.str carrier),
+                     ("expr", Json.str (← ppOrRaw a)), ("args", Json.arr (← valueArgs a)),
+                     ("guard_proved", Json.bool proved), ("bound", Json.bool under),
+                     ("generalizes", Json.bool gen)]
+
+/-- Walk a statement; UNDER A BINDER (fun / ∀ / let) the bound variable is instantiated by a fresh local, so the
+occurrence is a closed term with free variables and its domain condition can be PROVED for an arbitrary value —
+i.e. for all values (MEASURED 2026-11-24: 41 of 110 OPEN theorems in six Mathlib modules had only such occurrences,
+which the raw walk could not even try). -/
+partial def visitJunk (concl e : Expr) (under : Bool) (acc : IO.Ref (Array Json)) : TermElabM Unit := do
+  match e.getAppFn with
+  | .const n _ =>
+    if junkOps.contains n && e.getAppNumArgs ≥ junkArity n then
+      let j ← occJson concl e under
+      acc.modify (·.push j)
+    if e.isApp then
+      for x in e.getAppArgs do visitJunk concl x under acc
+    return
+  | _ => pure ()
+  match e with
+  | .app f a => visitJunk concl f under acc; visitJunk concl a under acc
+  | .lam nm t b bi =>
+    visitJunk concl t under acc
+    withLocalDecl nm bi t fun x => visitJunk concl (b.instantiate1 x) true acc
+  | .forallE nm t b bi =>
+    visitJunk concl t under acc
+    withLocalDecl nm bi t fun x => visitJunk concl (b.instantiate1 x) true acc
+  | .letE nm t v b _ =>
+    visitJunk concl t under acc; visitJunk concl v under acc
+    withLetDecl nm t v fun x => visitJunk concl (b.instantiate1 x) true acc
+  | .mdata _ b => visitJunk concl b under acc
+  | .proj _ _ b => visitJunk concl b under acc
+  | _ => pure ()
+
 def dumpOne (n : Name) : TermElabM Json := do
   let ci ← getConstInfo n
   let used := (ci.value?.map (·.getUsedConstants)).getD #[]
@@ -137,19 +183,9 @@ def dumpOne (n : Name) : TermElabM Json := do
     for x in xs do
       let t ← inferType x
       if ← isProp t then hyps := hyps.push (Json.str s!"{← ppExpr t}")
-    let mut ops := #[]
-    for a in junkApps concl do
-      let op := a.getAppFn.constName!
-      let carrier ← if [`Real.sqrt, `Real.log, `riemannZeta].contains op then pure ""
-                     else ppOrRaw a.getAppArgs[0]!
-      let proved ← match ← domainGoal a with
-        | some (g, tac) => proves g tac
-        | none => pure false
-      let gen ← if proved then pure false else generalizes concl a
-      ops := ops.push (Json.mkObj [("op", Json.str op.toString), ("type", Json.str carrier),
-                                   ("expr", Json.str (← ppOrRaw a)), ("args", Json.arr (← valueArgs a)),
-                                   ("guard_proved", Json.bool proved), ("bound", Json.bool a.hasLooseBVars),
-                                   ("generalizes", Json.bool gen)])
+    let acc ← IO.mkRef #[]
+    visitJunk concl concl false acc
+    let ops ← acc.get
     return Json.mkObj [("name", Json.str n.toString), ("line", Json.num line),
                        ("statement", Json.str s!"{← ppExpr concl}"),
                        ("hyps", Json.arr hyps), ("junk_ops", Json.arr ops),
@@ -162,7 +198,12 @@ elab "#lean2zfl_dump_here" : command => liftTermElabM do
   for (n, ci) in env.constants.map₂.toList do
     if n.isInternal || (`Lean2ZFL).isPrefixOf n then continue
     match ci with
-    | .thmInfo _ => IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress)
+    | .thmInfo _ =>
+      if (← findDeclarationRanges? n).isNone then continue   -- generated (equation lemmas): not the author's theorem
+      -- a theorem the dumper cannot read is REPORTED, never dropped (MEASURED 2026-11-24: 4 of 342 vanished silently)
+      -- runtime exceptions too (heartbeats, recursion depth): a plain `try` does not catch them and the command stops
+      tryCatchRuntimeEx (withCurrHeartbeats do IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress))
+        (fun e => do IO.println s!"LEAN2ZFL_FAIL {n} {(← e.toMessageData.toString).replace "\n" " "}")
     | _ => pure ()
 
 /-- every theorem of an IMPORTED, already built module (read from its .olean; nothing is re-elaborated) -/
@@ -175,7 +216,10 @@ elab "#lean2zfl_dump_module " m:ident : command => liftTermElabM do
     match ci with
     | .thmInfo _ =>
       if (← findDeclarationRanges? n).isNone then continue   -- generated (equation lemmas): not the author's theorem
-      IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress)
+      -- a theorem the dumper cannot read is REPORTED, never dropped (MEASURED 2026-11-24: 4 of 342 vanished silently)
+      -- runtime exceptions too (heartbeats, recursion depth): a plain `try` does not catch them and the command stops
+      tryCatchRuntimeEx (withCurrHeartbeats do IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress))
+        (fun e => do IO.println s!"LEAN2ZFL_FAIL {n} {(← e.toMessageData.toString).replace "\n" " "}")
     | _ => pure ()
 
 end Lean2ZFL
