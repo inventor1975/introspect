@@ -14,6 +14,11 @@ import zfl                             # noqa: E402
 
 F, T, Z = "F", "T", "Z"
 
+# The judge's seven, worst first for a sink (contract §1). E stands apart: neither clean nor dirty.
+DISPOSITIONS = ("REFUTED", "REFUTED IF STABLE", "OPEN", "ON CREDIT", "EARNED IF STABLE", "EARNED", "E")
+# rank for "the worst sink wins": higher = worse; E ranks with OPEN (not clean)
+DRANK = {"EARNED": 0, "EARNED IF STABLE": 1, "ON CREDIT": 2, "OPEN": 3, "E": 3, "REFUTED IF STABLE": 4, "REFUTED": 5}
+
 
 def _slug(s):
     """A validator-safe ground token: letters/digits/_/- only (the readable text lives in `means`)."""
@@ -41,12 +46,11 @@ def _doc(st, ctx, source, sink):
 
 
 def judge_taint(st, ctx, source="input", sink="sink"):
-    """Return the ZTL core's disposition (REFUTED / OPEN / EARNED) for a taint state st over ctx."""
+    """Return the ZTL core's disposition (one of DISPOSITIONS) for a taint state st over ctx."""
     r = zfl.run(_doc(st, ctx, source, sink))
     errs = [i for i in r.get("issues", []) if i.get("level") == "error"]
     if errs or not r.get("ok", True):
         return "OPEN"                  # a refused document -> honest не-знаю, never a false clear/accusation
-    disp = r["report"]["judge"]["disposition"]
-    # IF STABLE (2026-10-29): holds only if the value is the same at check and at use — OPEN, never a clear or
-    # an accusation on that presumption
-    return {"ON CREDIT": "OPEN", "EARNED IF STABLE": "OPEN", "REFUTED IF STABLE": "OPEN"}.get(disp, disp)
+    # ALL SEVEN dispositions pass through (contract §1, 2026-11-24). They used to be folded into OPEN here; the
+    # judge's own word is now the report's word, and the report says what each one rests on.
+    return r["report"]["judge"]["disposition"]

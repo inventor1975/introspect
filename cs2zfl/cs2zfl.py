@@ -160,7 +160,8 @@ def _callee_name(callee):
 
 
 _RANK = {F: 0, Z: 1, T: 2}
-_DRANK = {"EARNED": 0, "OPEN": 1, "REFUTED": 2}
+_DRANK = {"EARNED": 0, "EARNED IF STABLE": 1, "ON CREDIT": 2, "OPEN": 3, "E": 3,
+          "REFUTED IF STABLE": 4, "REFUTED": 5}   # the judge's seven (contract §1); worst wins
 # of the transparent methods, those whose ARGUMENTS are content too (Substring(i, j)'s are numbers)
 ARG_CONTENT = {"Replace", "Insert", "Format", "Concat", "Join", "FromBase64String", "ToBase64String", "GetString",
                "GetBytes", "Decode", "UrlDecode", "HtmlDecode", "Combine", "ToString"}
@@ -742,7 +743,7 @@ class Engine:
     def _judge(self, call, name, ctx, st):
         st = _at(st, ctx)
         d = taintjudge.judge_taint(st, ctx, source="input", sink=name)   # the ONE ZTL judge
-        if d in ("REFUTED", "OPEN", "EARNED"):
+        if d in taintjudge.DRANK:       # all seven (contract §1): an unlisted disposition must not vanish silently
             self.sinks.append((call.get("line", 0), name, ctx, d))
 
     # ---------- effects ----------

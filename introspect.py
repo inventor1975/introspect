@@ -83,11 +83,12 @@ def _load(moddir):
 
 
 def _norm(d):
-    """Normalise a module's disposition to REFUTED / OPEN / EARNED."""
-    # IF STABLE (judge, 2026-10-29): settled only if a value reads the same at check and at use — in code that
-    # is exactly the assumption a time-of-check/time-of-use bug breaks, so neither a clear nor an accusation.
-    return {"ON CREDIT": "OPEN", "R": "REFUTED", "O": "OPEN", "F": "EARNED",
-            "E": "OPEN", "EARNED IF STABLE": "OPEN", "REFUTED IF STABLE": "OPEN"}.get(d, d)
+    """A module's disposition as one of the judge's seven (contract §1). Only the one-letter short forms are
+    expanded; nothing is folded any more (until 2026-11-24 ON CREDIT, both IF STABLE and E were reported as OPEN)."""
+    return {"R": "REFUTED", "O": "OPEN", "F": "EARNED"}.get(d, d)
+
+
+SHOWN = ("REFUTED", "REFUTED IF STABLE", "OPEN", "ON CREDIT", "EARNED IF STABLE", "EARNED", "E")
 
 
 def _classify(full, by_module, uncovered):
@@ -142,6 +143,8 @@ def main():
     ap.add_argument("--json", metavar="FILE", help="also write the full report as JSON")
     ap.add_argument("--open", action="store_true", help="list OPEN findings too, not just count them")
     ap.add_argument("--quiet", action="store_true", help="print only the summary line")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit nonzero on REFUTED IF STABLE too (an accusation that holds if a stored value is read back)")
     args = ap.parse_args()
 
     if not os.path.exists(args.project):
@@ -161,7 +164,7 @@ def main():
                                          "reason": f"{type(e).__name__}: {e}",
                                          "needs": PARSER_HINT.get(moddir, "")}
             continue
-        counts = {"REFUTED": 0, "OPEN": 0, "EARNED": 0}
+        counts = {k: 0 for k in SHOWN}
         for f in findings:
             counts[f["disp"]] = counts.get(f["disp"], 0) + 1
         report["languages"][moddir] = {"files": len(files), "counts": counts,
@@ -171,6 +174,8 @@ def main():
 
     total_refuted = sum(v["counts"].get("REFUTED", 0) for v in report["languages"].values())
     report["total_refuted"] = total_refuted
+    report["total_refuted_if_stable"] = sum(v["counts"].get("REFUTED IF STABLE", 0)
+                                            for v in report["languages"].values())
 
     _print(report, show_open=args.open, quiet=args.quiet)
     if args.json:
@@ -179,7 +184,7 @@ def main():
         if not args.quiet:
             print(f"\n(full report written to {args.json})")
 
-    sys.exit(1 if total_refuted else 0)
+    sys.exit(1 if total_refuted or (args.strict and report["total_refuted_if_stable"]) else 0)
 
 
 def _print(report, show_open=False, quiet=False):
@@ -194,7 +199,9 @@ def _print(report, show_open=False, quiet=False):
             c = v["counts"]
             print(f"  {LABEL[moddir]:<8} {v['files']:>5} files    "
                   f"REFUTED {c.get('REFUTED',0):<4} OPEN {c.get('OPEN',0):<4} "
-                  f"EARNED {c.get('EARNED',0)}")
+                  f"EARNED {c.get('EARNED',0)}"
+                  + "".join(f"  {k} {c[k]}" for k in ("REFUTED IF STABLE", "ON CREDIT", "EARNED IF STABLE", "E")
+                            if c.get(k)))
             if v.get("unparsed"):
                 shown = ", ".join(os.path.relpath(p, report["project"]) for p in v["unparsed"][:5])
                 more = f" (+{len(v['unparsed']) - 5} more)" if len(v["unparsed"]) > 5 else ""
@@ -230,14 +237,23 @@ def _print(report, show_open=False, quiet=False):
             for lbl, f in refuted:
                 print(f"  [{lbl}] {f['file']}:{f['line']}  {f['name']}  ({f['ctx']})")
 
+        cond = [(LABEL[m], f) for m in sorted(langs) for f in langs[m]["findings"]
+                if f["disp"] == "REFUTED IF STABLE"]
+        if cond:
+            print("-" * 72)
+            print("REFUTED IF STABLE — the accusation holds if the value read back is the one written:")
+            for lbl, f in cond:
+                print(f"  [{lbl}] {f['file']}:{f['line']}  {f['name']}  ({f['ctx']})")
+
         if show_open:
             openf = [(LABEL[m], f) for m in sorted(langs) for f in langs[m]["findings"]
-                     if f["disp"] == "OPEN"]
+                     if f["disp"] in ("OPEN", "ON CREDIT", "EARNED IF STABLE", "E")]
             if openf:
                 print("-" * 72)
-                print("OPEN — a sink is reached but the flow is unverifiable (not cleared, not accused):")
+                print("NOT CLEARED, NOT ACCUSED — OPEN (unverifiable), ON CREDIT (rests on an unverified link),")
+                print("EARNED IF STABLE (clean if the value is the same at check and use), E (no subject):")
                 for lbl, f in openf:
-                    print(f"  [{lbl}] {f['file']}:{f['line']}  {f['name']}  ({f['ctx']})")
+                    print(f"  [{lbl}] {f['file']}:{f['line']}  {f['name']}  ({f['ctx']})  {f['disp']}")
 
         if report["uncovered"]:
             print("-" * 72)
@@ -248,7 +264,9 @@ def _print(report, show_open=False, quiet=False):
     analysed = len(langs)
     n_skipped = len(skipped)
     print(f"{analysed} language(s) analysed, {n_skipped} skipped; "
-          f"{report['total_refuted']} REFUTED across the project.")
+          f"{report['total_refuted']} REFUTED across the project"
+          + (f", {report['total_refuted_if_stable']} REFUTED IF STABLE" if report.get("total_refuted_if_stable") else "")
+          + ".")
     if not quiet:
         print("Each language is analysed on its own — cross-language flows are not "
               "tracked and stay OPEN, never guessed.")

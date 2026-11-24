@@ -33,7 +33,8 @@ import taintjudge
 from javalang import tree as J
 F, T, Z = "F", "T", "Z"
 _RANK = {F: 0, Z: 1, T: 2}
-_DRANK = {"EARNED": 0, "OPEN": 1, "REFUTED": 2}
+_DRANK = {"EARNED": 0, "EARNED IF STABLE": 1, "ON CREDIT": 2, "OPEN": 3, "E": 3,
+          "REFUTED IF STABLE": 4, "REFUTED": 5}   # the judge's seven (contract §1); worst wins
 
 SOURCE_METHODS = {"getParameter","getParameterValues","getParameterMap","getParameterNames","getQueryString",
                   "getHeader","getHeaders","getHeaderNames","getCookies","getInputStream","getReader",
@@ -1558,7 +1559,7 @@ class Engine:
         st = _at(st, ctx)
         eff = Z if (soft and st == T) else st         # soft generic sink, unknown receiver -> honest Z
         d = taintjudge.judge_taint(eff, ctx, source="input", sink=name)   # the ONE ZTL judge
-        if d in ("REFUTED", "OPEN"):
+        if d != "EARNED":               # every disposition but a plain clear is recorded (contract §1)
             line = inv.position.line if getattr(inv,'position',None) else fallback_line
             self.sinks.append((line, name, ctx, d))
 

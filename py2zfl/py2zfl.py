@@ -93,7 +93,8 @@ PARSE_VALIDATORS = {"int", "float", "uuid.UUID", "UUID", "Decimal", "decimal.Dec
 ROUTE_ATTRS = {"route", "get", "post", "put", "delete", "patch", "api_route", "head", "options", "view"}
 F,T,Z = "F","T","Z"
 _RANK = {F: 0, Z: 1, T: 2}
-_DRANK = {"EARNED": 0, "OPEN": 1, "REFUTED": 2}
+_DRANK = {"EARNED": 0, "EARNED IF STABLE": 1, "ON CREDIT": 2, "OPEN": 3, "E": 3,
+          "REFUTED IF STABLE": 4, "REFUTED": 5}   # the judge's seven (contract §1); worst wins
 FUNC = (ast.FunctionDef, ast.AsyncFunctionDef)   # async def (aiohttp/FastAPI) counts too
 
 
@@ -1081,7 +1082,10 @@ class Engine:
             w = "parameterised" if parameterised else "nothing attacker-controlled reaches the sink"
         elif d == "REFUTED": w = "attacker-controlled value reaches the sink"
         elif d == "OPEN": w = "origin not resolved (don't know)"
-        else: return
+        elif d == "EARNED IF STABLE": w = "clean only if the value is the same at the check and at the use"
+        elif d == "REFUTED IF STABLE": w = "attacker data reaches the sink if the value read back is the one written"
+        elif d == "ON CREDIT": w = "clean as written, resting on an unverified link"
+        else: w = f"{d}: no subject"   # E and anything new is recorded, never dropped (silence is not 'safe')
         self.sinks.append((c.lineno, callee, ctx, d, w))
 
 def analyze(src): e=Engine(); return e.run(ast.parse(src))
