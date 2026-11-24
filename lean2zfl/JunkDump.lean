@@ -442,6 +442,24 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
 
+/-- LEADING ∃ OF THE CONCLUSION (2026-11-24, step 5): ∃ x, P x — x joins the box marked `exists`. Read as Brouwer
+and VR read ∃: true means a witness is exhibited (zflread searches for a point where P is EARNED); false means P is
+refuted over the whole box. Only leading ∃ over numbers; an ∃ under a connective stays untranslated. -/
+partial def withExists (names : ZNames) (ex : ZExtra) (e : Lean.Expr) (k : ZNames → Lean.Expr → MetaM Json) :
+    MetaM Json := do
+  let e := e.consumeMData
+  if e.isAppOfArity ``Exists 2 then
+    if let .lam nm t b bi := e.appArg!.consumeMData then
+      let kd ← numKind t
+      if kd != "" then
+        return ← withLocalDecl nm bi t fun x => do
+          let (vs, taken) ← ex.get
+          let zn := zflName nm.toString taken
+          ex.set (vs.push (Json.mkObj [("name", Json.str zn), ("lean", Json.str nm.toString), ("type", Json.str kd),
+                                       ("exists", Json.bool true)]), zn :: taken)
+          withExists (names.insert x.fvarId! zn) ex (b.instantiate1 x) k
+  k names e
+
 def zTry (k : MetaM String) : MetaM Json := do
   try return Json.mkObj [("zfl", Json.str (← k))]
   catch ex =>
@@ -475,7 +493,7 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
   let mut hyps := #[]
   for t in hypTs do
     hyps := hyps.push (← zTry (zProp names (-1) ex t))
-  let c ← zTry (zProp names 1 ex concl)
+  let c ← withExists names ex concl fun nm body => zTry (zProp nm 1 ex body)
   let (inner, _) ← ex.get
   return Json.mkObj ([("vars", Json.arr (vars ++ inner)), ("hyps", Json.arr hyps), ("concl", c)] ++
                      (match bad with | some b => [("untr_vars", Json.str b)] | none => []))

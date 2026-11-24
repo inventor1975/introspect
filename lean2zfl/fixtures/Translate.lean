@@ -23,7 +23,7 @@ theorem t_pow (x : ℝ) : x ^ 2 - 2 * x + 1 ≥ 0 := by nlinarith [sq_nonneg (x 
 -- ZTL EARNED: 0 < n in ℕ reads n >= 1, so 1/n > 0
 theorem t_cast (n : ℕ) (h : 0 < n) : (1 : ℝ) / n > 0 := by positivity
 
--- UNTR: an inner quantifier has no ZFL word
+-- ZTL EARNED: a leading ∃ — a witness is exhibited (x = 1 or any positive point)
 theorem t_ex : ∃ x : ℝ, x > 0 := ⟨1, one_pos⟩
 
 -- WITNESS none: the triangle inequality is true, |a| read as max(a, -a)
@@ -74,5 +74,14 @@ theorem t_dvd_false (n : ℕ) : 3 ∣ n := by sorry
 -- VACUOUS: the hypothesis IS the conclusion and both are false mathematics — the statement is vacuously true, not a
 -- refutation (lean_workbook_53067's shape)
 theorem t_vacuous (h : (1 : ℕ) / 3 * 3 = 1) : (1 : ℕ) / 3 * 3 = 1 := h
+
+-- ZTL REFUTED: ∃ x, x^2 < 0 — no witness anywhere: refuted over the whole box
+theorem t_ex_false : ∃ x : ℝ, x ^ 2 + 1 < 0 := by sorry
+
+-- WITNESS none: an ∃ whose conclusion fails at many points is NOT refuted by one of them (x = 3 works)
+theorem t_ex_somewhere : ∃ x : ℕ, x * x = 9 := ⟨3, rfl⟩
+
+-- UNTR: an ∃ under a connective
+theorem t_ex_inner (y : ℝ) : y = y ∧ ∃ x : ℝ, x > y := by sorry
 
 end ZFLReadFix

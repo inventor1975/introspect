@@ -264,6 +264,30 @@ def _core_arrows(z):
     return z
 
 
+def exists_witness(z, b, seed=20261124):
+    """a point of the box where every translated hypothesis holds and the conclusion is EARNED (the ∃'s witness)"""
+    import itertools
+    import random
+    names = list(b)
+    pools = [[x for x in _CANDS if _inside(x, b[n])] for n in names]
+    if any(not p for p in pools):
+        return None
+    rnd = random.Random(seed)
+    combos = list(itertools.product(*pools)) if names else [()]
+    if len(combos) > WITNESS_TRIES:
+        combos = rnd.sample(combos, WITNESS_TRIES)
+    for pt in combos:
+        text = ", ".join(f"{n}={_end(x)} earned:pt" for n, x in zip(names, pt))
+        try:
+            qs, marks = parse_quantities(text) if text else ({}, {})
+            if all(judge_sheet_claim(h["zfl"], dict(qs), marks)["disposition"] == "EARNED" for h in z.get("hyps", [])
+                   if "zfl" in h) and judge_sheet_claim(z["concl"]["zfl"], dict(qs), marks)["disposition"] == "EARNED":
+                return {n: _end(x) for n, x in zip(names, pt)}
+        except Exception:
+            continue
+    return None
+
+
 def read(t):
     """the floor's reading of one dumped theorem: the MATHEMATICS (ℕ's / and − exact); where the statement uses ℕ's
     conventions, also LEAN'S reading of them (`ztl_conv`), and the mark `rests_on_nat_convention` when the mathematics
@@ -320,6 +344,21 @@ def _read(z):
                 "why": f"{type(ex).__name__}: {ex}"[:200]}
     out = {"translated": True, "claim": c["zfl"], "sheet": text, "ztl": r["disposition"],
            "why": r.get("why"), "domain": doms, "context_unused": unused}
+    ex_vars = [v["name"] for v in z.get("vars", []) if v.get("exists")]
+    if ex_vars:
+        # ∃ (Brouwer's, VR's): EARNED over the box is stronger than ∃ and REFUTED over it leaves no witness — both
+        # stand; OPEN looks for a WITNESS where the conclusion is EARNED. A refuting point refutes nothing here, so
+        # no counterexample search. With a universal variable not pinned to a point, the witness would have to depend
+        # on it: OPEN stays OPEN.
+        out["exists"] = ex_vars
+        univ = [v["name"] for v in z.get("vars", []) if not v.get("exists")]
+        pinned = all(b[n][0] == b[n][1] and not isinstance(b[n][0], float) for n in univ)
+        if r["disposition"] == "OPEN" and pinned:
+            w = exists_witness(z, b)
+            if w:
+                out["exists_witness"] = w
+                out["ztl"] = "EARNED"
+        return out
     if r["disposition"] in ("OPEN", "E", "REFUTED"):
         # A REFUTED CONCLUSION IS NOT A FALSE STATEMENT until a point satisfies the hypotheses (MEASURED 2026-11-24:
         # lean_workbook_53067's hypothesis IS its conclusion — both false, the statement vacuously true; Lean's kernel
