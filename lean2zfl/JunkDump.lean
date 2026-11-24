@@ -314,9 +314,24 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
     | some (Lean.Expr.lit (Lean.Literal.natVal n)) => return toString n
     | _ => throwError "untr: a numeral that is not a literal"
   | some `HAdd.hAdd => if args.size == 6 then bin "+" args[4]! args[5]! else throwError "untr: + partially applied"
-  | some `HSub.hSub => if args.size == 6 then bin "-" args[4]! args[5]! else throwError "untr: - partially applied"
+  -- ℕ's truncating − and ℕ/ℤ's flooring / are MARKED (2026-11-24, the curator's variant В): zflread reads them twice —
+  -- as the mathematics (exact − and /) and as Lean's convention (max(a − b, 0), idiv) — and says when a verdict rests
+  -- on the difference
+  | some `HSub.hSub =>
+    if args.size != 6 then throwError "untr: - partially applied"
+    if (← whnfR args[0]!).isConstOf `Nat then return s!"nsub({← zTerm names args[4]!}, {← zTerm names args[5]!})"
+    bin "-" args[4]! args[5]!
   | some `HMul.hMul => if args.size == 6 then bin "*" args[4]! args[5]! else throwError "untr: * partially applied"
-  | some `HDiv.hDiv => if args.size == 6 then bin "/" args[4]! args[5]! else throwError "untr: / partially applied"
+  | some `HDiv.hDiv =>
+    if args.size != 6 then throwError "untr: / partially applied"
+    let ty ← whnfR args[0]!
+    if ty.isConstOf `Nat || ty.isConstOf `Int then return s!"ndiv({← zTerm names args[4]!}, {← zTerm names args[5]!})"
+    bin "/" args[4]! args[5]!
+  | some `HMod.hMod =>
+    if args.size != 6 then throwError "untr: % partially applied"
+    return s!"mod({← zTerm names args[4]!}, {← zTerm names args[5]!})"
+  | some `Nat.factorial => if args.size == 1 then return s!"fact({← zTerm names args[0]!})" else throwError "untr: !"
+  | some `Nat.choose => if args.size == 2 then return s!"choose({← zTerm names args[0]!}, {← zTerm names args[1]!})" else throwError "untr: choose"
   | some `Neg.neg => if args.size == 3 then return s!"(-{← zTerm names args[2]!})" else throwError "untr: neg"
   | some `Inv.inv => if args.size == 3 then return s!"(1 / {← zTerm names args[2]!})" else throwError "untr: inv"
   | some `HPow.hPow =>
@@ -416,6 +431,14 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
   -- the opposite place would let ¬¬∀ pass as positive — classical ¬¬p = p, which falls in ZTL on a marked atom
   | some `Not => if args.size == 1 then return s!"(~{← zProp names 0 ex args[0]!})" else throwError "untr: ¬"
   | some `Exists => throwError "untr: an inner quantifier (∃)"
+  -- the integer words as statements (VR/Numbers/Division.lean): a ∣ b is a witnessed divisibility; a ≡ b [MOD n] is
+  -- n ∣ (a − b) in ℤ (Lean's a % n = b % n, the same for every n, n = 0 included)
+  | some `Dvd.dvd =>
+    if args.size != 4 then throwError "untr: ∣ partially applied"
+    return s!"(dvd({← zTerm names args[2]!}, {← zTerm names args[3]!}) == 1)"
+  | some `Nat.ModEq | some `Int.ModEq =>
+    if args.size != 3 then throwError "untr: ModEq partially applied"
+    return s!"(dvd({← zTerm names args[0]!}, ({← zTerm names args[1]!} - {← zTerm names args[2]!})) == 1)"
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
 

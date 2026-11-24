@@ -18,7 +18,7 @@ os.environ.setdefault("LEAN2ZFL_PROJECT", os.path.join(HERE, "..", "..", "ztl-cl
 want = {}
 lines = open(SRC, encoding="utf-8").read().splitlines()
 for i, l in enumerate(lines):
-    m = re.match(r"^-- (ZTL \w+|WITNESS \w+|UNTR)", l)
+    m = re.match(r"^-- (ZTL \w+|WITNESS \w+|UNTR|NATCONV)", l)
     if m:
         name = re.search(r"theorem (\w+)", lines[i + 1]).group(1)
         want[name] = m.group(1)
@@ -36,6 +36,8 @@ for t in lean2zfl.dump_file(SRC):
     w, exp = r.get("witness") or {}, want[short]
     if exp == "UNTR":
         ok = not r.get("translated")
+    elif exp == "NATCONV":                           # the mathematics refuted, Lean's ℕ convention holds (variant В)
+        ok = r.get("rests_on_nat_convention") is True
     elif exp.startswith("ZTL "):
         ok = r.get("ztl") == exp[4:]
     elif exp == "WITNESS refuted":

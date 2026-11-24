@@ -50,4 +50,25 @@ theorem t_npow (x : ℝ) (n : ℕ) (hx : 1 < x) : x ^ n ≥ 1 := by sorry
 -- WITNESS refuted: 2 ^ n >= n + 2 fails at n = 0 (1 >= 2)
 theorem t_npow_false (n : ℕ) : 2 ^ n ≥ n + 2 := by sorry
 
+-- NATCONV: the mathematics (exact /) is refuted, Lean's floor holds — the author's ⌊2017/3⌋ (lean_workbook_plus_26988)
+theorem t_floor_conv : (2017 : ℕ) - 2017 / 3 = 1345 := by norm_num
+
+-- ZTL EARNED: the integer words, read as VR defines them (VR/Numbers/Division.lean)
+theorem t_mod : (7 : ℕ) % 3 = 1 := by norm_num
+
+-- ZTL EARNED: a witnessed divisibility
+theorem t_dvd : (3 : ℕ) ∣ 12 := by norm_num
+
+-- ZTL EARNED: C(10, 3)
+theorem t_choose : Nat.choose 10 3 = 120 := by decide
+
+-- ZTL EARNED: 5!
+theorem t_fact : Nat.factorial 5 = 120 := by decide
+
+-- ZTL EARNED: 17 ≡ 2 [MOD 5] is 5 ∣ 17 - 2
+theorem t_modeq : 17 ≡ 2 [MOD 5] := by decide
+
+-- WITNESS refuted: 3 ∣ n is false at n = 1
+theorem t_dvd_false (n : ℕ) : 3 ∣ n := by sorry
+
 end ZFLReadFix

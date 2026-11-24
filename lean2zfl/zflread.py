@@ -211,6 +211,48 @@ def witness(z, b, seed=20261124):
     return nosub
 
 
+def _unmark(text, conv):
+    """ℕ's marked conventions (the dumper's `ndiv(a, b)`, `nsub(a, b)`) read one way: the MATHEMATICS (conv False:
+    exact a / b, a - b) or LEAN'S CONVENTION (conv True: idiv(a, b) — the floor —, max(a - b, 0)). The curator's
+    variant В, 2026-11-24: read both, say when a verdict rests on the difference — which the formal text alone cannot
+    settle (lean_workbook_plus_26988: the author's ⌊2017/3⌋ is Lean's 2017 / 3)."""
+    out, i = [], 0
+    while i < len(text):
+        m = re.match(r"(ndiv|nsub)\(", text[i:])
+        if m and not (i and (text[i - 1].isalnum() or text[i - 1] == "_")):
+            name, j = m.group(1), i + len(m.group(0))
+            depth, k, comma = 1, j, None
+            while depth:
+                c = text[k]
+                depth += (c == "(") - (c == ")")
+                if c == "," and depth == 1 and comma is None:
+                    comma = k
+                k += 1
+            a, b = _unmark(text[j:comma], conv), _unmark(text[comma + 1:k - 1], conv)
+            if name == "ndiv":
+                out.append(f"idiv({a}, {b})" if conv else f"({a} / {b})")
+            else:
+                out.append(f"max(({a} - {b}), 0)" if conv else f"({a} - {b})")
+            i = k
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+def _reading(z, conv):
+    import copy
+    z = copy.deepcopy(z)
+    for part in [z.get("concl", {})] + list(z.get("hyps", [])):
+        if "zfl" in part:
+            part["zfl"] = _unmark(part["zfl"], conv)
+    return z
+
+
+def _marked(z):
+    return any(re.search(r"\b(ndiv|nsub)\(", p.get("zfl", "")) for p in [z.get("concl", {})] + list(z.get("hyps", [])))
+
+
 def _core_arrows(z):
     """`<->` -> the core's `↔` in every formula: the comparison reader takes the `<` of `<->` for a comparison
     (MEASURED 2026-11-24: 20 of 810 readings stopped at "stray character '<'")"""
@@ -223,8 +265,31 @@ def _core_arrows(z):
 
 
 def read(t):
-    """the floor's reading of one dumped theorem"""
-    z = _core_arrows(t.get("zfl") or {})
+    """the floor's reading of one dumped theorem: the MATHEMATICS (ℕ's / and − exact); where the statement uses ℕ's
+    conventions, also LEAN'S reading of them (`ztl_conv`), and the mark `rests_on_nat_convention` when the mathematics
+    is refuted (or refuted at a point) and Lean's convention holds there"""
+    raw = _core_arrows(t.get("zfl") or {})
+    out = _read(_reading(raw, False) if raw else raw)
+    if out.get("translated") and _marked(raw):
+        zc = _reading(raw, True)
+        try:
+            b, _ = box(zc)
+            qs, marks = parse_quantities(sheet(b)) if b else ({}, {})
+            out["ztl_conv"] = judge_sheet_claim(zc["concl"]["zfl"], qs, marks)["disposition"]
+            w = out.get("witness") or {}
+            if "refuted_at" in w:
+                at = ", ".join(f"{n}={v} earned:pt" for n, v in w["refuted_at"].items())
+                q2, m2 = parse_quantities(at) if at else ({}, {})
+                w["conv_at_point"] = judge_sheet_claim(zc["concl"]["zfl"], q2, m2)["disposition"]
+            if (out.get("ztl") == "REFUTED" and out["ztl_conv"] == "EARNED") or w.get("conv_at_point") == "EARNED":
+                out["rests_on_nat_convention"] = True
+        except Exception as ex:                          # the second reading is information; it never sinks the first
+            out["ztl_conv"] = f"UNREAD: {ex}"[:120]
+    return out
+
+
+def _read(z):
+    """the floor's reading of one translated statement (no marks left)"""
     if not z:
         return {"translated": False, "untr": "no zfl field (dumper before 2026-11-24)"}
     if "untr_vars" in z:
