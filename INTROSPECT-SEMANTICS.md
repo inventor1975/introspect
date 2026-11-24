@@ -5,15 +5,43 @@ each self-contained, NO shared code-core. What IS shared, to keep modules consis
 SPEC + the ZFL/ztljudge verdict layer + the catalog SCHEMA. Each module implements this spec in
 its own code against its own AST and its own ecosystem catalog.
 
-## 1. Verdicts (three-valued, zero-trust)
-- **REFUTED** — attacker-controlled data reaches a sink UNSUBSTITUTED (a proven-unsafe flow). An accusation.
-- **OPEN** — "не знаю": a dangerous sink is reached but the origin or the neutralisation cannot be
-  VERIFIED (untraced source, unknown callee, weak/unverifiable sanitiser). NOT an accusation, NOT "safe".
-- **EARNED** — proven clean/neutralised (constant, verified sanitiser, whitelisted).
-Rule: **silence is never "safe"**. When unsure, emit OPEN — never downgrade an unverified flow to EARNED.
+## 1. Verdicts — the seven dispositions of the ZTL judge (rework of 2026-11-24, DRAFT for the curator)
+Modules never choose a verdict. They write a ZFL document whose ATOMS are facts read from the code, and the ONE ZTL
+judge returns the disposition (via taintjudge). What each disposition means for a source → sink flow, and which
+construct produces it:
 
-## 2. Taint state: F / T / Z
-F=clean, T=attacker-controlled, Z=unknown. Join (branch merge): T if any branch T, else Z if any Z, else F.
+| disposition | meaning for a sink | produced by (code construct) | status |
+|---|---|---|---|
+| **EARNED** | clean under every reading of every occurrence | constant; sanitiser verified for the sink's context; whitelist guard on an immutable value | built |
+| **REFUTED** | attacker data reaches the sink unsubstituted under every reading — a proven flow. An accusation | source → sink with no substitution, every link read | built |
+| **EARNED IF STABLE** | clean PROVIDED a value read at two places is one fact at both | check-then-use on a RE-READABLE value (TOCTOU): a file or path on disk, an env var, a mutable attribute or global across a call, a DB/cache/session value, a second read of the request. The cure: read once, use that copy | to build |
+| **REFUTED IF STABLE** | the accusation holds PROVIDED the value read back is the one written | second-order flow: attacker data stored (DB, session, cache, file) and read back later into a sink | open: no encoding yet (MEASURED: one read-back occurrence gives OPEN) |
+| **ON CREDIT** | clean as written, but resting on a NAMED unverified link; checking that link can kill it | an assumed summary of an unresolved callee; a sanitiser recognised by name only (`--assume-tree-methods`) | to rebuild (MEASURED: the current row shape gives OPEN, not the ON CREDIT php2zfl's comment promises) |
+| **OPEN** | "не знаю": origin or neutralisation cannot be verified | untraced source, unknown callee, unverifiable sanitiser | built |
+| **E** | no subject: the claim rests on something that does not exist in the analysed code | parse failure; a sink argument naming a symbol defined nowhere | to define |
+
+Rules:
+- **Silence is never "safe".** When unsure, OPEN — never an unverified flow downgraded to EARNED.
+- **IF STABLE is not a clearance and not an accusation.** EARNED IF STABLE says what must hold (one value at check and
+  at use); REFUTED IF STABLE says what the accusation rests on. Reports name the value (`if_stable`).
+- **Worst-sink order** for a file or project: REFUTED > REFUTED IF STABLE > OPEN > ON CREDIT > EARNED IF STABLE >
+  EARNED. E is reported apart (it is neither clean nor dirty).
+- **Exit status:** nonzero on REFUTED (as now); `--strict` also on REFUTED IF STABLE.
+
+## 2. Taint state: F / T / Z — per OCCURRENCE
+F = clean, T = attacker-controlled, Z = unknown. Join (branch merge): T if any branch T, else Z if any Z, else F.
+New: a value that the code reads at more than one place, and that can change between the reads, is ONE dirty atom with
+SEVERAL occurrences (the check site and the use site). The module must hand the judge both occurrences; the judge reads
+each on its own (→ not EARNED) and decides IF STABLE by completions. An immutable local value is one occurrence.
+
+How each shape is written for the judge (MEASURED on ZTL @ efbbbc2, 2026-11-24):
+- the claim is a formula over rows (`claim: "~ok | ok"`), or a defined row — both give the same disposition since
+  ZTL @ ac71929/efbbbc2 (before that a defined row whitewashed IF STABLE to EARNED);
+- TOCTOU: `ok` = "the value passes the check" (unverified, re-readable), claim `~ok | ok` → EARNED IF STABLE;
+- on credit: `a` = "the assumed link holds" (unverified, named), claim `~~a` ("nothing shows the link fails") →
+  ON CREDIT — the same shape as the book's NOT ( NOT (Z) ), true on credit;
+- `Tr(x)` reads Z as F at each occurrence: it is right for "verified to arrive / verified substituted", and it is
+  exactly what erases IF STABLE and ON CREDIT — not to be used on a re-readable or assumed atom.
 
 ## 3. Catalog (per-language DATA, shared SCHEMA)
 - **sources** — expressions producing attacker data → T (framework request objects, stdin, argv).
