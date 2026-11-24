@@ -18,9 +18,12 @@ os.environ.setdefault("LEAN2ZFL_PROJECT", os.path.join(HERE, "..", "..", "ztl-cl
 want = {}
 lines = open(SRC, encoding="utf-8").read().splitlines()
 for i, l in enumerate(lines):
-    m = re.match(r"^-- (ZTL \w+|WITNESS \w+|UNTR|NATCONV)", l)
+    m = re.match(r"^-- (ZTL \w+|WITNESS \w+|UNTR|NATCONV|VACUOUS|HYPDOMAIN)", l)
     if m:
-        name = re.search(r"theorem (\w+)", lines[i + 1]).group(1)
+        j = i + 1                                    # the comment may run over several lines
+        while not re.search(r"theorem (\w+)", lines[j]):
+            j += 1
+        name = re.search(r"theorem (\w+)", lines[j]).group(1)
         want[name] = m.group(1)
 fails = []
 got_names = set()
@@ -36,6 +39,9 @@ for t in lean2zfl.dump_file(SRC):
     w, exp = r.get("witness") or {}, want[short]
     if exp == "UNTR":
         ok = not r.get("translated")
+    elif exp == "HYPDOMAIN":                         # an unguarded partial operation reported IN A HYPOTHESIS
+        ok = any(d[2].startswith("hyp") and d[1] in ("OPEN", "NOWHERE") for d in r.get("domain", []) if len(d) > 2) \
+            and "refuted_at" not in w
     elif exp == "VACUOUS":                           # hypotheses refuted: no admissible point, no refutation
         ok = r.get("vacuous") is True and "refuted_at" not in w
     elif exp == "NATCONV":                           # the mathematics refuted, Lean's ℕ convention holds (variant В)

@@ -73,7 +73,7 @@ theorem t_dvd_false (n : ℕ) : 3 ∣ n := by sorry
 
 -- VACUOUS: the hypothesis IS the conclusion and both are false mathematics — the statement is vacuously true, not a
 -- refutation (lean_workbook_53067's shape)
-theorem t_vacuous (h : (1 : ℕ) / 3 * 3 = 1) : (1 : ℕ) / 3 * 3 = 1 := h
+theorem t_vacuous (h : (1 : ℕ) / 3 = 1) : (1 : ℕ) / 3 = 1 := h
 
 -- ZTL REFUTED: ∃ x, x^2 < 0 — no witness anywhere: refuted over the whole box
 theorem t_ex_false : ∃ x : ℝ, x ^ 2 + 1 < 0 := by sorry
@@ -83,5 +83,10 @@ theorem t_ex_somewhere : ∃ x : ℕ, x * x = 9 := ⟨3, rfl⟩
 
 -- UNTR: an ∃ under a connective
 theorem t_ex_inner (y : ℝ) : y = y ∧ ∃ x : ℝ, x > y := by sorry
+
+-- HYPDOMAIN: logarithms in the HYPOTHESES over a box where a may be negative (aime_1984_p5's shape): the domain check
+-- names an unguarded ln in a hypothesis; the mathematics itself is not refuted
+theorem t_hyp_log (a b : ℝ) (h₀ : Real.logb 8 a + Real.logb 4 (b ^ 2) = 5)
+    (h₁ : Real.logb 8 b + Real.logb 4 (a ^ 2) = 7) : a * b = 512 := by sorry
 
 end ZFLReadFix

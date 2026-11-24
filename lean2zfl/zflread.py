@@ -331,14 +331,21 @@ def _read(z):
     try:
         qs, marks = parse_quantities(text) if text else ({}, {})
         r = judge_sheet_claim(c["zfl"], qs, marks)
-        _, atoms = extract_comparisons(c["zfl"], dict(qs))
         doms = []
-        for _, (kind, e1, e2, chunk) in atoms.items():
-            for op, arg in _partials(e1, []) + _partials(e2, []):
-                try:
-                    doms.append((op, domain(op, arg, qs)))
-                except Exception as ex:                       # an argument the floor cannot read: say so
-                    doms.append((op, f"UNREAD: {ex}"[:80]))
+        # the conclusion AND the hypotheses (2026-11-24: aime_1984_p5's logarithms are all in its hypotheses, over a
+        # box that lets a be negative — the domain check had looked at the conclusion only). (op, verdict, where)
+        for where, text_ in [("concl", c["zfl"])] + [(f"hyp{i + 1}", h["zfl"]) for i, h in enumerate(z.get("hyps", []))
+                                                      if "zfl" in h]:
+            try:
+                _, atoms = extract_comparisons(text_, dict(qs))
+            except Exception:
+                continue
+            for _, (kind, e1, e2, chunk) in atoms.items():
+                for op, arg in _partials(e1, []) + _partials(e2, []):
+                    try:
+                        doms.append((op, domain(op, arg, qs), where))
+                    except Exception as ex:                   # an argument the floor cannot read: say so
+                        doms.append((op, f"UNREAD: {ex}"[:80], where))
     except Exception as ex:
         return {"translated": True, "claim": c["zfl"], "sheet": text, "ztl": "UNREAD",
                 "why": f"{type(ex).__name__}: {ex}"[:200]}

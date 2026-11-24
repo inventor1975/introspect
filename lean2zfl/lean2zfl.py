@@ -47,6 +47,7 @@ FAMILY = {"tsum": {"tsum_eq_zero_of_not_summable"},
           "Inv.inv": {"inv_zero"},
           "Real.sqrt": {"Real.sqrt_eq_zero_of_nonpos"},
           "Real.log": {"Real.log_zero", "Real.log_neg_eq_log"},
+          "Real.logb": {"Real.logb_zero", "Real.logb_neg_eq_logb", "Real.logb_abs", "Real.log_zero", "Real.log_neg_eq_log"},
           "HSub.hSub": {"Nat.sub_eq_zero_of_le", "tsub_eq_zero_of_le"},
           "riemannZeta": {"riemannZeta_one"}}
 TRUNCATING_SUB = {"ℕ", "Nat", "ℝ≥0", "NNReal", "ℝ≥0∞", "ENNReal"}
@@ -99,6 +100,11 @@ def guarded(op, args, typ, hyps):
     if op == "Real.log":
         v = _num(a[0])
         return (v is not None and v > 0) or f"0 < {a[0]}" in H
+    if op == "Real.logb":                    # logb b x: x > 0 and a base > 0, ≠ 1 (a literal base, or hypotheses)
+        b, x = (a + ["", ""])[:2]
+        vb, vx = _num(b), _num(x)
+        base_ok = (vb is not None and vb > 0 and vb != 1) or (f"0 < {b}" in H and f"{b} ≠ 1" in H)
+        return base_ok and ((vx is not None and vx > 0) or f"0 < {x}" in H)
     if op == "HSub.hSub":
         if _norm(typ) not in TRUNCATING_SUB:
             return True                      # a ring's subtraction has no junk branch

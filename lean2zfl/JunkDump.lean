@@ -11,15 +11,15 @@ Needs Mathlib in the project (the junk lemmas are Mathlib's). -/
 namespace Lean2ZFL
 open Lean Meta Elab Command Term
 
-def junkOps : Array Name := #[`tsum, `HDiv.hDiv, `Inv.inv, `Real.sqrt, `Real.log, `HSub.hSub, `riemannZeta]
+def junkOps : Array Name := #[`tsum, `HDiv.hDiv, `Inv.inv, `Real.sqrt, `Real.log, `Real.logb, `HSub.hSub, `riemannZeta]
 
 def junkLemmas : Array Name := #[`tsum_eq_zero_of_not_summable, `div_zero, `inv_zero, `Real.sqrt_eq_zero_of_nonpos,
   `Real.log_zero, `Real.log_neg_eq_log, `Nat.sub_eq_zero_of_le, `tsub_eq_zero_of_le, `Nat.div_zero,
-  `Int.ediv_zero, `riemannZeta_one]
+  `Int.ediv_zero, `riemannZeta_one, `Real.logb_zero, `Real.logb_neg_eq_logb, `Real.logb_abs]
 
 /-- arity of a FULL application of each junk operation -/
 def junkArity : Name → Nat
-  | `tsum => 5 | `HDiv.hDiv => 6 | `Inv.inv => 3 | `Real.sqrt => 1 | `Real.log => 1 | `HSub.hSub => 6
+  | `tsum => 5 | `HDiv.hDiv => 6 | `Inv.inv => 3 | `Real.sqrt => 1 | `Real.log => 1 | `Real.logb => 2 | `HSub.hSub => 6
   | `riemannZeta => 1 | _ => 0
 
 /-- every FULL application of a junk operation, outermost first (a partial application is not an occurrence) -/
@@ -48,7 +48,7 @@ def ppOrRaw (e : Lean.Expr) : MetaM String := do
 def valueArgs (a : Lean.Expr) : MetaM (Array Json) := do
   let op := a.getAppFn.constName!
   let k : Nat := match op with
-    | `HDiv.hDiv => 2 | `HSub.hSub => 2 | `Inv.inv => 1 | `tsum => 1 | _ => 1
+    | `HDiv.hDiv => 2 | `HSub.hSub => 2 | `Inv.inv => 1 | `tsum => 1 | `Real.logb => 2 | _ => 1
   let args := a.getAppArgs
   let start := if op == `tsum then 4 else args.size - k
   let mut out := #[]
@@ -139,6 +139,15 @@ def domainGoal (a : Lean.Expr) : MetaM (Option (Lean.Expr × String)) := do
       let x := args[0]!; if x.hasLooseBVars then return none
       return some (← mkAppM `LT.lt #[← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none], x],
                    "first | positivity | assumption | linarith | (norm_num; done)")
+    -- logb b x = log x / log b (2026-11-24, found missing on aime_1984_p5): the argument positive, the base positive and
+    -- not 1 (log b = 0 at b = 1, and at b = 0 or −1, where x / 0 = 0 takes over)
+    | `Real.logb =>
+      let b := args[0]!; let x := args[1]!
+      if b.hasLooseBVars || x.hasLooseBVars then return none
+      let z ← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none]
+      let o ← mkAppOptM `OfNat.ofNat #[← inferType b, mkRawNatLit 1, none]
+      return some (← mkAppM `And #[← mkAppM `LT.lt #[z, x], ← mkAppM `And #[← mkAppM `LT.lt #[z, b], ← mkAppM `Ne #[b, o]]],
+                   "first | (refine ⟨?_, ?_, ?_⟩ <;> first | assumption | positivity | (norm_num; done) | linarith) | (norm_num; done)")
     | `HSub.hSub =>
       let x := args[4]!; let y := args[5]!
       if x.hasLooseBVars || y.hasLooseBVars then return none
@@ -188,6 +197,9 @@ def junkDomainGoal (a : Lean.Expr) : MetaM (Option (Lean.Expr × String)) := do
     | `Real.log =>
       let x := args[0]!; if x.hasLooseBVars then return none
       return some (← mkAppM `LE.le #[x, ← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none]], tac)
+    | `Real.logb =>
+      let x := args[1]!; if x.hasLooseBVars then return none
+      return some (← mkAppM `LE.le #[x, ← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none]], tac)
     | `HSub.hSub =>
       let x := args[4]!; let y := args[5]!
       if x.hasLooseBVars || y.hasLooseBVars then return none
@@ -202,7 +214,7 @@ def junkDomainGoal (a : Lean.Expr) : MetaM (Option (Lean.Expr × String)) := do
 own hypotheses — `∀ x, 0 < x → …` — are there for the guard's proof). -/
 def occJson (concl a : Lean.Expr) (under : Bool) : TermElabM Json := do
   let op := a.getAppFn.constName!
-  let carrier ← if [`Real.sqrt, `Real.log, `riemannZeta].contains op then pure ""
+  let carrier ← if [`Real.sqrt, `Real.log, `Real.logb, `riemannZeta].contains op then pure ""
                  else ppOrRaw a.getAppArgs[0]!
   let proved ← match ← domainGoal a with
     | some (g, tac) => proves g tac
@@ -516,6 +528,11 @@ def dumpOne (memo : JunkMemo) (n : Name) : TermElabM Json := do
       if ← isProp t then hyps := hyps.push (Json.str s!"{← ppExpr t}")
     let acc ← IO.mkRef #[]
     visitJunk concl concl false acc
+    -- THE HYPOTHESES TOO (2026-11-24, aime_1984_p5: its logarithms are all in the hypotheses, and the dump saw none).
+    -- An occurrence there is read as `under` (no IF STABLE grouping, no generalisation: that is about the conclusion).
+    for x in xs do
+      let t ← inferType x
+      if ← isProp t then visitJunk concl t true acc
     let ops ← acc.get
     return Json.mkObj [("name", Json.str n.toString), ("line", Json.num line),
                        ("statement", Json.str s!"{← ppExpr concl}"),
