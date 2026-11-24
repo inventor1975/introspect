@@ -153,3 +153,15 @@ Rescanned: 80 statements (51 E/OPEN, 29 control) whose blocker was a variable `�
 - 11 checked at points without a refutation.
 - 46 translated with no value forced.
 - 21 untranslated (`ite`, λ, ∃ over a non-number, `sinh`).
+
+## Concrete sets, 2026-11-25 (measured)
+
+A set the statement writes is read as the condition it names:
+- an interval is its bounds, `{x | P x}` is P, `{a, b, c}` is x = a ∨ x = b ∨ x = c, and `range n` is x < n;
+- `#{i ∈ [lo, hi] | P i}` over a concrete interval is counted;
+- a set VARIABLE (`∀ S`) is not read, which is the higher-order limit.
+
+Rescanned: the 16 statements (12 E/OPEN, 4 control) blocked by `∈` or `card`.
+- **12 translate.** One is EARNED by ZTL: `lean_workbook_7425`, the count 143. The rest are OPEN and none is refuted.
+  Most of them are ε-δ limits, `∃ δ > 0, ∀ x ∈ (1, δ), …`, where δ depends on ε, so no single witness exists.
+- **4 untranslated**: `Set.range` (3) and `Nat.digits` (2), one statement having both.

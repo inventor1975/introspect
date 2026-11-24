@@ -208,4 +208,20 @@ theorem t_cx_conj (z : ℂ) : (z * (starRingEnd ℂ) z).im = 0 := by sorry
 -- ZTL EARNED: a quotient in ℂ, divisor (1 − i)(1 + i) = 2
 theorem t_cx_div : (2 + Complex.I) / (1 - Complex.I) = (1 + 3 * Complex.I) / 2 := by sorry
 
+-- CONCRETE SETS (2026-11-25): membership read as the condition the set names
+-- ZTL EARNED: x ∈ (1, 2) is the box (1, 2); x² < 4 on all of it
+theorem t_mem_ioo (x : ℝ) (hx : x ∈ Set.Ioo 1 2) : x ^ 2 < 4 := by sorry
+
+-- WITNESS refuted: x ∈ [0, 1] and x² > 1 — refuted at x = 0
+theorem t_mem_icc (x : ℝ) (hx : x ∈ Set.Icc 0 1) : x ^ 2 > 1 := by sorry
+
+-- ZTL EARNED: ∀ x ∈ [0, 1], x(1 − x) ≤ 1/4 — the binder's membership is a hypothesis of the box
+theorem t_mem_forall : ∀ x ∈ Set.Icc (0:ℝ) 1, x * (1 - x) ≤ 1 / 4 := by sorry
+
+-- WITNESS refuted: n ∈ {2, 3, 5} is n = 2 ∨ n = 3 ∨ n = 5; n < 5 fails at 5
+theorem t_mem_finite (n : ℕ) (h : n ∈ ({2, 3, 5} : Finset ℕ)) : n < 5 := by sorry
+
+-- ZTL EARNED: #{x ∈ [1000, 2000] | x mod 7 = 2} = 143, counted over the concrete interval
+theorem t_card_filter : (Finset.filter (fun x => x % 7 = 2) (Finset.Icc 1000 2000)).card = 143 := by sorry
+
 end ZFLReadFix

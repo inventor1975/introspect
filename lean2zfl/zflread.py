@@ -720,6 +720,20 @@ def _ptext(p, x):
 
 def _fsum_one(name, var, lo, hi, body, qs, marks):
     a, b = _exact_of(lo), _exact_of(hi)
+    if name == "fcount":
+        # #{i ∈ [lo, hi] | P i} over a CONCRETE interval: P judged at each i with no name left; an undecided P: unread
+        a = int(a) if a is not None and a.denominator == 1 else None
+        b = int(b) if b is not None and b.denominator == 1 else None
+        if a is None or b is None or b - a + 1 > _FSUM_EXACT:
+            return None
+        n = 0
+        for i in range(a, b + 1):
+            d = judge_sheet_claim(re.sub(rf"\b{re.escape(var)}\b", f"({i})", body), {}, {})["disposition"]
+            if d == "EARNED":
+                n += 1
+            elif d != "REFUTED":
+                return None
+        return str(n)
     a = int(a) if a is not None and a.denominator == 1 else None
     b = int(b) if b is not None and b.denominator == 1 else None
     empty = "0" if name == "fsum" else "1"
@@ -768,7 +782,7 @@ def _fsum_one(name, var, lo, hi, body, qs, marks):
 
 def _fsum_reading(text, qs=None, marks=None):
     """every fsum / fprod in text read as ordinary mathematics (innermost first); None if one cannot be read"""
-    for name in ("fsum", "fprod"):
+    for name in ("fsum", "fprod", "fcount"):
         out, last = [], 0
         for j, k, inner in _calls(text, name):
             parts = _split_top(inner)
@@ -788,7 +802,7 @@ def _fsum_reading(text, qs=None, marks=None):
 
 
 def _has_fsum(t):
-    return bool(re.search(r"\bf(sum|prod)\(", t))
+    return bool(re.search(r"\bf(sum|prod|count)\(", t))
 
 
 def _map_texts(z, f):

@@ -390,6 +390,11 @@ partial def zCTermWith (real : Lean.Expr → MetaM String) (names : ZNames) (e :
   | some c => throwError s!"untr: {c} (in ℂ)"
   | none => throwError s!"untr: {e.ctorName} (in ℂ)"
 
+/-- variables a conclusion's inner universals add to the box, and the ZFL names already taken -/
+abbrev ZExtra := IO.Ref (Array Json × List String)
+
+mutual
+
 partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
   let e := e.consumeMData
   match e with
@@ -495,6 +500,32 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
         let sn := "s_" ++ (zflName nm.toString []).drop 2
         return s!"{which}({sn}, {lo}, {hi}, {← zTerm (names.insert x.fvarId! sn) (b.instantiate1 x)})"
     | _, _ => throwError "untr: a finite sum over a set that is not an interval"
+  -- #{i ∈ [lo, hi] | P i} (2026-11-25): fcount(i, lo, hi, P) — counted by zflread over a CONCRETE interval
+  | some `Finset.card =>
+    if args.size != 2 then throwError "untr: card"
+    let s := args[1]!.consumeMData
+    let (cond, base) := if s.isAppOf `Finset.filter then (some s.getAppArgs[1]!, s.getAppArgs[s.getAppNumArgs - 1]!)
+                        else (none, s)
+    let base := base.consumeMData
+    let ba := base.getAppArgs
+    let bounds : Option (String × String) ← match base.getAppFn.constName? with
+      | some `Finset.range => pure (some ("0", s!"({← zTerm names ba[0]!} - 1)"))
+      | some `Finset.Icc => pure (some (← zTerm names ba[ba.size-2]!, ← zTerm names ba[ba.size-1]!))
+      | some `Finset.Ico => pure (some (← zTerm names ba[ba.size-2]!, s!"({← zTerm names ba[ba.size-1]!} - 1)"))
+      | some `Finset.Ioc => pure (some (s!"({← zTerm names ba[ba.size-2]!} + 1)", ← zTerm names ba[ba.size-1]!))
+      | some `Finset.Ioo => pure (some (s!"({← zTerm names ba[ba.size-2]!} + 1)", s!"({← zTerm names ba[ba.size-1]!} - 1)"))
+      | _ => pure none
+    let some (lo, hi) := bounds | throwError "untr: the card of a set that is not an interval"
+    match cond with
+    | none => return s!"fsum(s_card, {lo}, {hi}, 1)"
+    | some p =>
+      match p.consumeMData with
+      | .lam nm t b bi =>
+        withLocalDecl nm bi t fun x => do
+          let sn := "s_" ++ (zflName nm.toString []).drop 2
+          let ex : ZExtra ← IO.mkRef (#[], [])
+          return s!"fcount({sn}, {lo}, {hi}, {← zProp (names.insert x.fvarId! sn) 0 ex (b.instantiate1 x)})"
+      | _ => throwError "untr: a filter that is not a λ"
   | some `Complex.re => if args.size == 1 then return (← zCTermWith (zTerm names) names args[0]!).1 else throwError "untr: re"
   | some `Complex.im => if args.size == 1 then return (← zCTermWith (zTerm names) names args[0]!).2 else throwError "untr: im"
   | some `Complex.normSq =>
@@ -534,8 +565,33 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
 
-/-- variables a conclusion's inner universals add to the box, and the ZFL names already taken -/
-abbrev ZExtra := IO.Ref (Array Json × List String)
+
+/-- x ∈ coll as a ZFL formula; `prop` translates a statement (zProp at the place) -/
+partial def zMemWith (prop : Lean.Expr → MetaM String) (names : ZNames) (coll x : Lean.Expr) : MetaM String := do
+  let coll := coll.consumeMData
+  let a := coll.getAppArgs
+  let xs ← zTerm names x
+  let lo (i : Nat) : MetaM String := zTerm names a[a.size - i]!
+  match coll.getAppFn.constName? with
+  | some `Set.Icc | some `Finset.Icc => return s!"(({← lo 2} <= {xs}) & ({xs} <= {← lo 1}))"
+  | some `Set.Ico | some `Finset.Ico => return s!"(({← lo 2} <= {xs}) & ({xs} < {← lo 1}))"
+  | some `Set.Ioc | some `Finset.Ioc => return s!"(({← lo 2} < {xs}) & ({xs} <= {← lo 1}))"
+  | some `Set.Ioo | some `Finset.Ioo => return s!"(({← lo 2} < {xs}) & ({xs} < {← lo 1}))"
+  | some `Set.Ici => return s!"({← lo 1} <= {xs})"
+  | some `Set.Ioi => return s!"({← lo 1} < {xs})"
+  | some `Set.Iic => return s!"({xs} <= {← lo 1})"
+  | some `Set.Iio => return s!"({xs} < {← lo 1})"
+  | some `Finset.range => return s!"(({xs} >= 0) & ({xs} < {← lo 1}))"
+  | some `Singleton.singleton => return s!"({xs} == {← lo 1})"
+  | some `Insert.insert =>
+    if a.size < 2 then throwError "untr: insert"
+    return s!"(({xs} == {← zTerm names a[a.size - 2]!}) | {← zMemWith prop names a[a.size - 1]! x})"
+  | some `setOf =>
+    match a[a.size - 1]!.consumeMData with
+    | .lam _ _ b _ => prop (b.instantiate1 x)
+    | _ => throwError "untr: setOf of a function that is not a λ"
+  | some c => throwError s!"untr: membership in {c}"
+  | none => throwError "untr: membership in a set variable"
 
 /-- `pol`: 1 a positive place (the conclusion, ∧ ∨, the right of →), -1 a negative one (the left of →, a
 hypothesis), 0 neither (a side of ↔, anything under ¬). No classical law is used to rewrite a formula: each Lean
@@ -625,7 +681,16 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
                                      mark]), zn :: taken)
         zProp (names.insert x.fvarId! zn) pol ex (b.instantiate1 x)
     | _ => throwError "untr: an inner quantifier (∃)"
-  -- the integer words as statements (VR/Numbers/Division.lean): a ∣ b is a witnessed divisibility; a ≡ b [MOD n] is
+  -- MEMBERSHIP IN A CONCRETE SET (2026-11-25): an interval is its bounds, {x | P x} is P, {a, b, …} is x = a ∨ …,
+  -- range n is x < n. ZTL has sets (zfl's `sets`); here a set the statement WRITES is read as the condition it names.
+  -- A set variable (∀ S) is not read: that is the higher-order limit.
+  | some `Membership.mem =>
+    if args.size != 5 then throwError "untr: ∈ partially applied"
+    let isColl (a : Lean.Expr) : MetaM Bool := do
+      let t ← whnfR (← inferType a)
+      return t.isAppOf `Set || t.isAppOf `Finset
+    let (coll, x) ← if ← isColl args[3]! then pure (args[3]!, args[4]!) else pure (args[4]!, args[3]!)
+    zMemWith (zProp names pol ex) names coll x
   -- n ∣ (a − b) in ℤ (Lean's a % n = b % n, the same for every n, n = 0 included)
   | some `Dvd.dvd =>
     if args.size != 4 then throwError "untr: ∣ partially applied"
@@ -635,6 +700,8 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
     return s!"(dvd({← zTerm names args[0]!}, ({← zTerm names args[1]!} - {← zTerm names args[2]!})) == 1)"
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
+
+end
 
 /-- LEADING ∃ OF THE CONCLUSION (2026-11-24, step 5): ∃ x, P x — x joins the box marked `exists`. Read as Brouwer
 and VR read ∃: true means a witness is exhibited (zflread searches for a point where P is EARNED); false means P is
