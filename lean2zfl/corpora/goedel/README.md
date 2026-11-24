@@ -188,3 +188,29 @@ All 3,451 statements (2,451 E/OPEN plus the 1,000 control) were re-read after th
   control set; Lean proves it vacuously.
 - **Translation:** 151 E/OPEN and 27 control statements now translate that did not before. One that translated
   before, `plus_36928`, now does not: a hypothesis became an unreadable series.
+
+## The 7,168 statements whose proofs did not compile, 2026-11-25 (measured)
+
+Only the statement matters to ZTL's reading. The 7,168 rows that were "not compiled" on our Mathlib, 24% of the
+corpus and never judged before, were re-read with `sorry` in place of the proof (`corpora/benchmarks/
+scan_statements.py`). The reader was the frozen code at introspect c064442 with ZTL 505bff2. Files:
+`not_compiled_statements_rows.jsonl.gz`, and `not_compiled_flagged_reread.jsonl.gz` for the flagged rows re-read
+after the fix below.
+
+- **948 still do not compile, and 11 were not read**: the STATEMENT itself fails on our Mathlib.
+- **6,137 translate**; 102 are EARNED by ZTL.
+- **14 are refuted, all resting on the ℕ convention.** `x ^ (1 / 3)` with ℕ's 1/3 = 0 is a cube root in the
+  exact reading. `1/6 + 1/10 + 1/8 ≥ 1/2` is 0 ≥ 0 in ℕ but false in ℚ (`lean_workbook_53456`). An auto-bound
+  `abc` stands for a product. In every case the informal text decides what was meant.
+- **5 are vacuous, each checked by hand.** Every one was proved by Goedel-Prover from contradictory hypotheses.
+  - `plus_24332` and `plus_38408`: untyped variables were auto-bound to ℕ, so `x + y = 1` with x, y > 0 and
+    `8abc ≤ 1` with a, b, c > 0 are impossible.
+  - `plus_70503` assumes `logb 2 256 < logb 2 243`, which is false.
+  - `plus_78160`: an even f with `f(2x) = 3 f x + x` gives 1 = −1 at x = ±1.
+  - `plus_80224`: `f x = x²` and `2 f x = 3 f (1/x)` give 8 = 3/4 at x = 2.
+
+**A fix found here.** A contradiction among the instances of a rule that depends on the point's other variables
+(`f x = a x + b` at a = 7, b = 8) made the first version call the statement vacuous. The fix: vacuity is claimed only
+when the facts and rules are free of the point (`zflseq.pointfree`). One NC row (`plus_14020`) and four miniF2F rows
+lost the false label. The 17 Goedel sequence statements called vacuous above have no point variable in their rules,
+except `plus_47435`, the one already left unclassified.

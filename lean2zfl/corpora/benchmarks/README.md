@@ -65,3 +65,29 @@ n = 3).
   or a function.
 
 The next boundary is function variables, not finite sums.
+
+## The benchmarks re-read with the 2026-11-25 reader (measured)
+
+The reader is the frozen code at introspect c064442 with ZTL 505bff2, plus the point-free vacuity fix. Rows are in
+`*_rows_v5.jsonl.gz`.
+
+| benchmark | translated before → now | refuted at an admissible point |
+|---|---|---|
+| miniF2F (488) | 267 → 362 | 3 |
+| ProofNet (371) | 9 → 17 | 2 |
+| PutnamBench (672) | 13 → 39 | 0 |
+
+**Four new refutations, each certified by Lean's kernel** in `Certificates_benchmarks_20261125.lean` (the negation
+of the statement as formalized, closed by tactics, no `sorry`):
+- **miniF2F `mathd_numbertheory_618`.** `p x = x² − x + 41` and `1 < gcd(p n, p(n+1))` ⊢ `41 ≤ n` fails at n = 0:
+  gcd(41, 41) = 41. The informal "smallest positive n" lost "positive". `[propext, Quot.sound]`.
+- **miniF2F `amc12a_2020_p13`.** The exponents `1 / c`, `1 / b`, `1 / a`, `1 / 36` are ℕ divisions, all 0, so at
+  n = 0 the hypothesis holds for every a, b, c and `b = 3` does not follow. DeepSeek-V1.5's jsonl; other versions use
+  real exponents.
+- **ProofNet `exercise_1_2`.** `(−1/2 + (√3/2) i)^3 = −1` is false: the cube is 1. Axler's exercise asks for a cube
+  root of 1.
+- **ProofNet `exercise_4_11`.** `(s := ∑ n : Fin p, n ^ k)` is a DEFAULT ARGUMENT, so s is arbitrary; at p = 7, k = 2
+  and s = 6 the statement fails. Lean warns that the first `s` is unused.
+
+Whether these are already listed in the benchmarks' errata was not checked. The earlier miniF2F refutation
+(`algebra_ineq_nto1onlt2m1on`) stands. PutnamBench remains almost entirely out of reach: 39 of 672 translate.

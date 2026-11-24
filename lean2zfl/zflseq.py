@@ -439,6 +439,10 @@ def read_seq(raw, conv=False, only=None):
     if only is not None:                                 # one given point (Lean's reading at the exact refutation)
         combos = [tuple(Fraction(only[n]) for n in names)] if all(n in only for n in names) else []
     rec = existence_by_recursion(seqs, rules)
+    # a contradiction among the instances is a property of the hypotheses only when they do not depend on the point
+    # (MEASURED 2026-11-25, miniF2F mathd_algebra_43: f x = a x + b at a = 7, b = 8 contradicts f 6 = … — that point is
+    # inadmissible, the hypotheses are not; the first version called it vacuous)
+    pointfree = not any(re.search(rf"\b{re.escape(n)}\b", t) for n in names for t in facts + [t for _, t in rules])
     cache, found, checked, vac = {}, None, 0, None
     for pt in combos:
         at = dict(zip(names, pt))
@@ -487,7 +491,7 @@ def read_seq(raw, conv=False, only=None):
     out = {"translated": True, "claim": c["zfl"], "ztl": "OPEN", "sequence": seq}
     if found:
         out["witness"] = found
-    elif vac is not None and checked == 0:
+    elif vac is not None and checked == 0 and pointfree:
         out["vacuous"] = True
         out["witness"] = {"vacuous_why": str(vac)[:160]}
     else:
