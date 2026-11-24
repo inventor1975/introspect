@@ -475,21 +475,27 @@ def sink_document(fact, ctx):
             f"{n}@L{l} answered from the tree's definitions of that name, the receiver's class unchecked"
             for n, l in assumed)
         sanitized = dict(sanitized, means=sanitized["means"] + note)     # every row SAYS it, whatever the verdict
-        # Only the two claims that make a sink look SAFE may be weakened by an assumption:
-        # "nothing attacker-controlled arrives" and "it was substituted". Weakening the OTHER
-        # direction — an attacker value verified as arriving — would let a bad assumption buy safety.
-        if tainted["status"] == "refuted":
-            tainted = {"status": "unverified", "means": tainted["means"] + note}
-        if sanitized["status"] == "verified":
-            sanitized = {"status": "unverified", "means": sanitized["means"]}
+    # ON CREDIT, NAMED (2026-11-24, contract §1-2). Until today the assumption WEAKENED the safe-making rows to
+    # unverified, which the judge reads as OPEN — not the ON CREDIT this comment promised (MEASURED on
+    # fixtures/xconflict/b.php with --assume-tree-methods: OPEN). Now the rows stay as read, and the assumption
+    # is its own dirty atom, NAMED: the claim is `safe & ~~assumed` — "safe as read, and nothing shows the
+    # assumption fails". The judge: T on credit (ON CREDIT) when `safe` holds; a verification of the receiver's
+    # class can kill it. Only the SAFE direction rides the assumption: a sink whose attacker value is verified
+    # to arrive is REFUTED whatever the assumption says (`safe` is F, the conjunction is F), so a bad assumption
+    # still cannot buy safety.
     rows = [dict(name="tainted", ground_kind="act", **tainted),
             dict(name="sanitized", ground_kind="act", **sanitized),
             {"name": "safe", "status": "defined", "ground": "~Tr(tainted) | Tr(sanitized)",
              "means": f"the {ctx} sink {fact['fn']} at L{line} cannot be driven by an attacker"}]
+    claim = "safe"
+    if assumed:
+        rows.append({"name": "assumed", "status": "unverified",
+                     "means": "the assumption holds:" + note.split(":", 1)[1]})
+        claim = "safe & ~~assumed"
     for r in rows:
         if r["status"] == "unverified":
             r.pop("ground", None); r.pop("ground_kind", None)
-    return {"rows": rows, "claim": "safe"}
+    return {"rows": rows, "claim": claim}
 
 
 def judge(doc):

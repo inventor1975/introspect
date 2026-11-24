@@ -297,13 +297,22 @@ def main():
         failures.append(f"xconflict/app.php: conflicting xc_clean() must read as unknown -> OPEN, got {got.get('app.php')}")
     if "EARNED" in got.get("b.php", []):
         failures.append(f"xconflict/b.php: $db->safe() credited with XcA::safe -> {got.get('b.php')}")
+    # ---- under --assume-tree-methods the same $db->safe() IS answered from XcA::safe: then the sink is clean only ON
+    # CREDIT, the assumption named (2026-11-24, contract §1; it was OPEN — the row-weakening the comment promised
+    # as ON CREDIT never gave it). Never EARNED: the receiver's class is unchecked.
+    xa = php2zfl.run([os.path.join(FIX, "xconflict")], [], "all", AUTOLOAD, assume_tree=True)
+    got_a = {os.path.basename(f["file"]): [s["disposition"] for s in f["sinks"]] for f in xa["files"]}
+    if got_a.get("b.php") != ["ON CREDIT"]:
+        failures.append(f"xconflict/b.php under --assume-tree-methods should be ON CREDIT, got {got_a.get('b.php')}")
+    if got_a.get("app.php") != ["OPEN"]:
+        failures.append(f"xconflict/app.php under --assume-tree-methods should stay OPEN, got {got_a.get('app.php')}")
     n = sum(len(v) if isinstance(v, list) else 1 for v in EXPECT.values()) + 5
     if failures:
         print("FAIL")
         for x in failures:
             print("  -", x)
         sys.exit(1)
-    print(f"PASS: {n} sink verdicts as expected across {len(EXPECT)} fixtures + the cross-file, conflict, inheritance, ambiguous-parent, duplicate-class and include pairs (+ f54 under stored-input, f87 and f88 under wordpress) + 2 vacuity controls")
+    print(f"PASS: {n} sink verdicts as expected across {len(EXPECT)} fixtures + the cross-file, conflict, inheritance, ambiguous-parent, duplicate-class and include pairs (+ f54 under stored-input, f87 and f88 under wordpress) + 2 vacuity controls + the assumption pair (ON CREDIT)")
 
 
 if __name__ == "__main__":
