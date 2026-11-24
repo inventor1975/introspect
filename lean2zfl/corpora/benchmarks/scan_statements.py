@@ -37,8 +37,11 @@ _all = []
 for _l in open(_src, encoding="utf-8"):
     if _l.strip():
         _r = json.loads(_l)
+        _fs = _r["formal_statement"].rstrip()
+        # a statement that already ends its own proof (`sorry` inside a section, PutnamBench's files) is kept as is
         _all.append({"problem_id": _r["name"],
-                     "full_proof": (_r.get("informal_prefix") or "") + _r["formal_statement"].rstrip() + "\n  sorry\n"})
+                     "full_proof": (_r.get("informal_prefix") or "") + (_fs + "\n" if _fs.endswith("end") else
+                                                                        _fs + "\n  sorry\n")})
 rows = _all[:n_proofs] if os.environ.get("SCAN_HEAD") else random.Random(20261124).sample(_all, min(n_proofs, len(_all)))
 if os.environ.get("SCAN_IDS"):                   # a chosen subset (one id per line), e.g. the E/OPEN of a full scan
     _want = {l.strip() for l in open(os.environ["SCAN_IDS"], encoding="utf-8") if l.strip()}
@@ -47,7 +50,9 @@ if os.environ.get("SCAN_IDS"):                   # a chosen subset (one id per l
 
 def body(src):
     """the proof without its header lines (imports, set_option maxHeartbeats, open)"""
-    keep = [l for l in src.splitlines() if not re.match(r"^(import |set_option maxHeartbeats|open )", l)]
+    # an `open` inside a section is the statement's own (PutnamBench): kept; a top-level one is dropped as before
+    keep = [l for l in src.splitlines() if not re.match(r"^(import |set_option maxHeartbeats)", l)
+            and not (re.match(r"^open ", l) and not src.lstrip().startswith("section"))]
     return "\n".join(keep).strip() + "\n"
 
 
