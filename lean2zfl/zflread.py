@@ -386,11 +386,195 @@ def lean_witness(zc, b):
     return None
 
 
+# ------------------------------------------------------------------ THE CONVENTIONS AS DIRTY PARAMETERS
+# (2026-11-25, the curator: "Надо делать как я понял… будет ровненько"; the article on 1 + 2 + 3 + … = −1/12). A Lean
+# notation hides a choice no one names: which summation method ∑' is, what x/0 and log of a negative are, whether ℕ's
+# − and / truncate. ZTL reads each choice as a DIRTY PARAMETER of the claim and judges the claim under every reading:
+#     N  ℕ's arithmetic           exact | lean (floor, truncation)
+#     P  partial functions        none (no value at the edge) | lean (x/0 = 0, log|x|, √ of x ≤ 0 = 0)
+#     M  summation method of ∑'   limit | mathlib | abel | cesaro | zeta        (zsummation: P(n), (−1)^n P(n) series)
+# True under every reading: EARNED; false under every one (at an admissible point): REFUTED; otherwise the claim
+# DEPENDS on the convention, and the table says which reading gives what. (First version: div, log and √ are one
+# parameter P; a per-occurrence choice — the IF STABLE question for conventions — is not read yet.)
+import zsummation as _zs  # noqa: E402
+
+_NOVALUE = "nv_novalue"           # a quantity with no reading: a series with no value under a method reads E
+
+
+def _calls(text, name):
+    """(start, end, inner) for every top-level call name(...) in text"""
+    out, i = [], 0
+    while True:
+        j = text.find(name + "(", i)
+        if j < 0:
+            return out
+        if j and (text[j - 1].isalnum() or text[j - 1] == "_"):
+            i = j + 1
+            continue
+        depth, k = 1, j + len(name) + 1
+        while depth:
+            depth += (text[k] == "(") - (text[k] == ")")
+            k += 1
+        out.append((j, k, text[j + len(name) + 1:k - 1]))
+        i = k
+
+
+def _series_poly(var, body):
+    """the body of series(var, body) as (alternating, {degree: coefficient}) — Σ (−1)^{n·alt} P(n) — or None"""
+    try:
+        from znumjudge import _parse_arith
+        tree = _parse_arith(body, {var: {}})
+    except Exception:
+        return None
+
+    def poly(t):
+        if isinstance(t, _Fr) or isinstance(t, int):
+            return (False, {0: _Fr(t)})
+        if t == var:
+            return (False, {1: _Fr(1)})
+        if not isinstance(t, tuple):
+            return None
+        op = t[0]
+        if op in ("add", "sub"):
+            a, b = poly(t[1]), poly(t[2])
+            if a is None or b is None:
+                return None
+            if a[1] and b[1] and a[0] != b[0]:
+                return None
+            alt = a[0] if a[1] else b[0]
+            r = dict(a[1])
+            for k, v in b[1].items():
+                r[k] = r.get(k, 0) + (v if op == "add" else -v)
+            return (alt, {k: v for k, v in r.items() if v != 0})
+        if op == "mul":
+            a, b = poly(t[1]), poly(t[2])
+            if a is None or b is None:
+                return None
+            r = {}
+            for i, u in a[1].items():
+                for j, v in b[1].items():
+                    r[i + j] = r.get(i + j, 0) + u * v
+            return (a[0] != b[0], {k: v for k, v in r.items() if v != 0})
+        if op == "div":
+            a, b = poly(t[1]), poly(t[2])
+            if a is None or b is None or b[0] or set(b[1]) != {0}:
+                return None
+            return (a[0], {k: v / b[1][0] for k, v in a[1].items()})
+        if op == "pow" and t[2] == var:
+            base = poly(t[1])
+            if base and not base[0] and base[1] == {0: _Fr(-1)}:
+                return (True, {0: _Fr(1)})
+        return None
+    return poly(tree)
+
+
+def _sum_reading(text, method):
+    """every series(...) in text replaced by its value under `method`, or by a no-value quantity; None if a series
+    is not of the readable class"""
+    out, last = [], 0
+    for j, k, inner in _calls(text, "series"):
+        var, _, body = inner.partition(",")
+        p = _series_poly(var.strip(), body.strip())
+        if p is None:
+            return None
+        v = _zs.value(p[1], p[0], method)
+        out.append(text[last:j])
+        out.append(_NOVALUE if v is None else _print(v))
+        last = k
+    out.append(text[last:])
+    return "".join(out)
+
+
+def _zeta_exact(text):
+    """zeta(k) at an integer k ≤ 0 -> its exact value (ζ(−j) = −B_{j+1}/(j+1), ζ(0) = −1/2); None if another zeta"""
+    out, last = [], 0
+    for j, k, inner in _calls(text, "zeta"):
+        try:
+            from znumjudge import _parse_arith
+            from znum import _ev_exact
+            v = _ev_exact(_parse_arith(inner, {}), {})
+        except Exception:
+            return None
+        if not isinstance(v, _Fr) or v.denominator != 1 or v > 0:
+            return None
+        out += [text[last:j], _print(_zs.zeta_neg(int(-v)))]
+        last = k
+    out.append(text[last:])
+    return "".join(out)
+
+
+def _map_texts(z, f):
+    import copy
+    z = copy.deepcopy(z)
+    for part in [z.get("concl", {})] + list(z.get("hyps", [])):
+        if "zfl" in part:
+            r = f(part["zfl"])
+            if r is None:
+                return None
+            part["zfl"] = r
+    return z
+
+
+def readings(raw):
+    """the claim under every reading of its conventions: [{N, P, M, verdict, at}] and the overall disposition"""
+    texts = [raw.get("concl", {}).get("zfl", "")] + [h.get("zfl", "") for h in raw.get("hyps", [])]
+    has = lambda w: any(w in t for t in texts)                       # noqa: E731
+    Ns = ("exact", "lean") if (has("ndiv(") or has("nsub(")) else ("exact",)
+    Ps = ("none", "lean") if any(re.search(r"/|ln\(|log10\(|sqrt\(", t) for t in texts) else ("none",)
+    Ms = _zs.METHODS if has("series(") else (None,)
+    if len(Ns) * len(Ps) * len(Ms) == 1:
+        return None
+    rows = []
+    for n_ in Ns:
+        for p_ in Ps:
+            for m_ in Ms:
+                z = _reading(raw, n_ == "lean")
+                z = _map_texts(z, _zeta_exact) if z else None
+                if z is not None and m_ is not None:
+                    z = _map_texts(z, lambda t: _sum_reading(t, m_))
+                if z is None:
+                    rows.append({"N": n_, "P": p_, "M": m_, "verdict": "UNTR"})
+                    continue
+                r = _read(z, partial_lean=(p_ == "lean"))
+                w = r.get("witness") or {}
+                v = ("T" if r.get("ztl") == "EARNED" else "F" if "refuted_at" in w else
+                     "E" if r.get("ztl") == "E" else "Z")
+                rows.append({"N": n_, "P": p_, "M": m_, "verdict": v, "at": w.get("refuted_at")})
+    # a parameter whose readings change nothing is dropped from the table (a literal −1/12 is not a division at 0)
+    for dim in ("P", "N"):
+        others = [k for k in ("N", "P", "M") if k != dim]
+        groups = {}
+        for r in rows:
+            groups.setdefault(tuple(r[k] for k in others), set()).add(r["verdict"])
+        if all(len(v) == 1 for v in groups.values()):
+            seen, kept = set(), []
+            for r in rows:
+                key = tuple(r[k] for k in others)
+                if key not in seen:
+                    seen.add(key)
+                    kept.append({**r, dim: "any"})
+            rows = kept
+    vs = {r["verdict"] for r in rows}
+    overall = ("EARNED" if vs == {"T"} else "REFUTED" if vs == {"F"} else "E" if vs == {"E"} else
+               "DEPENDS" if ({"T", "F"} & vs) else "OPEN")
+    return {"rows": rows, "overall": overall}
+
+
 def read(t):
     """the floor's reading of one dumped theorem: the MATHEMATICS (ℕ's / and − exact); where the statement uses ℕ's
     conventions, also LEAN'S reading of them (`ztl_conv`), and the mark `rests_on_nat_convention` when the mathematics
     is refuted (or refuted at a point) and Lean's convention holds there"""
     raw = _core_arrows(t.get("zfl") or {})
+    if raw and not raw.get("untr_vars") and "zfl" in raw.get("concl", {}) and \
+            any(w in p.get("zfl", "") for p in [raw["concl"]] + list(raw.get("hyps", [])) for w in ("series(", "zeta(")):
+        # a series or zeta: no single "mathematical" reading exists — the method is the claim's dirty parameter
+        rd = readings(raw)
+        if rd is None:                                   # zeta at integer points only: one reading
+            z = _map_texts(_reading(raw, False), _zeta_exact)
+            if z is None:
+                return {"translated": False, "untr": "zeta at a point that is not an integer ≤ 0"}
+            return _read(z)
+        return {"translated": True, "claim": raw["concl"]["zfl"], "ztl": rd["overall"], "readings": rd["rows"]}
     math = _reading(raw, False) if raw else raw
     out = _read(math)
     if out.get("translated") and not out.get("exists") and "refuted_at" not in (out.get("witness") or {}) \
@@ -426,8 +610,9 @@ def read(t):
     return out
 
 
-def _read(z):
-    """the floor's reading of one translated statement (no marks left)"""
+def _read(z, partial_lean=False):
+    """the floor's reading of one translated statement (no marks left); `partial_lean`: partial functions read as
+    Lean has them (x/0 = 0, log|x|, √ of x ≤ 0 = 0)"""
     if not z:
         return {"translated": False, "untr": "no zfl field (dumper before 2026-11-24)"}
     if "untr_vars" in z:
@@ -437,8 +622,14 @@ def _read(z):
         return {"translated": False, "untr": c.get("untr", "?")}
     b, unused = box(z)
     text = sheet(b)
+    if any(_NOVALUE in (h.get("zfl") or "") for h in [c] + list(z.get("hyps", []))):
+        # a series with no value under the method in force: a quantity with NO reading (ZTL: E wherever it is read)
+        text = (text + ", " if text else "") + f"{_NOVALUE}=(1,1] earned:convention"
     try:
         qs, marks = parse_quantities(text) if text else ({}, {})
+        if partial_lean:
+            z = _map_texts(z, lambda t: _lean_formula(t, qs))
+            c = z["concl"]
         r = judge_sheet_claim(c["zfl"], qs, marks)
         doms = []
         # the conclusion AND the hypotheses (2026-11-24: aime_1984_p5's logarithms are all in its hypotheses, over a

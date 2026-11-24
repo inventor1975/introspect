@@ -98,4 +98,18 @@ theorem t_lean_only (x : ℝ) (h : Real.log x > 1) : x > 2 := by sorry
 theorem t_aime (a b : ℝ) (h₀ : Real.logb 8 a + Real.logb 4 (b ^ 2) = 5)
     (h₁ : Real.logb 8 b + Real.logb 4 (a ^ 2) = 7) : a * b = 512 := by sorry
 
+-- READINGS DEPENDS zeta=T mathlib=F limit=E: 1 + 2 + 3 + … = −1/12 — true under zeta regularisation, false in
+-- Mathlib's tsum (0), no value as a limit (the article on −1/12, mechanised)
+theorem t_twelfth : ∑' n : ℕ, ((n : ℝ) + 1) = -1 / 12 := by sorry
+
+-- READINGS DEPENDS mathlib=T zeta=F: THE ZERO IN FRONT — Lean proves S = 0 + S (both are its 0); under zeta the two
+-- are −1/12 and 5/12
+theorem t_zero_front : ∑' n : ℕ, ((n : ℝ) + 1) = ∑' n : ℕ, (n : ℝ) := by sorry
+
+-- ZTL EARNED: ζ(−1) = −1/12 is a value of the continuation, true under every reading
+theorem t_zeta_neg_one : riemannZeta (-1) = -1 / 12 := by sorry
+
+-- READINGS DEPENDS abel=T cesaro=T zeta=T mathlib=F: Grandi's 1 − 1 + 1 − … = 1/2
+theorem t_grandi : ∑' n : ℕ, ((-1 : ℝ) ^ n) = 1 / 2 := by sorry
+
 end ZFLReadFix

@@ -367,6 +367,21 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
       -- lattice — ZTL's floor reads the power over the exponent's integer range (VR's vpow: repeated multiplication)
       if xty.isConstOf `Nat || xty.isConstOf `Int then return s!"pow({b}, {← zTerm names x})"
       throwError "untr: a power with a symbolic exponent of another type"
+  -- A SERIES (2026-11-25, the summation method as a dirty parameter): ∑' n : ℕ, f n is written series(s_n, f) —
+  -- the bound variable named s_<n>, the body translated with it; zflread reads the series under each method
+  | some `tsum =>
+    let f? := args.reverse.find? (fun a => a.consumeMData.isLambda)
+    match f? with
+    | some f =>
+      match f.consumeMData with
+      | .lam nm t b bi =>
+        if !(← whnfR t).isConstOf `Nat then throwError "untr: a series not indexed by ℕ"
+        return ← withLocalDecl nm bi t fun x => do
+          let sn := "s_" ++ (zflName nm.toString []).drop 2
+          return s!"series({sn}, {← zTerm (names.insert x.fvarId! sn) (b.instantiate1 x)})"
+      | _ => throwError "untr: tsum"
+    | none => throwError "untr: tsum of a function that is not a λ"
+  | some `riemannZeta => fn1 "zeta"           -- read exactly by zflread at an integer ≤ 0 (−B_{k+1}/(k+1)), else untr
   | some `Real.sqrt => fn1 "sqrt"
   | some `Real.log => fn1 "ln"
   | some `Real.exp => fn1 "exp"
