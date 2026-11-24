@@ -18,7 +18,7 @@ os.environ.setdefault("LEAN2ZFL_PROJECT", os.path.join(HERE, "..", "..", "ztl-cl
 want = {}
 lines = open(SRC, encoding="utf-8").read().splitlines()
 for i, l in enumerate(lines):
-    m = re.match(r"^-- (ZTL \w+|WITNESS \w+|UNTR|NATCONV|VACUOUS|HYPDOMAIN)", l)
+    m = re.match(r"^-- (ZTL \w+|WITNESS \w+|UNTR|NATCONV|VACUOUS|HYPDOMAIN|LEANFALSE)", l)
     if m:
         j = i + 1                                    # the comment may run over several lines
         while not re.search(r"theorem (\w+)", lines[j]):
@@ -39,6 +39,8 @@ for t in lean2zfl.dump_file(SRC):
     w, exp = r.get("witness") or {}, want[short]
     if exp == "UNTR":
         ok = not r.get("translated")
+    elif exp == "LEANFALSE":                         # false in Lean's semantics only: no exact counterexample
+        ok = r.get("lean_refuted_at") is not None and "refuted_at" not in w
     elif exp == "HYPDOMAIN":                         # an unguarded partial operation reported IN A HYPOTHESIS
         ok = any(d[2].startswith("hyp") and d[1] in ("OPEN", "NOWHERE") for d in r.get("domain", []) if len(d) > 2) \
             and "refuted_at" not in w

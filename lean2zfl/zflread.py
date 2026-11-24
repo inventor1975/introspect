@@ -288,6 +288,104 @@ def exists_witness(z, b, seed=20261124):
     return None
 
 
+# ------------------------------------------------------------------ LEAN'S OWN SEMANTICS, a third reading
+# (2026-11-24, the curator on aime_1984_p5: "log x = log|x| — это в Lean; а прибором ZFL/ZTL мы видим?"). The exact
+# reading cannot see a statement that is false ONLY in Lean: there, log of a negative has no value and the hypotheses
+# do not hold. This reading rewrites the statement into Lean's conventions — log x = log|x| and log 0 = 0, √x = 0 for
+# x ≤ 0, x / 0 = 0, n / 0 = 0, n % 0 = n (ℕ's floor and truncation: the convention reading) — with ZTL's `ifpos`
+# (a decided condition reads only its branch), and searches a point where the hypotheses hold and the conclusion fails
+# IN LEAN. rpow of a negative base (Lean: exp(y log x) cos(y pi)) is not rewritten: it stays the exact reading.
+from fractions import Fraction as _Fr  # noqa: E402
+
+_ZERO = _Fr(0)
+
+
+def _lean_tree(e):
+    if isinstance(e, tuple):
+        op = e[0]
+        args = [[_lean_tree(x) for x in e[1]]] if op == "sum" else [_lean_tree(x) for x in e[1:]]
+        e = (op, *args)
+        neg = lambda x: ("sub", _ZERO, x)                                    # noqa: E731
+        if op in ("ln", "log10"):
+            x = e[1]
+            return ("ifpos", x, (op, x), ("ifpos", neg(x), (op, neg(x)), _ZERO))
+        if op == "sqrt":
+            return ("ifpos", e[1], e, _ZERO)
+        if op == "div":
+            d = e[2]
+            return ("ifpos", d, e, ("ifpos", neg(d), e, _ZERO))
+        if op == "idiv":
+            return ("ifpos", e[2], e, _ZERO)
+        if op == "mod":
+            return ("ifpos", e[2], e, e[1])
+    return e
+
+
+def _print(e):
+    if isinstance(e, _Fr):
+        return (f"(0 - {_print(-e)})" if e < 0 else
+                (str(e.numerator) if e.denominator == 1 else f"({e.numerator} / {e.denominator})"))
+    if isinstance(e, (int, float)):
+        return str(e)
+    if isinstance(e, str):
+        return e
+    op = e[0]
+    sym = {"add": "+", "sub": "-", "mul": "*", "div": "/"}
+    if op in sym:
+        return f"({_print(e[1])} {sym[op]} {_print(e[2])})"
+    if op == "sum":
+        return "sum(" + ", ".join(_print(x) for x in e[1]) + ")"
+    return f"{op}(" + ", ".join(_print(x) for x in e[1:]) + ")"
+
+
+def _lean_formula(text, qs):
+    """a ZFL formula rewritten into Lean's conventions, comparison by comparison"""
+    core, atoms = extract_comparisons(text, dict(qs))
+    sign = {"le": "<=", "lt": "<", "eq": "=="}
+    out = core
+    for name, (kind, e1, e2, _) in sorted(atoms.items(), key=lambda kv: -len(kv[0])):
+        out = out.replace(f" {name} ", f" ({_print(_lean_tree(e1))} {sign[kind]} {_print(_lean_tree(e2))}) ")
+    return out
+
+
+_LEAN_POOL = sorted(set(_CANDS) | {_Fr(sg * k ** j) for sg in (1, -1) for k in (2, 3, 5) for j in range(0, 11)
+                                   if k ** j <= 1024})
+LEAN_EXHAUSTIVE = 6400
+
+
+def lean_witness(zc, b):
+    """a point where, in LEAN'S semantics, every hypothesis is EARNED and the conclusion REFUTED; or None. zc is the
+    convention reading of the statement (ℕ's / and − as Lean has them)."""
+    import itertools
+    import random
+    if any("zfl" not in h for h in zc.get("hyps", [])):
+        return None
+    names = list(b)
+    pools = [[x for x in _LEAN_POOL if _inside(x, b[n])] for n in names]
+    if any(not p for p in pools):
+        return None
+    size = 1
+    for p in pools:
+        size *= len(p)
+    if size <= LEAN_EXHAUSTIVE:
+        combos = list(itertools.product(*pools)) if names else [()]
+    else:
+        rnd = random.Random(20261124)
+        combos = list({tuple(rnd.choice(p) for p in pools) for _ in range(WITNESS_TRIES)})
+    for pt in combos:
+        text = ", ".join(f"{n}={_end(x)} earned:pt" for n, x in zip(names, pt))
+        try:
+            qs, marks = parse_quantities(text) if text else ({}, {})
+            if not all(judge_sheet_claim(_lean_formula(h["zfl"], qs), dict(qs), marks)["disposition"] == "EARNED"
+                       for h in zc.get("hyps", [])):
+                continue
+            if judge_sheet_claim(_lean_formula(zc["concl"]["zfl"], qs), dict(qs), marks)["disposition"] == "REFUTED":
+                return {n: _end(x) for n, x in zip(names, pt)}
+        except Exception:
+            continue
+    return None
+
+
 def read(t):
     """the floor's reading of one dumped theorem: the MATHEMATICS (ℕ's / and − exact); where the statement uses ℕ's
     conventions, also LEAN'S reading of them (`ztl_conv`), and the mark `rests_on_nat_convention` when the mathematics
@@ -295,6 +393,17 @@ def read(t):
     raw = _core_arrows(t.get("zfl") or {})
     math = _reading(raw, False) if raw else raw
     out = _read(math)
+    if out.get("translated") and not out.get("exists") and "refuted_at" not in (out.get("witness") or {}) \
+            and any(d[1] in ("OPEN", "NOWHERE") for d in out.get("domain", [])):
+        # the mathematics is not refuted, and some partial operation is not guarded: is the statement false IN LEAN?
+        try:
+            zc = _reading(raw, True)
+            bc, _ = box(zc)
+            lw = lean_witness(zc, bc)
+            if lw is not None:
+                out["lean_refuted_at"] = lw
+        except Exception as ex:
+            out["lean_reading"] = f"UNREAD: {ex}"[:120]
     if out.get("translated"):
         # the hypotheses in the exact reading: what a certificate must show at a witness point (certify.py)
         out["hyps_zfl"] = [h["zfl"] for h in math.get("hyps", []) if "zfl" in h]

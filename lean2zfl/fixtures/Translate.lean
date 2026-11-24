@@ -89,4 +89,13 @@ theorem t_ex_inner (y : ℝ) : y = y ∧ ∃ x : ℝ, x > y := by sorry
 theorem t_hyp_log (a b : ℝ) (h₀ : Real.logb 8 a + Real.logb 4 (b ^ 2) = 5)
     (h₁ : Real.logb 8 b + Real.logb 4 (a ^ 2) = 7) : a * b = 512 := by sorry
 
+-- LEANFALSE: true mathematics (log x > 1 forces x > e > 2), false IN LEAN: log x = log|x|, so x = -3 gives log 3 > 1
+-- and -3 > 2 fails — the shape of aime_1984_p5, read with an inequality the floor can decide
+theorem t_lean_only (x : ℝ) (h : Real.log x > 1) : x > 2 := by sorry
+
+-- LEANFALSE: aime_1984_p5 itself — true mathematics (a, b > 0 forced, ab = 512), false IN LEAN at a = −64, b = 8
+-- (log|x|); found only with exact logarithms of rationals: log_8 64 + log_4 64 = 5 is an equality
+theorem t_aime (a b : ℝ) (h₀ : Real.logb 8 a + Real.logb 4 (b ^ 2) = 5)
+    (h₁ : Real.logb 8 b + Real.logb 4 (a ^ 2) = 7) : a * b = 512 := by sorry
+
 end ZFLReadFix
