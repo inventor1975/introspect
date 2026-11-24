@@ -398,7 +398,9 @@ def lean_witness(zc, b):
 # parameter P; a per-occurrence choice — the IF STABLE question for conventions — is not read yet.)
 import zsummation as _zs  # noqa: E402
 
-_NOVALUE = "nv_novalue"           # a quantity with no reading: a series with no value under a method reads E
+_NOVALUE = "nv_novalue"
+_zfun_words = {"exp", "ln", "log10", "sin", "cos", "tan", "atan", "pow", "min", "max", "sqrt", "ifpos", "idiv", "mod",
+               "dvd", "fact", "choose", "sum", "integral", "pi"}           # a quantity with no reading: a series with no value under a method reads E
 
 
 def _calls(text, name):
@@ -420,66 +422,169 @@ def _calls(text, name):
 
 
 def _series_poly(var, body):
-    """the body of series(var, body) as (alternating, {degree: coefficient}) — Σ (−1)^{n·alt} P(n) — or None"""
+    """the body of series(var, body) as (P, r) — Σ P(n) r^n, P {degree: Fraction}, r a Fraction or a tree in the
+    claim's other variables (a ratio that is a variable) — or None. (−1)^n is r = −1; c^(a n + b) gives r = c^a."""
     try:
         from znumjudge import _parse_arith
-        tree = _parse_arith(body, {var: {}})
+        from znum import names_in, _ev as _zev
+        names = {w: {} for w in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", body)
+                 if w not in _zfun_words}
+        names[var] = {}
+        tree = _parse_arith(body, names)
     except Exception:
+        return None
+    ONE = _Fr(1)
+
+    def fold(t):
+        """a subtree with no name at all, read to its exact value by the floor (1/2, idiv(1, 2), 2^3)"""
+        if not isinstance(t, tuple) or names_in(t):
+            return t
+        try:
+            iv = _zev(t, {})[0]
+        except Exception:
+            return t
+        if iv is not None and iv[0] == iv[1] and not isinstance(iv[0], float):
+            return _Fr(iv[0])
+        return t
+
+    def walk(t):
+        if isinstance(t, tuple):
+            args = [[walk(x) for x in t[1]]] if t[0] == "sum" else [walk(x) for x in t[1:]]
+            return fold((t[0], *args))
+        return t
+    tree = walk(tree)
+
+    def rmul(a, b):
+        if isinstance(a, _Fr) and isinstance(b, _Fr):
+            return a * b
+        if a == ONE:
+            return b
+        if b == ONE:
+            return a
+        return ("mul", a, b)
+
+    def rinv(a):
+        return 1 / a if isinstance(a, _Fr) else ("div", ONE, a)
+
+    def lin(t):
+        """t as a n + b with integers a >= 1, b, or None"""
+        if t == var:
+            return (1, 0)
+        if isinstance(t, tuple) and t[0] in ("add", "sub") and isinstance(t[2], _Fr) and t[2].denominator == 1:
+            inner = lin(t[1])
+            if inner:
+                return (inner[0], inner[1] + (int(t[2]) if t[0] == "add" else -int(t[2])))
+        if isinstance(t, tuple) and t[0] == "mul" and isinstance(t[1], _Fr) and t[1].denominator == 1 and t[1] > 0:
+            inner = lin(t[2])
+            if inner:
+                return (inner[0] * int(t[1]), inner[1] * int(t[1]))
         return None
 
     def poly(t):
-        if isinstance(t, _Fr) or isinstance(t, int):
-            return (False, {0: _Fr(t)})
+        if isinstance(t, (_Fr, int)):
+            return ({0: _Fr(t)}, ONE)
         if t == var:
-            return (False, {1: _Fr(1)})
+            return ({1: ONE}, ONE)
         if not isinstance(t, tuple):
+            return None
+        if var not in names_in(t):                       # a factor free of n: a constant, or a symbolic one
             return None
         op = t[0]
         if op in ("add", "sub"):
-            a, b = poly(t[1]), poly(t[2])
+            a, b = poly(t[1]) if var in names_in(t[1]) or isinstance(t[1], _Fr) else None, \
+                poly(t[2]) if var in names_in(t[2]) or isinstance(t[2], _Fr) else None
             if a is None or b is None:
                 return None
-            if a[1] and b[1] and a[0] != b[0]:
+            if a[0] and b[0] and a[1] != b[1]:
                 return None
-            alt = a[0] if a[1] else b[0]
-            r = dict(a[1])
-            for k, v in b[1].items():
-                r[k] = r.get(k, 0) + (v if op == "add" else -v)
-            return (alt, {k: v for k, v in r.items() if v != 0})
+            r = a[1] if a[0] else b[1]
+            out = dict(a[0])
+            for k, v in b[0].items():
+                out[k] = out.get(k, 0) + (v if op == "add" else -v)
+            return ({k: v for k, v in out.items() if v != 0}, r)
         if op == "mul":
+            for x, y in ((t[1], t[2]), (t[2], t[1])):
+                if isinstance(x, _Fr):
+                    b = poly(y)
+                    return None if b is None else ({k: v * x for k, v in b[0].items()}, b[1])
             a, b = poly(t[1]), poly(t[2])
             if a is None or b is None:
                 return None
-            r = {}
-            for i, u in a[1].items():
-                for j, v in b[1].items():
-                    r[i + j] = r.get(i + j, 0) + u * v
-            return (a[0] != b[0], {k: v for k, v in r.items() if v != 0})
+            out = {}
+            for i, u in a[0].items():
+                for j, v in b[0].items():
+                    out[i + j] = out.get(i + j, 0) + u * v
+            return ({k: v for k, v in out.items() if v != 0}, rmul(a[1], b[1]))
         if op == "div":
-            a, b = poly(t[1]), poly(t[2])
-            if a is None or b is None or b[0] or set(b[1]) != {0}:
+            a = poly(t[1]) if (var in names_in(t[1])) else ({0: _Fr(t[1])}, ONE) if isinstance(t[1], _Fr) else None
+            if isinstance(t[2], _Fr):
+                return None if a is None else ({k: v / t[2] for k, v in a[0].items()}, a[1])
+            b = poly(t[2])
+            if a is None or b is None or set(b[0]) != {0}:
                 return None
-            return (a[0], {k: v / b[1][0] for k, v in a[1].items()})
-        if op == "pow" and t[2] == var:
-            base = poly(t[1])
-            if base and not base[0] and base[1] == {0: _Fr(-1)}:
-                return (True, {0: _Fr(1)})
+            return ({k: v / b[0][0] for k, v in a[0].items()}, rmul(a[1], rinv(b[1])))
+        if op == "pow":
+            ab = lin(t[2])
+            base = t[1]
+            if ab is None or var in names_in(base):
+                return None
+            a, b = ab
+            if isinstance(base, _Fr):
+                return ({0: base ** b}, base ** a)
+            if b != 0:
+                return None                               # a symbolic coefficient base^b: not read
+            return ({0: ONE}, base if a == 1 else ("pow", base, _Fr(a)))
         return None
-    return poly(tree)
+    # ℕ's FLOOR MAKES A FINITE SERIES (2026-11-25, Lean Workbook: ∑' i, 1 / 2^i in ℕ is 1 + 0 + 0 + …):
+    # idiv(A(n), b^(a n + e)), b >= 2 an integer, a >= 1, e >= 0, A a polynomial with non-negative coefficients. Once
+    # b^(a n0 + e) > A(n0) at some n0 >= 1.45 deg A, every later term is 0: the divisor at least doubles each step and
+    # A(n+1)/A(n) <= (1 + 1/n)^deg <= 2 there — so the sum is the finite sum of the first terms, under EVERY method.
+    if isinstance(tree, tuple) and tree[0] == "idiv" and isinstance(tree[2], tuple) and tree[2][0] == "pow":
+        b, ab = tree[2][1], lin(tree[2][2])
+        num = poly(tree[1]) if var in names_in(tree[1]) else (({0: _Fr(tree[1])}, ONE) if isinstance(tree[1], _Fr) else None)
+        if (isinstance(b, _Fr) and b.denominator == 1 and b >= 2 and ab and ab[0] >= 1 and ab[1] >= 0 and num
+                and num[1] == ONE and all(c >= 0 and c.denominator == 1 for c in num[0].values())):
+            A = lambda n: int(sum(c * n ** k for k, c in num[0].items()))          # noqa: E731
+            deg = max(num[0]) if num[0] else 0
+            start = int(1.45 * deg) + 1
+            for n0 in range(start, start + 10000):
+                if int(b) ** (ab[0] * n0 + ab[1]) > A(n0):
+                    total = sum(A(n) // int(b) ** (ab[0] * n + ab[1]) for n in range(n0))
+                    return ("finite", _Fr(total))
+    r = poly(tree)
+    if r is None or not r[0]:
+        return None if r is None else ({}, ONE)
+    return r
 
 
 def _sum_reading(text, method):
-    """every series(...) in text replaced by its value under `method`, or by a no-value quantity; None if a series
-    is not of the readable class"""
+    """every series(...) in text replaced by its value under `method` — exact for a rational ratio, a piecewise
+    ZFL expression for a ratio that is a variable — or by a no-value quantity; None if a series is not readable"""
     out, last = [], 0
     for j, k, inner in _calls(text, "series"):
         var, _, body = inner.partition(",")
-        p = _series_poly(var.strip(), body.strip())
-        if p is None:
+        pr = _series_poly(var.strip(), body.strip())
+        if pr is None:
             return None
-        v = _zs.value(p[1], p[0], method)
         out.append(text[last:j])
-        out.append(_NOVALUE if v is None else _print(v))
+        if pr[0] == "finite":                            # finitely many non-zero terms: every method sums them
+            out.append(_print(pr[1]))
+            last = k
+            continue
+        p, r = pr
+        if isinstance(r, _Fr):
+            v = _zs.value_geo(p, r, method)
+            out.append(_NOVALUE if v is None else _print(v))
+        else:
+            R = _print(r)
+            closed = _zs.closed_text(p, R)
+            inside = f"(1 - max({R}, (0 - {R})))"         # > 0 exactly when |r| < 1
+            if method == "zeta":
+                out.append(closed)                       # the continuation (no value at r = 1: a division by 0)
+            elif method == "mathlib":
+                out.append(f"ifpos({inside}, {closed}, 0)")
+            else:                                        # limit, abel, cesaro: a value only where |r| < 1
+                out.append(f"ifpos({inside}, {closed}, {_NOVALUE})")
         last = k
     out.append(text[last:])
     return "".join(out)
@@ -555,9 +660,13 @@ def readings(raw):
                     kept.append({**r, dim: "any"})
             rows = kept
     vs = {r["verdict"] for r in rows}
+    if vs == {"UNTR"}:
+        return {"rows": rows, "overall": "UNTR"}
+    partial = "UNTR" in vs                               # an unread reading does not vote; it is said
+    vs.discard("UNTR")
     overall = ("EARNED" if vs == {"T"} else "REFUTED" if vs == {"F"} else "E" if vs == {"E"} else
                "DEPENDS" if ({"T", "F"} & vs) else "OPEN")
-    return {"rows": rows, "overall": overall}
+    return {"rows": rows, "overall": overall, "partial": partial}
 
 
 def read(t):
@@ -574,7 +683,10 @@ def read(t):
             if z is None:
                 return {"translated": False, "untr": "zeta at a point that is not an integer ≤ 0"}
             return _read(z)
-        return {"translated": True, "claim": raw["concl"]["zfl"], "ztl": rd["overall"], "readings": rd["rows"]}
+        if rd["overall"] == "UNTR":                      # no method could read the series: not translated
+            return {"translated": False, "untr": "a series outside the readable classes (Σ P(n) r^n)"}
+        return {"translated": True, "claim": raw["concl"]["zfl"], "ztl": rd["overall"], "readings": rd["rows"],
+                "readings_partial": rd.get("partial", False)}
     math = _reading(raw, False) if raw else raw
     out = _read(math)
     if out.get("translated") and not out.get("exists") and "refuted_at" not in (out.get("witness") or {}) \

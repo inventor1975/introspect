@@ -112,4 +112,13 @@ theorem t_zeta_neg_one : riemannZeta (-1) = -1 / 12 := by sorry
 -- READINGS DEPENDS abel=T cesaro=T zeta=T mathlib=F: Grandi's 1 − 1 + 1 − … = 1/2
 theorem t_grandi : ∑' n : ℕ, ((-1 : ℝ) ^ n) = 1 / 2 := by sorry
 
+-- ZTL EARNED: Σ (1/2)^i = 2 — a convergent geometric series, every method agrees
+theorem t_geo_half : ∑' i : ℕ, ((1 : ℝ) / 2) ^ i = 2 := by sorry
+
+-- READINGS DEPENDS: in ℕ, 1 / 2^i is 1, 0, 0, … so the sum is 1 (Lean); the mathematics sums to 2 (lean_workbook_14823)
+theorem t_geo_nat : ∑' i : ℕ, 1 / 2 ^ i = 1 := by sorry
+
+-- READINGS DEPENDS zeta=T mathlib=F limit=E: Euler's 1 + 2 + 4 + 8 + … = −1
+theorem t_euler : ∑' n : ℕ, (2 : ℝ) ^ n = -1 := by sorry
+
 end ZFLReadFix
