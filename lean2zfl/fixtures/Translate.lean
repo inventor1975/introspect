@@ -41,4 +41,7 @@ theorem t_inner_false : ∀ y : ℝ, 0 < y → y ^ 2 ≥ 1 := by sorry
 -- UNTR: a ∀ on the left of → INSIDE the conclusion is an ∃ in disguise (at the top, Lean makes it a hypothesis)
 theorem t_inner_neg (x : ℝ) : x > 0 ∧ ((∀ y : ℝ, y ≤ x) → x > 1) := by sorry
 
+-- UNTR: ¬¬∀ is not positive here — classical ¬¬p = p falls in ZTL on a marked atom
+theorem t_notnot_all : ¬¬ (∀ y : ℝ, y ^ 2 ≥ 0) := by sorry
+
 end ZFLReadFix

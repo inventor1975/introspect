@@ -368,8 +368,10 @@ def numKind (t : Lean.Expr) : MetaM String := do
 /-- variables a conclusion's inner universals add to the box, and the ZFL names already taken -/
 abbrev ZExtra := IO.Ref (Array Json × List String)
 
-/-- `pol`: 1 a positive place (the conclusion, ∧ ∨, the right of →), -1 a negative one (the left of →, under ¬, a
-hypothesis), 0 both (a side of ↔). A NUMERIC ∀ IN A POSITIVE PLACE adds its variable to the box (2026-11-24, the
+/-- `pol`: 1 a positive place (the conclusion, ∧ ∨, the right of →), -1 a negative one (the left of →, a
+hypothesis), 0 neither (a side of ↔, anything under ¬). No classical law is used to rewrite a formula: each Lean
+connective becomes ZTL's own (∧ & , ∨ | , → -> , ↔ ↔ , ¬ ~) and ZTL's core judges it by ZTL's tables; the places
+only decide whether a ∀ may join the box, and only ever to REFUSE where a classical equivalence would be needed. A NUMERIC ∀ IN A POSITIVE PLACE adds its variable to the box (2026-11-24, the
 curator: "кванторы мы делали — проверь, чтобы не делать дубли"): ZFL has no quantifier in a claim by design (zfl.py,
 the `sets` note) because the box IS the universal over readings — so ∀ y, P y in a positive place is P with y one more
 quantity of the box, exactly the fresh parameter of zfo's δ-rule. Anywhere else a ∀ is an ∃ in disguise, and ∃ has no
@@ -407,7 +409,9 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
   | some `And => if args.size == 2 then return s!"({← zProp names pol ex args[0]!} & {← zProp names pol ex args[1]!})" else throwError "untr: ∧"
   | some `Or => if args.size == 2 then return s!"({← zProp names pol ex args[0]!} | {← zProp names pol ex args[1]!})" else throwError "untr: ∨"
   | some `Iff => if args.size == 2 then return s!"({← zProp names 0 ex args[0]!} <-> {← zProp names 0 ex args[1]!})" else throwError "untr: ↔"
-  | some `Not => if args.size == 1 then return s!"(~{← zProp names (-pol) ex args[0]!})" else throwError "untr: ¬"
+  -- under ¬ the place is NEITHER (2026-11-24, the curator: "∧, ∨ — из них операторы ZTL не выводятся"): a flip to
+  -- the opposite place would let ¬¬∀ pass as positive — classical ¬¬p = p, which falls in ZTL on a marked atom
+  | some `Not => if args.size == 1 then return s!"(~{← zProp names 0 ex args[0]!})" else throwError "untr: ¬"
   | some `Exists => throwError "untr: an inner quantifier (∃)"
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
