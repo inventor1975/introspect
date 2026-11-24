@@ -8,6 +8,16 @@ ZTL's reading is "v3" (see `../goedel/README.md`).
 |---|---|---|---|
 | miniF2F | 488 | 65 | 1: `algebra_ineq_nto1onlt2m1on` (`Certificates_minif2f.lean`, kernel-certified) |
 | ProofNet | 371 | 164 | 0 (mostly untranslated: abstract algebra and analysis) |
+| PutnamBench (trishullab, Apache-2.0, Lean v4.33 read on our v4.29) | 672 | 14 | 0 — 644 (96%) untranslated: functions as variables ~120, general types 27, ∃ 37, sets 16, Euclidean plane 14, `Finset.sum` 10, polynomials 9, limits 9 |
+
+**Where the instrument works, and where it does not (measured).** It reads computational and olympiad mathematics:
+Lean Workbook's ℕ conventions, series and logarithms. It cannot read Putnam or Mathlib's general theory, where almost
+every statement quantifies over functions, sets or types. That is the boundary of ZTL's numeric floor, and partly
+VR's: a quantifier over all functions ℝ → ℝ does not range over a box. Mathlib's series and zeta modules
+(`../mathlib/`) have 109 theorems that mention `∑'`. Five are concrete enough to read (geometric series); the rest
+range over any type `ι` and any `f`. The first layer still maps them: seven theorems there are proved through the
+convention "a divergent sum is 0" (`tsum_mem`, `tendsto_sum_nat_add`, and others). That is Mathlib's design, not an
+error.
 
 **The one refutation is already known.** The formal statement has a strict `<` and no hypothesis `0 < n`; the informal
 statement says `≤` and "n positive". At n = 1 the formal statement reads `1 < 1`. DeepSeek-Prover-V2's miniF2F has
