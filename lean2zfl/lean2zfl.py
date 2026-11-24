@@ -87,6 +87,8 @@ def guarded(op, args, typ, hyps):
     a = [_norm(x) for x in args]
     if op == "tsum":
         return any(h.startswith(("Summable", "HasSum")) for h in H)
+    if op == "HDiv.hDiv" and _norm(typ) in ("ℕ", "Nat", "ℤ", "Int"):
+        return False                         # truncating: only a PROVED d ∣ n ∧ d ≠ 0 (guard_proved) guards it
     if op in ("HDiv.hDiv", "Inv.inv"):
         d = a[-1]
         v = _num(d)
@@ -116,14 +118,17 @@ def judge_theorem(t):
         op, typ, args = o["op"], o.get("type", ""), o.get("args", [])
         if op == "HSub.hSub" and _norm(typ) not in TRUNCATING_SUB:
             continue
-        if o.get("guard_proved") or guarded(op, args, typ, t.get("hyps", [])):
+        if o.get("junk_proved") and not o.get("guard_proved"):
+            pass                             # a PROVED convention point outranks a TEXT guard (`7 / 2` in ℕ: a nonzero
+                                             # literal denominator, still a truncation) — classified E below
+        elif o.get("guard_proved") or guarded(op, args, typ, t.get("hyps", [])):
             continue                         # the domain condition PROVED at dump time (positivity / norm_num / omega /
                                              # assumption), or stated by a hypothesis
         key = _norm(o["expr"])
         if o.get("bound"):                   # under a binder of the statement: its text names no fixed term, so two
             key = f"{key}#{len(seen)}"       # alike-printing occurrences are NOT one term (never grouped as IF STABLE)
-        if o.get("junk_proved"):              # the hypotheses PROVE the argument is at a convention point: the
-            seen[key] = ("E", op)            # statement speaks about the convention there (2026-11-24)
+        if o.get("junk_proved") and not o.get("guard_proved"):   # the hypotheses PROVE the argument is at a
+            seen[key] = ("E", op)            # convention point: the statement speaks about the convention there
         elif lemmas & FAMILY.get(op, set()):
             seen.setdefault(key, ("E", op))
         elif key in seen and o.get("generalizes"):
@@ -275,14 +280,20 @@ def analyze_app(paths, file_timeout=600):
     for root, mods in by_root.items():
         try:
             got = dump_modules(sorted(mods), root)
-        except Exception as e:  # noqa: BLE001
-            for p in mods.values():
-                UNPARSED.append((p, str(e)[:300]))
-            continue
+        except Exception:  # noqa: BLE001
+            got = {}
+        # a module the batch did not dump is read ON ITS OWN: importing everything at once can break the dumper's own
+        # text (MEASURED 2026-11-24 on ZTL's 219 modules: one module's notation made the appended dumper fail to
+        # elaborate, and the whole batch read nothing)
+        for m in sorted(set(mods) - set(got)):
+            try:
+                got.update(dump_modules([m], root, timeout=600))
+            except Exception as e:  # noqa: BLE001
+                UNPARSED.append((mods[m], str(e)[:300]))
         for m, p in mods.items():
             if m in got:
                 emit(p, got[m])
-            else:
+            elif not any(u[0] == p for u in UNPARSED):
                 UNPARSED.append((p, "module not dumped"))
     for p in loose:
         try:

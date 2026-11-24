@@ -57,4 +57,10 @@ theorem log_of_negative (x : ℝ) (hx : x < 0) : Real.exp (Real.log x) = -x := R
 -- EXPECT E: log 0 = 0 is the convention itself, proved by unfolding the definition (no junk LEMMA in the proof)
 theorem log_at_zero : Real.log 0 = 0 := by simp [Real.log]
 
+-- EXPECT E: ℕ division truncates — "7 / 2 = 3" is true of the convention (an informal 7/2 is 3.5)
+theorem nat_div_floor : (7 : ℕ) / 2 = 3 := by norm_num
+
+-- EXPECT EARNED: an exact ℕ division (2 ∣ 2 * n, proved by omega) carries no convention
+theorem nat_div_exact (n : ℕ) : (2 * n) / 2 = n := by omega
+
 end L2ZFix

@@ -23,7 +23,7 @@ def junkArity : Name → Nat
   | `riemannZeta => 1 | _ => 0
 
 /-- every FULL application of a junk operation, outermost first (a partial application is not an occurrence) -/
-partial def junkApps (e : Expr) (acc : Array Expr := #[]) : Array Expr :=
+partial def junkApps (e : Lean.Expr) (acc : Array Lean.Expr := #[]) : Array Lean.Expr :=
   match e.getAppFn with
   | .const n _ =>
     if junkOps.contains n && e.getAppNumArgs ≥ junkArity n then
@@ -41,11 +41,11 @@ partial def junkApps (e : Expr) (acc : Array Expr := #[]) : Array Expr :=
     | .proj _ _ b => junkApps b acc
     | _ => acc
 
-def ppOrRaw (e : Expr) : MetaM String := do
+def ppOrRaw (e : Lean.Expr) : MetaM String := do
   if e.hasLooseBVars then return s!"{e}" else return s!"{← ppExpr e}"
 
 /-- the explicit value arguments of a junk application (the last ones), pretty-printed -/
-def valueArgs (a : Expr) : MetaM (Array Json) := do
+def valueArgs (a : Lean.Expr) : MetaM (Array Json) := do
   let op := a.getAppFn.constName!
   let k : Nat := match op with
     | `HDiv.hDiv => 2 | `HSub.hSub => 2 | `Inv.inv => 1 | `tsum => 1 | _ => 1
@@ -62,9 +62,9 @@ def valueArgs (a : Expr) : MetaM (Array Json) := do
 integer) is not proved by these: such an occurrence stays OPEN.
 Try to PROVE a goal with a tactic given as text (parsed at run time against the current environment, so the
 dumper compiles without Mathlib and uses Mathlib's tactics when they are there). A small heartbeat budget. -/
-def proves (goal : Expr) (tac : String) : TermElabM Bool := do
+def proves1 (goal : Lean.Expr) (tac : String) : TermElabM Bool := do
   match Parser.runParserCategory (← getEnv) `tactic tac with
-  | .error _ => return false
+  | .error _ => return false                      -- a tactic this environment does not have (no Mathlib): skipped
   | .ok stx =>
     let g ← mkFreshExprMVar goal
     try
@@ -80,9 +80,31 @@ def proves (goal : Expr) (tac : String) : TermElabM Bool := do
         return !(pf.hasSorry || pf.hasExprMVar)
     catch _ => return false
 
+/-- `first | a | b | …`, but each alternative parsed and tried ON ITS OWN: one alternative this environment lacks
+(positivity, norm_num, linarith without Mathlib — the ZTL repository is Lean core only) must not sink the others,
+which a single `first | …` parse did. Every alternative must close the goal. -/
+def proves (goal : Lean.Expr) (tac : String) : TermElabM Bool := do
+  -- split at TOP-LEVEL bars only: an alternative may itself contain `first | …` inside parentheses
+  let body := (tac.trim.dropPrefix "first").toString.trim
+  let topSplit (s : String) : List String := Id.run do
+    let mut depth : Int := 0
+    let mut cur := ""
+    let mut out : List String := []
+    for c in s.toList do
+      if c == '(' then depth := depth + 1
+      if c == ')' then depth := depth - 1
+      if c == '|' && depth == 0 then
+        out := out ++ [cur.trim]; cur := ""
+      else cur := cur.push c
+    return out ++ [cur.trim]
+  let alts := if tac.trim.startsWith "first" then (topSplit body).filter (· != "") else [tac]
+  for alt in alts do
+    if alt != "" && (← proves1 goal alt) then return true
+  return false
+
 /-- The domain condition of one junk occurrence, as a goal; none when it has loose bound variables (inside a binder
 of the statement, e.g. a summand) or no condition is known. -/
-def domainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
+def domainGoal (a : Lean.Expr) : MetaM (Option (Lean.Expr × String)) := do
   let op := a.getAppFn.constName!
   let args := a.getAppArgs
   try
@@ -90,6 +112,14 @@ def domainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
     | `HDiv.hDiv | `Inv.inv =>
       let d := args[args.size - 1]!
       if d.hasLooseBVars then return none
+      let ty ← whnfR (← inferType d)
+      if op == `HDiv.hDiv && (ty.isConstOf `Nat || ty.isConstOf `Int) then
+        -- ℕ / ℤ division TRUNCATES: its convention is not only at 0 — 7 / 2 = 3. The guard: exact and nonzero.
+        let n := args[args.size - 2]!
+        if n.hasLooseBVars then return none
+        let z ← mkAppOptM `OfNat.ofNat #[← inferType d, mkRawNatLit 0, none]
+        return some (← mkAppM `And #[← mkAppM `Dvd.dvd #[d, n], ← mkAppM `Ne #[d, z]],
+                     "first | (constructor <;> first | assumption | decide | omega | (norm_num; done)) | decide | omega | (norm_num; done)")
       return some (← mkAppM `Ne #[d, ← mkAppOptM `OfNat.ofNat #[← inferType d, mkRawNatLit 0, none]],
                    "first | positivity | assumption | (intro h; norm_cast at h) | (intro h; norm_cast at h; omega) | (intro h; norm_num at h) | (intro h; norm_num at h; norm_cast at h; omega) | (intro h; norm_cast at h; simp [Nat.factorial_ne_zero] at h) | (intro h; linarith) | (norm_num; done)")
     | `Real.sqrt =>
@@ -115,18 +145,18 @@ def domainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
 every occurrence of `t` into a fresh variable and try to PROVE the generalised statement (no recovery, no sorry).
 This is what EARNED IF STABLE claims; a repeated term alone does not establish it (MEASURED 2026-11-24:
 `KS23.unit_of`, `1 / √(u·u)` twice, holds only for the term's real value — 0 would give 0 = 1). -/
-def generalizes (concl t : Expr) : TermElabM Bool := do
+def generalizes (concl t : Lean.Expr) : TermElabM Bool := do
   if t.hasLooseBVars then return false
   let body ← kabstract concl t
   if !body.hasLooseBVars then return false
-  let goal := Expr.forallE `x (← inferType t) body .default
+  let goal := Lean.Expr.forallE `x (← inferType t) body .default
   -- one tactic: `a; b` parses only inside parentheses (unparenthesised, the parse failed silently = "not proved")
-  proves goal "(intro x; first | ring | (simp; done) | omega | rfl | (norm_num; done))"
+  proves goal "first | (intro x; ring) | (intro x; simp; done) | (intro x; omega) | (intro x; rfl) | (intro x; norm_num; done)"
 
 /-- The JUNK-domain condition of one occurrence: the argument IS at a convention point (a denominator = 0, log of
 x ≤ 0 — at 0 and below Mathlib's log is a convention, √ of x < 0, ℕ-subtraction a < b, ζ at 1, a non-summable
 series). PROVED from the statement's own hypotheses, it means the statement speaks about the convention there: E. -/
-def junkDomainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
+def junkDomainGoal (a : Lean.Expr) : MetaM (Option (Lean.Expr × String)) := do
   let op := a.getAppFn.constName!
   let args := a.getAppArgs
   let tac := "first | assumption | (norm_num; done) | linarith | omega | rfl | (exact le_of_lt (by assumption)) | (exact le_of_eq (by assumption)) | (exact (le_of_eq (by assumption)).trans le_rfl)"
@@ -135,6 +165,13 @@ def junkDomainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
     | `HDiv.hDiv | `Inv.inv =>
       let d := args[args.size - 1]!
       if d.hasLooseBVars then return none
+      let ty ← whnfR (← inferType d)
+      if op == `HDiv.hDiv && (ty.isConstOf `Nat || ty.isConstOf `Int) then
+        let n := args[args.size - 2]!
+        if n.hasLooseBVars then return none
+        let z ← mkAppOptM `OfNat.ofNat #[← inferType d, mkRawNatLit 0, none]
+        return some (← mkAppM `Or #[← mkAppM `Not #[← mkAppM `Dvd.dvd #[d, n]], ← mkAppM `Eq #[d, z]],
+                     "first | decide | omega | (left; decide) | (left; omega) | (right; assumption) | (norm_num; done)")
       return some (← mkAppM `Eq #[d, ← mkAppOptM `OfNat.ofNat #[← inferType d, mkRawNatLit 0, none]], tac)
     | `Real.sqrt =>
       let x := args[0]!; if x.hasLooseBVars then return none
@@ -154,7 +191,7 @@ def junkDomainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
 
 /-- One junk occurrence as JSON, judged IN the current local context (so a binder's fresh variable and the binder's
 own hypotheses — `∀ x, 0 < x → …` — are there for the guard's proof). -/
-def occJson (concl a : Expr) (under : Bool) : TermElabM Json := do
+def occJson (concl a : Lean.Expr) (under : Bool) : TermElabM Json := do
   let op := a.getAppFn.constName!
   let carrier ← if [`Real.sqrt, `Real.log, `riemannZeta].contains op then pure ""
                  else ppOrRaw a.getAppArgs[0]!
@@ -174,7 +211,7 @@ def occJson (concl a : Expr) (under : Bool) : TermElabM Json := do
 occurrence is a closed term with free variables and its domain condition can be PROVED for an arbitrary value —
 i.e. for all values (MEASURED 2026-11-24: 41 of 110 OPEN theorems in six Mathlib modules had only such occurrences,
 which the raw walk could not even try). -/
-partial def visitJunk (concl e : Expr) (under : Bool) (acc : IO.Ref (Array Json)) : TermElabM Unit := do
+partial def visitJunk (concl e : Lean.Expr) (under : Bool) (acc : IO.Ref (Array Json)) : TermElabM Unit := do
   match e.getAppFn with
   | .const n _ =>
     if junkOps.contains n && e.getAppNumArgs ≥ junkArity n then
