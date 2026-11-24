@@ -83,14 +83,16 @@ every theorem from the elaborated environment and asks the ZTL judge, per junk o
 | verdict | when |
 |---|---|
 | **EARNED** | every junk operation guarded — by a hypothesis, or by a domain condition PROVED at dump time (positivity / norm_cast + omega / norm_num, no error recovery, no sorry) |
-| **E** | the proof takes a junk branch: the statement holds at that point only by the convention (no subject) |
+| **E** | the statement holds at a point only by the convention (no subject): the proof takes a junk branch, or the hypotheses PROVE the argument is at a convention point (log of x ≤ 0, a zero denominator, √ of x < 0) |
 | **EARNED IF STABLE** | one unguarded term occurs more than once, and the statement is PROVED for every value of it (the term abstracted to a fresh variable) — true if stable |
 | **OPEN** | an unguarded operation, junk branch not seen |
 | **ON CREDIT** | the proof rests on an axiom beyond propext / choice / Quot.sound (`sorry` included), named |
 
-Measured on six Mathlib modules (480 theorems, generated equation lemmas excluded, none lost): EARNED 285, OPEN 173,
-E 22 (e.g. `Real.log_pow` and `Real.log_inv` for every x, holding at 0 and below by the log convention;
-`one_le_div_iff` at b = 0), IF STABLE 0. An earlier count of 342 was short: 138 theorems were silently lost to a
+Measured on six Mathlib modules (480 theorems, generated equation lemmas excluded, none lost): EARNED 285, OPEN 171,
+E 24 (e.g. `Real.log_pow` and `Real.log_inv` for every x, holding at 0 and below by the log convention;
+`one_le_div_iff` at b = 0; `Real.log_zero` and `Real.exp_log_of_neg`, found because their hypotheses PROVE the
+argument is at a convention point), IF STABLE 0. E is listed in the report by default; OPEN is counted, and listed
+with --open. Tried and NOT adopted: "no junk lemma anywhere in the proof's chain -> EARNED" (it cleared Real.log_zero). An earlier count of 342 was short: 138 theorems were silently lost to a
 heartbeat limit shared by the whole command — now counted per theorem, and a theorem that cannot be read is listed
 as NOT ANALYSED. Most of the remaining OPEN are honest: a convention point really is in the statement (`(↑n)⁻¹` at
 n = 0 in a limit, `√(f y)` for every y in a derivative), and whether it matters is a semantic question; on our ztl-classical (45 files, 310 theorems,

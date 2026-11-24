@@ -239,6 +239,13 @@ def _print(report, show_open=False, quiet=False):
             for lbl, f in refuted:
                 print(f"  [{lbl}] {f['file']}:{f['line']}  {f['name']}  ({f['ctx']})")
 
+        nosubj = [(LABEL[m], f) for m in sorted(langs) for f in langs[m]["findings"] if f["disp"] == "E"]
+        if nosubj:                     # listed by default: for Lean these are the finding (true only by a convention)
+            print("-" * 72)
+            print("E — no subject (Lean: the statement holds there only by a convention, e.g. log 0 = 0, x / 0 = 0):")
+            for lbl, f in nosubj:
+                print(f"  [{lbl}] {f['file']}:{f['line']}  {f['name']}")
+
         cond = [(LABEL[m], f) for m in sorted(langs) for f in langs[m]["findings"]
                 if f["disp"] == "REFUTED IF STABLE"]
         if cond:
@@ -249,11 +256,11 @@ def _print(report, show_open=False, quiet=False):
 
         if show_open:
             openf = [(LABEL[m], f) for m in sorted(langs) for f in langs[m]["findings"]
-                     if f["disp"] in ("OPEN", "ON CREDIT", "EARNED IF STABLE", "E")]
+                     if f["disp"] in ("OPEN", "ON CREDIT", "EARNED IF STABLE")]
             if openf:
                 print("-" * 72)
                 print("NOT CLEARED, NOT ACCUSED — OPEN (unverifiable), ON CREDIT (rests on an unverified link),")
-                print("EARNED IF STABLE (clean if the value is the same at check and use), E (no subject):")
+                print("EARNED IF STABLE (clean if the value is the same at check and use):")
                 for lbl, f in openf:
                     print(f"  [{lbl}] {f['file']}:{f['line']}  {f['name']}  ({f['ctx']})  {f['disp']}")
 

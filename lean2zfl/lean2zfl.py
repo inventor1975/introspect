@@ -122,7 +122,9 @@ def judge_theorem(t):
         key = _norm(o["expr"])
         if o.get("bound"):                   # under a binder of the statement: its text names no fixed term, so two
             key = f"{key}#{len(seen)}"       # alike-printing occurrences are NOT one term (never grouped as IF STABLE)
-        if lemmas & FAMILY.get(op, set()):
+        if o.get("junk_proved"):              # the hypotheses PROVE the argument is at a convention point: the
+            seen[key] = ("E", op)            # statement speaks about the convention there (2026-11-24)
+        elif lemmas & FAMILY.get(op, set()):
             seen.setdefault(key, ("E", op))
         elif key in seen and o.get("generalizes"):
             seen[key] = ("ZZ", op)            # the statement PROVED for every value of the term: true if stable
@@ -133,7 +135,7 @@ def judge_theorem(t):
         i += 1
         a = f"o{i}"
         if kind == "E":
-            marking[a] = "E"; parts.append(a); notes.append(f"{key}: junk branch taken ({op}) — no subject")
+            marking[a] = "E"; parts.append(a); notes.append(f"{key}: at a convention point ({op}) — no subject")
         elif kind == "ZZ":
             marking[a] = "Z"; parts.append(f"({a} <-> {a})"); notes.append(f"{key}: unguarded, occurs more than once")
         else:

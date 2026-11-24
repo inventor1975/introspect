@@ -123,6 +123,35 @@ def generalizes (concl t : Expr) : TermElabM Bool := do
   -- one tactic: `a; b` parses only inside parentheses (unparenthesised, the parse failed silently = "not proved")
   proves goal "(intro x; first | ring | (simp; done) | omega | rfl | (norm_num; done))"
 
+/-- The JUNK-domain condition of one occurrence: the argument IS at a convention point (a denominator = 0, log of
+x ≤ 0 — at 0 and below Mathlib's log is a convention, √ of x < 0, ℕ-subtraction a < b, ζ at 1, a non-summable
+series). PROVED from the statement's own hypotheses, it means the statement speaks about the convention there: E. -/
+def junkDomainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
+  let op := a.getAppFn.constName!
+  let args := a.getAppArgs
+  let tac := "first | assumption | (norm_num; done) | linarith | omega | rfl | (exact le_of_lt (by assumption)) | (exact le_of_eq (by assumption)) | (exact (le_of_eq (by assumption)).trans le_rfl)"
+  try
+    match op with
+    | `HDiv.hDiv | `Inv.inv =>
+      let d := args[args.size - 1]!
+      if d.hasLooseBVars then return none
+      return some (← mkAppM `Eq #[d, ← mkAppOptM `OfNat.ofNat #[← inferType d, mkRawNatLit 0, none]], tac)
+    | `Real.sqrt =>
+      let x := args[0]!; if x.hasLooseBVars then return none
+      return some (← mkAppM `LT.lt #[x, ← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none]], tac)
+    | `Real.log =>
+      let x := args[0]!; if x.hasLooseBVars then return none
+      return some (← mkAppM `LE.le #[x, ← mkAppOptM `OfNat.ofNat #[← inferType x, mkRawNatLit 0, none]], tac)
+    | `HSub.hSub =>
+      let x := args[4]!; let y := args[5]!
+      if x.hasLooseBVars || y.hasLooseBVars then return none
+      return some (← mkAppM `LT.lt #[x, y], tac)
+    | `riemannZeta =>
+      let s := args[0]!; if s.hasLooseBVars then return none
+      return some (← mkAppM `Eq #[s, ← mkAppOptM `OfNat.ofNat #[← inferType s, mkRawNatLit 1, none]], tac)
+    | _ => return none
+  catch _ => return none
+
 /-- One junk occurrence as JSON, judged IN the current local context (so a binder's fresh variable and the binder's
 own hypotheses — `∀ x, 0 < x → …` — are there for the guard's proof). -/
 def occJson (concl a : Expr) (under : Bool) : TermElabM Json := do
@@ -133,10 +162,13 @@ def occJson (concl a : Expr) (under : Bool) : TermElabM Json := do
     | some (g, tac) => proves g tac
     | none => pure false
   let gen ← if proved || under then pure false else generalizes concl a
+  let atJunk ← if proved then pure false else match ← junkDomainGoal a with
+    | some (g, tac) => proves g tac
+    | none => pure false
   return Json.mkObj [("op", Json.str op.toString), ("type", Json.str carrier),
                      ("expr", Json.str (← ppOrRaw a)), ("args", Json.arr (← valueArgs a)),
                      ("guard_proved", Json.bool proved), ("bound", Json.bool under),
-                     ("generalizes", Json.bool gen)]
+                     ("generalizes", Json.bool gen), ("junk_proved", Json.bool atJunk)]
 
 /-- Walk a statement; UNDER A BINDER (fun / ∀ / let) the bound variable is instantiated by a fresh local, so the
 occurrence is a closed term with free variables and its domain condition can be PROVED for an arbitrary value —

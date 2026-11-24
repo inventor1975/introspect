@@ -50,4 +50,11 @@ theorem repeated_not_general (f : ℝ → ℝ) (hf : ∀ y, 0 < f y) : 1 / f 1 *
   have h := (hf 1).ne'
   rw [one_div_mul_cancel h]; norm_num
 
+-- EXPECT E: log of a negative is Mathlib's convention (log x = log |x|): the hypothesis x < 0 PROVES the argument is at
+-- a convention point, and no junk branch of the definition is even taken (Real.exp_log_of_neg's shape)
+theorem log_of_negative (x : ℝ) (hx : x < 0) : Real.exp (Real.log x) = -x := Real.exp_log_of_neg hx
+
+-- EXPECT E: log 0 = 0 is the convention itself, proved by unfolding the definition (no junk LEMMA in the proof)
+theorem log_at_zero : Real.log 0 = 0 := by simp [Real.log]
+
 end L2ZFix
