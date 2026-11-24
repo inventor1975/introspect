@@ -109,6 +109,18 @@ def domainGoal (a : Expr) : MetaM (Option (Expr × String)) := do
     | _ => return none
   catch _ => return none
 
+/-- Does the statement hold for EVERY value of the term `t`, provided one value at all its occurrences? Abstract
+every occurrence of `t` into a fresh variable and try to PROVE the generalised statement (no recovery, no sorry).
+This is what EARNED IF STABLE claims; a repeated term alone does not establish it (MEASURED 2026-11-24:
+`KS23.unit_of`, `1 / √(u·u)` twice, holds only for the term's real value — 0 would give 0 = 1). -/
+def generalizes (concl t : Expr) : TermElabM Bool := do
+  if t.hasLooseBVars then return false
+  let body ← kabstract concl t
+  if !body.hasLooseBVars then return false
+  let goal := Expr.forallE `x (← inferType t) body .default
+  -- one tactic: `a; b` parses only inside parentheses (unparenthesised, the parse failed silently = "not proved")
+  proves goal "(intro x; first | ring | (simp; done) | omega | rfl | (norm_num; done))"
+
 def dumpOne (n : Name) : TermElabM Json := do
   let ci ← getConstInfo n
   let used := (ci.value?.map (·.getUsedConstants)).getD #[]
@@ -133,9 +145,11 @@ def dumpOne (n : Name) : TermElabM Json := do
       let proved ← match ← domainGoal a with
         | some (g, tac) => proves g tac
         | none => pure false
+      let gen ← if proved then pure false else generalizes concl a
       ops := ops.push (Json.mkObj [("op", Json.str op.toString), ("type", Json.str carrier),
                                    ("expr", Json.str (← ppOrRaw a)), ("args", Json.arr (← valueArgs a)),
-                                   ("guard_proved", Json.bool proved), ("bound", Json.bool a.hasLooseBVars)])
+                                   ("guard_proved", Json.bool proved), ("bound", Json.bool a.hasLooseBVars),
+                                   ("generalizes", Json.bool gen)])
     return Json.mkObj [("name", Json.str n.toString), ("line", Json.num line),
                        ("statement", Json.str s!"{← ppExpr concl}"),
                        ("hyps", Json.arr hyps), ("junk_ops", Json.arr ops),
@@ -155,10 +169,13 @@ elab "#lean2zfl_dump_here" : command => liftTermElabM do
 elab "#lean2zfl_dump_module " m:ident : command => liftTermElabM do
   let env ← getEnv
   let some idx := env.getModuleIdx? m.getId | throwError s!"module {m.getId} is not imported"
+  IO.println s!"LEAN2ZFL_MODULE {m.getId}"
   for (n, ci) in env.constants.map₁.toList do
     if n.isInternal || env.getModuleIdxFor? n != some idx then continue
     match ci with
-    | .thmInfo _ => IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress)
+    | .thmInfo _ =>
+      if (← findDeclarationRanges? n).isNone then continue   -- generated (equation lemmas): not the author's theorem
+      IO.println ("LEAN2ZFL " ++ (← dumpOne n).compress)
     | _ => pure ()
 
 end Lean2ZFL

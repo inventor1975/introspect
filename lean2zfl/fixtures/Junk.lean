@@ -39,4 +39,15 @@ theorem on_credit_sorry : (3 : ℝ) * 3 = 9 := by sorry
 theorem cplx_den (k : ℕ) : (1 : ℂ) / ((k : ℂ) + 1) * ((k : ℂ) + 1) = 1 :=
   div_mul_cancel₀ (1 : ℂ) (Nat.cast_add_one_ne_zero k)
 
+-- EXPECT EARNED: √x twice, guarded by PROOF — positivity uses the hypothesis 0 < x for both 0 ≤ x and √x ≠ 0
+theorem sqrt_guarded_by_hyp (x : ℝ) (hx : 0 < x) : (1 / Real.sqrt x) * Real.sqrt x = 1 := by
+  rw [one_div, inv_mul_cancel₀ (Real.sqrt_pos.mpr hx).ne']
+
+-- EXPECT OPEN: `1 / f 1` twice and unguarded — `f 1 ≠ 0` follows from the ∀-hypothesis, which no dump-time tactic
+-- uses — and the statement holds only for the term's real value (0 would give 0 = 2): a repeated term is NOT "true
+-- if stable" (KS23.unit_of's shape)
+theorem repeated_not_general (f : ℝ → ℝ) (hf : ∀ y, 0 < f y) : 1 / f 1 * f 1 + 1 / f 1 * f 1 = 2 := by
+  have h := (hf 1).ne'
+  rw [one_div_mul_cancel h]; norm_num
+
 end L2ZFix

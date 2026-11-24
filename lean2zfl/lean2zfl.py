@@ -11,8 +11,8 @@ judge one atom per junk operation in the statement:
 
   guarded by a hypothesis (b ≠ 0, Summable f, 0 ≤ x, m ≤ n, s ≠ 1) or a literal outside the junk point -> T
   unguarded, and the proof directly uses that operation's junk lemma (the junk branch is TAKEN)        -> E (no subject)
-  unguarded, the same term occurring more than once, junk branch not taken                              -> one dirty
-                                                                     atom read at each occurrence: `q <-> q`
+  unguarded, the same term more than once, and the statement PROVED for every value of that term (the term
+  abstracted to a fresh variable, proved by ring / simp / omega at dump time)    -> one dirty atom, `q <-> q`
   unguarded otherwise                                                                                    -> Z
   and the axioms: anything beyond propext / Classical.choice / Quot.sound (sorryAx included) -> `~~ax`, named.
 
@@ -118,8 +118,10 @@ def judge_theorem(t):
             key = f"{key}#{len(seen)}"       # alike-printing occurrences are NOT one term (never grouped as IF STABLE)
         if lemmas & FAMILY.get(op, set()):
             seen.setdefault(key, ("E", op))
+        elif key in seen and o.get("generalizes"):
+            seen[key] = ("ZZ", op)            # the statement PROVED for every value of the term: true if stable
         else:
-            seen[key] = ("Z", op) if key not in seen else ("ZZ", op)
+            seen.setdefault(key, ("Z", op))
     i = 0
     for key, (kind, op) in seen.items():
         i += 1
@@ -140,7 +142,7 @@ def judge_theorem(t):
     return r["disposition"], "; ".join(notes), claim, marking
 
 
-def dump_file(path, timeout=1800):
+def dump_file(path, timeout=600):
     """Elaborate a COPY of the file with the dumper appended; return the theorems' JSON, or raise."""
     root = lake_root(path) or os.environ.get("LEAN2ZFL_PROJECT")   # a loose file: elaborate it in a named project
     if not root:
@@ -198,20 +200,77 @@ def analyze_modules(modules, project):
     return rows
 
 
-def analyze_app(paths):
-    """introspect's interface: (path, line, name, ctx, disposition, why) per theorem."""
+def _built_module(path, root):
+    """The module name of a file whose BUILD is current (.olean at least as new as the source), else None."""
+    rel = os.path.relpath(os.path.abspath(path), root)
+    if rel.startswith("..") or not rel.endswith(".lean"):
+        return None
+    mod = rel[:-5].replace(os.sep, ".")
+    olean = os.path.join(root, ".lake", "build", "lib", "lean", rel[:-5] + ".olean")
+    if os.path.exists(olean) and os.path.getmtime(olean) >= os.path.getmtime(path):
+        return mod
+    return None
+
+
+def dump_modules(modules, project, timeout=1800):
+    """ONE Lean run for many built modules: import them all, dump each (MEASURED 2026-11-24: re-elaborating 46 files
+    of ztl-classical one by one did not finish in 50 minutes)."""
+    dumper = open(DUMPER, encoding="utf-8").read()
+    fd, tmp = tempfile.mkstemp(prefix="lean2zfl_", suffix=".lean", dir=project)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("import Lean\n" + "".join(f"import {m}\n" for m in modules) + "\n" + dumper + "\n"
+                 + "".join(f"#lean2zfl_dump_module {m}\n" for m in modules))
+    try:
+        r = subprocess.run(["lake", "env", "lean", tmp], cwd=project, capture_output=True, text=True, timeout=timeout)
+    finally:
+        os.unlink(tmp)
+    out, cur = {}, None
+    for l in r.stdout.splitlines():
+        if l.startswith("LEAN2ZFL_MODULE "):
+            cur = l.split(" ", 1)[1].strip(); out.setdefault(cur, [])
+        elif l.startswith("LEAN2ZFL ") and cur:
+            out[cur].append(json.loads(l[len("LEAN2ZFL "):]))
+    if not out and r.returncode != 0:
+        raise RuntimeError((r.stdout + r.stderr)[-300:])
+    return out
+
+
+def analyze_app(paths, file_timeout=600):
+    """introspect's interface: (path, line, name, ctx, disposition, why) per theorem. Built modules are read from
+    their .olean in one Lean run per project; only files whose build is missing or stale are re-elaborated."""
     UNPARSED.clear()
-    rows = []
+    rows, by_root, loose = [], {}, []
     for p in paths:
-        try:
-            ths = dump_file(p)
-        except Exception as e:  # noqa: BLE001
-            UNPARSED.append((p, str(e)[:300]))
-            continue
+        root = lake_root(p)
+        mod = _built_module(p, root) if root else None
+        if mod:
+            by_root.setdefault(root, {})[mod] = p
+        else:
+            loose.append(p)
+
+    def emit(p, ths):
         for t in ths:
             d, why, _c, _m = judge_theorem(t)
             fams = sorted({o["op"] for o in t.get("junk_ops", [])})
             rows.append((p, t.get("line", 0), t["name"], "junk:" + (",".join(fams) or "none"), d, why))
+
+    for root, mods in by_root.items():
+        try:
+            got = dump_modules(sorted(mods), root)
+        except Exception as e:  # noqa: BLE001
+            for p in mods.values():
+                UNPARSED.append((p, str(e)[:300]))
+            continue
+        for m, p in mods.items():
+            if m in got:
+                emit(p, got[m])
+            else:
+                UNPARSED.append((p, "module not dumped"))
+    for p in loose:
+        try:
+            emit(p, dump_file(p, timeout=file_timeout))
+        except Exception as e:  # noqa: BLE001
+            UNPARSED.append((p, str(e)[:300]))
     return rows
 
 

@@ -84,12 +84,13 @@ every theorem from the elaborated environment and asks the ZTL judge, per junk o
 |---|---|
 | **EARNED** | every junk operation guarded — by a hypothesis, or by a domain condition PROVED at dump time (positivity / norm_cast + omega / norm_num, no error recovery, no sorry) |
 | **E** | the proof takes a junk branch: the statement holds at that point only by the convention (no subject) |
-| **EARNED IF STABLE** | one unguarded term occurs twice and the proof does not take its junk branch |
+| **EARNED IF STABLE** | one unguarded term occurs more than once, and the statement is PROVED for every value of it (the term abstracted to a fresh variable) — true if stable |
 | **OPEN** | an unguarded operation, junk branch not seen |
 | **ON CREDIT** | the proof rests on an axiom beyond propext / choice / Quot.sound (`sorry` included), named |
 
-Measured on six Mathlib modules (350 theorems): EARNED 227, OPEN 110, E 13 (e.g. `one_le_div_iff` at b = 0,
-`Real.log_le_self`), IF STABLE 0. OPEN is coarse in v1 (terms under a binder, conditions phrased otherwise,
+Measured on six Mathlib modules (342 theorems, generated equation lemmas excluded): EARNED 219, OPEN 110, E 13
+(e.g. `one_le_div_iff` at b = 0, `Real.log_le_self`), IF STABLE 0; on our ztl-classical (45 files, 310 theorems,
+read from the built .olean files in one Lean run, 40 s): EARNED 306, OPEN 4. OPEN is coarse in v1 (terms under a binder, conditions phrased otherwise,
 summability known by a lemma); E is the precise part. Run: `python3 lean2zfl/lean2zfl.py FILE.lean` in a Lake
 project with Mathlib, or `--module PROJECT Mathlib.X.Y` for built modules.
 
