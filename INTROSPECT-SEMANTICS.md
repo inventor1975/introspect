@@ -40,6 +40,10 @@ How each shape is written for the judge (MEASURED on ZTL @ efbbbc2, 2026-11-24):
 - TOCTOU: `ok` = "the value passes the check" (unverified, re-readable), claim `~ok | ok` → EARNED IF STABLE;
 - on credit: `a` = "the assumed link holds" (unverified, named), claim `~~a` ("nothing shows the link fails") →
   ON CREDIT — the same shape as the book's NOT ( NOT (Z) ), true on credit;
+- what counts as a RE-READ: re-evaluating an expression the engine cannot prove returns the same value (a call,
+  an attribute or subscript of an object it does not track: Python `request.args.get("f")`, `os.environ.get(..)`).
+  A plain value whose every write the engine tracks (PHP `$_GET['x']`, a local) is ONE value: plain EARNED.
+  MEASURED 2026-11-24: py2zfl's rule moves 0 of 3,014 findings on our code and 0 of 77 on pygoat/flask/microblog.
 - `Tr(x)` reads Z as F at each occurrence: it is right for "verified to arrive / verified substituted", and it is
   exactly what erases IF STABLE and ON CREDIT — not to be used on a re-readable or assumed atom.
 

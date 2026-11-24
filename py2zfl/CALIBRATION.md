@@ -12,6 +12,11 @@ Measured, before vs after: blind round 1 and round 2 scores IDENTICAL (no re-rea
 our own Python (ztlstudio, ztl-space/api, LogicBridge, gemma4-kaggle/lab, veip-use: 3,014 findings) IDENTICAL.
 So the rule is exact where it applies and moves nothing else; how often it applies in the wild is NOT measured.
 Scoring buckets in blind*/score.py: ON CREDIT, EARNED IF STABLE, REFUTED IF STABLE, E -> the OPEN bucket.
+Real apps (cloned 2026-11-24, depth 1): pygoat @ 2aa4cc1 (26 findings: 6 R / 18 O / 2 E), flask @ 49943b5
+(50: 11 R / 39 O), microblog @ a975ef6 (1 O) — IDENTICAL before and after. MEASURED frequency of a checked
+re-read reaching a sink in these apps: 0. PHP differs on purpose: a re-read of `$_GET['x']` after a check is
+EARNED there, because a superglobal element is a plain value whose every write the engine tracks; a Python
+`request.args.get(..)` is a CALL the engine cannot prove returns the same value twice.
 
 ## 2026-09-27 night — blind ROUND 2 (cloud, PR #6) on slice 5 (`b49bb74`), then slice 6 (MEASURED)
 A new corpus by new authors (204 cases: sqli 66, xss 71, file 67; code and cmdi refused by the filter),
