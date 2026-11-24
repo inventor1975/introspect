@@ -360,12 +360,34 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
 
-partial def zProp (names : ZNames) (e : Lean.Expr) : MetaM String := do
+def numKind (t : Lean.Expr) : MetaM String := do
+  let ty ← whnfR t
+  return if ty.isConstOf `Real then "real" else if ty.isConstOf `Nat then "nat"
+         else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat" else ""
+
+/-- variables a conclusion's inner universals add to the box, and the ZFL names already taken -/
+abbrev ZExtra := IO.Ref (Array Json × List String)
+
+/-- `pol`: 1 a positive place (the conclusion, ∧ ∨, the right of →), -1 a negative one (the left of →, under ¬, a
+hypothesis), 0 both (a side of ↔). A NUMERIC ∀ IN A POSITIVE PLACE adds its variable to the box (2026-11-24, the
+curator: "кванторы мы делали — проверь, чтобы не делать дубли"): ZFL has no quantifier in a claim by design (zfl.py,
+the `sets` note) because the box IS the universal over readings — so ∀ y, P y in a positive place is P with y one more
+quantity of the box, exactly the fresh parameter of zfo's δ-rule. Anywhere else a ∀ is an ∃ in disguise, and ∃ has no
+ZFL word (a `?` search proves no "none" and no "for all"): untranslated, said so. -/
+partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : MetaM String := do
   let e := e.consumeMData
-  if let .forallE _ t b _ := e then
+  if let .forallE nm t b bi := e then
     if !b.hasLooseBVars && (← isProp t) then
-      return s!"({← zProp names t} -> {← zProp names b})"
-    throwError "untr: an inner quantifier"
+      return s!"({← zProp names (-pol) ex t} -> {← zProp names pol ex b})"
+    if pol != 1 then throwError "untr: an inner quantifier (not in a positive place)"
+    let k ← numKind t
+    if k == "" then throwError "untr: an inner quantifier over a non-number"
+    return ← withLocalDecl nm bi t fun x => do
+      let (vs, taken) ← ex.get
+      let zn := zflName nm.toString taken
+      ex.set (vs.push (Json.mkObj [("name", Json.str zn), ("lean", Json.str nm.toString), ("type", Json.str k),
+                                   ("inner", Json.bool true)]), zn :: taken)
+      zProp (names.insert x.fvarId! zn) pol ex (b.instantiate1 x)
   let args := e.getAppArgs
   let cmp (op : String) : MetaM String := do
     if args.size != 4 then throwError s!"untr: {op} partially applied"
@@ -382,11 +404,11 @@ partial def zProp (names : ZNames) (e : Lean.Expr) : MetaM String := do
   | some `Ne =>
     if args.size != 3 then throwError "untr: ≠"
     return s!"({← zTerm names args[1]!} != {← zTerm names args[2]!})"
-  | some `And => if args.size == 2 then return s!"({← zProp names args[0]!} & {← zProp names args[1]!})" else throwError "untr: ∧"
-  | some `Or => if args.size == 2 then return s!"({← zProp names args[0]!} | {← zProp names args[1]!})" else throwError "untr: ∨"
-  | some `Iff => if args.size == 2 then return s!"({← zProp names args[0]!} <-> {← zProp names args[1]!})" else throwError "untr: ↔"
-  | some `Not => if args.size == 1 then return s!"(~{← zProp names args[0]!})" else throwError "untr: ¬"
-  | some `Exists => throwError "untr: an inner quantifier"
+  | some `And => if args.size == 2 then return s!"({← zProp names pol ex args[0]!} & {← zProp names pol ex args[1]!})" else throwError "untr: ∧"
+  | some `Or => if args.size == 2 then return s!"({← zProp names pol ex args[0]!} | {← zProp names pol ex args[1]!})" else throwError "untr: ∨"
+  | some `Iff => if args.size == 2 then return s!"({← zProp names 0 ex args[0]!} <-> {← zProp names 0 ex args[1]!})" else throwError "untr: ↔"
+  | some `Not => if args.size == 1 then return s!"(~{← zProp names (-pol) ex args[0]!})" else throwError "untr: ¬"
+  | some `Exists => throwError "untr: an inner quantifier (∃)"
   | some c => throwError s!"untr: {c}"
   | none => throwError s!"untr: {e.ctorName}"
 
@@ -401,16 +423,14 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
   let mut names : ZNames := {}
   let mut taken : List String := []
   let mut vars := #[]
-  let mut hyps := #[]
+  let mut hypTs := #[]
   let mut bad : Option String := none
   for x in xs do
     let t ← inferType x
     if ← isProp t then
-      hyps := hyps.push (← zTry (zProp names t))
+      hypTs := hypTs.push t
     else
-      let ty ← whnfR t
-      let kind := if ty.isConstOf `Real then "real" else if ty.isConstOf `Nat then "nat"
-                  else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat" else ""
+      let kind ← numKind t
       let decl ← x.fvarId!.getDecl
       if kind == "" then
         bad := bad <|> some s!"a variable of type {← ppExpr t}"
@@ -420,8 +440,14 @@ def zflOf (xs : Array Lean.Expr) (concl : Lean.Expr) : MetaM Json := do
         names := names.insert x.fvarId! nm
         vars := vars.push (Json.mkObj [("name", Json.str nm), ("lean", Json.str decl.userName.toString),
                                        ("type", Json.str kind)])
-  let c ← zTry (zProp names concl)
-  return Json.mkObj ([("vars", Json.arr vars), ("hyps", Json.arr hyps), ("concl", c)] ++
+  -- a hypothesis is ASSUMED: a negative place (its ∀ is not the box's); the conclusion is the positive one
+  let ex : ZExtra ← IO.mkRef (#[], taken)
+  let mut hyps := #[]
+  for t in hypTs do
+    hyps := hyps.push (← zTry (zProp names (-1) ex t))
+  let c ← zTry (zProp names 1 ex concl)
+  let (inner, _) ← ex.get
+  return Json.mkObj ([("vars", Json.arr (vars ++ inner)), ("hyps", Json.arr hyps), ("concl", c)] ++
                      (match bad with | some b => [("untr_vars", Json.str b)] | none => []))
 
 def dumpOne (memo : JunkMemo) (n : Name) : TermElabM Json := do

@@ -32,4 +32,13 @@ theorem t_abs (x y : ℝ) : |x + y| ≤ |x| + |y| := by sorry
 -- ZTL REFUTED: 1/21 + 1/22 is 43/462 (Lean_workbook_plus_76820's shape: ℕ makes both sides 0)
 theorem t_sum : (1 : ℕ) / 21 + 1 / 22 = 1 / 462 := by norm_num
 
+-- ZTL EARNED: an inner ∀ in a positive place joins the box: for every y, y^2 + 1 > 0
+theorem t_inner_all (x : ℝ) (hx : 0 < x) : x > 0 ∧ ∀ y : ℝ, y ^ 2 + 1 > 0 := by sorry
+
+-- WITNESS refuted: an inner ∀ that is false — some y has y^2 < 1 (e.g. y = 1/2)
+theorem t_inner_false : ∀ y : ℝ, 0 < y → y ^ 2 ≥ 1 := by sorry
+
+-- UNTR: a ∀ on the left of → INSIDE the conclusion is an ∃ in disguise (at the top, Lean makes it a hypothesis)
+theorem t_inner_neg (x : ℝ) : x > 0 ∧ ((∀ y : ℝ, y ≤ x) → x > 1) := by sorry
+
 end ZFLReadFix
