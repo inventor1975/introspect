@@ -46,11 +46,12 @@ LANGS = {
     ".mjs":  ("js2zfl",   "js/ts"), ".cjs": ("js2zfl", "js/ts"),
     ".rb":   ("rb2zfl",   "ruby"),
     ".cs":   ("cs2zfl",   "c#"),
+    ".lean": ("lean2zfl", "lean"),   # 2026-11-24: does a theorem say what its words say, or what a convention says
 }
 LABEL = {d: lbl for (d, lbl) in LANGS.values()}
 
 # directories never worth walking into
-SKIP_DIRS = {".git", "node_modules", "vendor", "__pycache__", ".venv", "venv",
+SKIP_DIRS = {".git", ".lake", "node_modules", "vendor", "__pycache__", ".venv", "venv",
              "env", "dist", "build", "target", ".idea", ".vscode", "bin", "obj",
              ".mypy_cache", ".pytest_cache"}
 
@@ -69,6 +70,7 @@ PARSER_HINT = {
     "rb2zfl":   "Ruby (its stdlib Ripper)",
     "cs2zfl":   "the .NET SDK (the Roslyn helper builds on first use)",
     "py2zfl":   "Python (native ast — should always be present)",
+    "lean2zfl": "a built Lake project with Mathlib (lake env lean); LEAN2ZFL_PROJECT for a loose file",
 }
 
 

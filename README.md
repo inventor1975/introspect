@@ -73,6 +73,26 @@ cross-function + cross-file summaries, guards, branch-join, and **context-aware 
 (an HTML-escaper clears XSS but is transparent for SQL/shell — the escaper's context must
 match the sink's).
 
+## Lean: does a theorem say what its words say? (`lean2zfl`, 2026-11-24)
+
+Mathlib's total functions return a conventional value outside their domain (a non-summable series sums to 0,
+x / 0 = 0, √ of a negative is 0, log 0 = 0, ℕ-subtraction truncates). `∑' n : ℕ, (n : ℝ) = 0` is a theorem of
+Mathlib, and the kernel is right to accept it: it checks the steps, not what the statement means. `lean2zfl` reads
+every theorem from the elaborated environment and asks the ZTL judge, per junk operation in the statement:
+
+| verdict | when |
+|---|---|
+| **EARNED** | every junk operation guarded — by a hypothesis, or by a domain condition PROVED at dump time (positivity / norm_cast + omega / norm_num, no error recovery, no sorry) |
+| **E** | the proof takes a junk branch: the statement holds at that point only by the convention (no subject) |
+| **EARNED IF STABLE** | one unguarded term occurs twice and the proof does not take its junk branch |
+| **OPEN** | an unguarded operation, junk branch not seen |
+| **ON CREDIT** | the proof rests on an axiom beyond propext / choice / Quot.sound (`sorry` included), named |
+
+Measured on six Mathlib modules (350 theorems): EARNED 227, OPEN 110, E 13 (e.g. `one_le_div_iff` at b = 0,
+`Real.log_le_self`), IF STABLE 0. OPEN is coarse in v1 (terms under a binder, conditions phrased otherwise,
+summability known by a lemma); E is the precise part. Run: `python3 lean2zfl/lean2zfl.py FILE.lean` in a Lake
+project with Mathlib, or `--module PROJECT Mathlib.X.Y` for built modules.
+
 ## Run
 
 ```bash
