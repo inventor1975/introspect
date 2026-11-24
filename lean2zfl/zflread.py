@@ -108,7 +108,7 @@ def box(zfl):
     INF = float("inf")
     b = {}
     for v in zfl.get("vars", []):
-        lo = 0 if v["type"] == "nat" else -INF
+        lo = 0 if v["type"] in ("nat", "nnreal") else -INF
         b[v["name"]] = [lo, INF, False, True, v["type"]]
     unused = 0
     for h in zfl.get("hyps", []):
@@ -460,7 +460,8 @@ import zsummation as _zs  # noqa: E402
 
 _NOVALUE = "nv_novalue"
 _zfun_words = {"exp", "ln", "log10", "sin", "cos", "tan", "atan", "pow", "min", "max", "sqrt", "ifpos", "idiv", "mod",
-               "dvd", "fact", "choose", "sum", "integral", "pi"}           # a quantity with no reading: a series with no value under a method reads E
+               "dvd", "fact", "choose", "sum", "integral", "pi", "gcd", "lcm", "fib", "totient", "isprime", "floor",
+               "ceil"}           # a quantity with no reading: a series with no value under a method reads E
 
 
 def _calls(text, name):

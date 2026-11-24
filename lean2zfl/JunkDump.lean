@@ -308,7 +308,8 @@ abbrev ZNames := Std.HashMap FVarId String
 def numKind (t : Lean.Expr) : MetaM String := do
   let ty ← whnfR t
   return if ty.isConstOf `Real then "real" else if ty.isConstOf `Nat then "nat"
-         else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat" else ""
+         else if ty.isConstOf `Int then "int" else if ty.isConstOf `Rat then "rat"
+         else if ty.isConstOf `NNReal then "nnreal" else ""      -- ℝ≥0: a real with the box's lower end 0
 
 
 def isComplexTy (t : Lean.Expr) : MetaM Bool := do return (← whnfR t).isConstOf `Complex
@@ -415,6 +416,17 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
     if args.size == 0 then throwError s!"untr: {f} unapplied"
     return s!"{f}({← zTerm names args[args.size - 1]!})"
   match e.getAppFn.constName? with
+  -- a DECIMAL literal 1.25 = OfScientific.ofScientific 125 true 2: the exact rational 125 / 10^2 (2026-11-25)
+  | some `OfScientific.ofScientific =>
+    if args.size != 5 then throwError "untr: a decimal partially applied"
+    let some m ← (Lean.Meta.evalNat args[2]!).run | throwError "untr: a decimal mantissa not a literal"
+    let some k ← (Lean.Meta.evalNat args[4]!).run | throwError "untr: a decimal exponent not a literal"
+    let neg := (← whnfR args[3]!).isConstOf `Bool.true
+    return if neg then s!"({m} / {10 ^ k})" else s!"({m * 10 ^ k})"
+  | some `NNReal.toReal => if args.size == 1 then zTerm names args[0]! else throwError "untr: toReal"
+  | some `Subtype.val =>
+    if args.size == 3 && (← whnfR (← inferType args[2]!)).isConstOf `NNReal then zTerm names args[2]!
+    else throwError "untr: Subtype.val"
   | some `OfNat.ofNat =>
     let lit : Option Lean.Expr := args[1]?
     match lit.map Lean.Expr.consumeMData with
@@ -426,7 +438,9 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
   -- on the difference
   | some `HSub.hSub =>
     if args.size != 6 then throwError "untr: - partially applied"
-    if (← whnfR args[0]!).isConstOf `Nat then return s!"nsub({← zTerm names args[4]!}, {← zTerm names args[5]!})"
+    let st ← whnfR args[0]!
+    if st.isConstOf `Nat || st.isConstOf `NNReal then   -- ℝ≥0's − truncates like ℕ's: marked, read both ways
+      return s!"nsub({← zTerm names args[4]!}, {← zTerm names args[5]!})"
     bin "-" args[4]! args[5]!
   | some `HMul.hMul => if args.size == 6 then bin "*" args[4]! args[5]! else throwError "untr: * partially applied"
   | some `HDiv.hDiv =>
@@ -438,6 +452,25 @@ partial def zTerm (names : ZNames) (e : Lean.Expr) : MetaM String := do
     if args.size != 6 then throwError "untr: % partially applied"
     return s!"mod({← zTerm names args[4]!}, {← zTerm names args[5]!})"
   | some `Nat.factorial => if args.size == 1 then return s!"fact({← zTerm names args[0]!})" else throwError "untr: !"
+  -- MORE INTEGER WORDS (2026-11-25; ZTL zfunc, a Python reading — VR's Division twin covers idiv mod dvd fact choose):
+  -- gcd/lcm by magnitudes, fib, totient; ⌊x⌋ ⌈x⌉ of a real; Nat.floor IS max(⌊x⌋, 0) by its definition
+  | some `Nat.gcd | some `Int.gcd | some `GCDMonoid.gcd =>
+    if args.size < 2 then throwError "untr: gcd" else
+    return s!"gcd({← zTerm names args[args.size-2]!}, {← zTerm names args[args.size-1]!})"
+  | some `Nat.lcm | some `Int.lcm | some `GCDMonoid.lcm =>
+    if args.size < 2 then throwError "untr: lcm" else
+    return s!"lcm({← zTerm names args[args.size-2]!}, {← zTerm names args[args.size-1]!})"
+  | some `Nat.fib => if args.size == 1 then return s!"fib({← zTerm names args[0]!})" else throwError "untr: fib"
+  | some `Nat.totient => if args.size == 1 then return s!"totient({← zTerm names args[0]!})" else throwError "untr: φ"
+  | some `Int.floor => if args.size ≥ 1 then return s!"floor({← zTerm names args[args.size-1]!})" else throwError "untr: ⌊⌋"
+  | some `Int.ceil => if args.size ≥ 1 then return s!"ceil({← zTerm names args[args.size-1]!})" else throwError "untr: ⌈⌉"
+  | some `Nat.floor => if args.size ≥ 1 then return s!"max(floor({← zTerm names args[args.size-1]!}), 0)" else throwError "untr: ⌊⌋₊"
+  | some `Nat.ceil => if args.size ≥ 1 then return s!"max(ceil({← zTerm names args[args.size-1]!}), 0)" else throwError "untr: ⌈⌉₊"
+  | some `Int.fract =>
+    if args.size ≥ 1 then
+      let a ← zTerm names args[args.size-1]!
+      return s!"({a} - floor({a}))"
+    else throwError "untr: fract"
   | some `Nat.choose => if args.size == 2 then return s!"choose({← zTerm names args[0]!}, {← zTerm names args[1]!})" else throwError "untr: choose"
   | some `Neg.neg => if args.size == 3 then return s!"(-{← zTerm names args[2]!})" else throwError "untr: neg"
   | some `Inv.inv => if args.size == 3 then return s!"(1 / {← zTerm names args[2]!})" else throwError "untr: inv"
@@ -695,6 +728,12 @@ partial def zProp (names : ZNames) (pol : Int) (ex : ZExtra) (e : Lean.Expr) : M
   | some `Dvd.dvd =>
     if args.size != 4 then throwError "untr: ∣ partially applied"
     return s!"(dvd({← zTerm names args[2]!}, {← zTerm names args[3]!}) == 1)"
+  | some `Nat.Prime => if args.size == 1 then return s!"(isprime({← zTerm names args[0]!}) == 1)" else throwError "untr: Prime"
+  | some `Prime =>
+    if args.size == 3 && (← numKind args[0]!) == "nat" then return s!"(isprime({← zTerm names args[2]!}) == 1)"
+    throwError "untr: Prime outside ℕ"
+  | some `Even => if args.size == 3 then return s!"(dvd(2, {← zTerm names args[2]!}) == 1)" else throwError "untr: Even"
+  | some `Odd => if args.size == 3 then return s!"(dvd(2, {← zTerm names args[2]!}) == 0)" else throwError "untr: Odd"
   | some `Nat.ModEq | some `Int.ModEq =>
     if args.size != 3 then throwError "untr: ModEq partially applied"
     return s!"(dvd({← zTerm names args[0]!}, ({← zTerm names args[1]!} - {← zTerm names args[2]!})) == 1)"
@@ -747,7 +786,7 @@ partial def ruleOf (names : ZNames) (ex : ZExtra) (t : Lean.Expr) (bound : Array
   if let .forallE nm d b bi := t then
     if !(← isProp d) then
       let k ← numKind d
-      if k == "nat" || k == "int" || k == "real" || k == "rat" then
+      if k == "nat" || k == "int" || k == "real" || k == "rat" || k == "nnreal" then
         return ← withLocalDecl nm bi d fun x => do
           let (vs, taken) ← ex.get
           let zn := "r_" ++ ((zflName nm.toString taken).drop 2).toString

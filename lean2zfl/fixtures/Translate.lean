@@ -224,4 +224,20 @@ theorem t_mem_finite (n : ℕ) (h : n ∈ ({2, 3, 5} : Finset ℕ)) : n < 5 := b
 -- ZTL EARNED: #{x ∈ [1000, 2000] | x mod 7 = 2} = 143, counted over the concrete interval
 theorem t_card_filter : (Finset.filter (fun x => x % 7 = 2) (Finset.Icc 1000 2000)).card = 143 := by sorry
 
+-- MORE INTEGER WORDS, DECIMALS, ℝ≥0 (2026-11-25)
+-- ZTL EARNED: gcd, lcm, fib, totient, primality — exact at points
+theorem t_iw_gcd : Nat.gcd 12 18 = 6 ∧ Nat.lcm 4 6 = 12 ∧ Nat.fib 10 = 55 ∧ Nat.totient 12 = 4 := by decide
+
+-- ZTL REFUTED: 91 = 7 · 13 is not prime
+theorem t_iw_prime : Nat.Prime 91 := by sorry
+
+-- ZTL EARNED: 2 ≤ x < 3 is [2, 3); its floor is 2 on all of it (the excluded end 3)
+theorem t_iw_floor (x : ℝ) (h : 2 ≤ x) (h2 : x < 3) : Int.floor x = 2 := by sorry
+
+-- ZTL EARNED: a decimal is its exact rational: 0.5 + 0.25 = 0.75
+theorem t_decimal : (0.5 : ℝ) + 0.25 = 0.75 := by norm_num
+
+-- ZTL EARNED: an ℝ≥0 variable is a real with the box's lower end 0
+theorem t_nnreal (x : NNReal) (hx : x ≤ 2) : x * x ≤ 4 := by sorry
+
 end ZFLReadFix

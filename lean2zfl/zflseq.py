@@ -121,6 +121,8 @@ def _arg_ok(i, dom):
         return i.denominator == 1 and 0 <= i <= INDEX_CAP
     if dom == "int":
         return i.denominator == 1 and abs(i) <= INDEX_CAP
+    if dom == "nnreal" and i < 0:
+        return False
     return abs(i.numerator) <= 10 ** 6 and i.denominator <= 10 ** 6
 
 
@@ -154,6 +156,8 @@ def _solve_one(lhs, rhs, xname):
 
 
 def _in_codomain(v, cod):
+    if cod == "nnreal":
+        return v >= 0
     if cod == "nat":
         return v.denominator == 1 and v >= 0
     if cod == "int":
@@ -184,7 +188,8 @@ def solve(seqs, facts, rules, need=0, seen=()):
                 pools.append([Fraction(n) for n in range(-m, m + 1)])
             else:
                 base = _REALS if k <= 2 else _REALS_SMALL
-                pools.append(sorted(set(base) | set(extra)))
+                pool = sorted(set(base) | set(extra))
+                pools.append([x for x in pool if x >= 0] if kind == "nnreal" else pool)
         names = [b_.split(":")[0] for b_ in bound]
         for combo in itertools.product(*pools):
             insts.append(_subst(text, dict(zip(names, combo))))

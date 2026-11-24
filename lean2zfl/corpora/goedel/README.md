@@ -165,3 +165,26 @@ Rescanned: the 16 statements (12 E/OPEN, 4 control) blocked by `∈` or `card`.
 - **12 translate.** One is EARNED by ZTL: `lean_workbook_7425`, the count 143. The rest are OPEN and none is refuted.
   Most of them are ε-δ limits, `∃ δ > 0, ∀ x ∈ (1, δ), …`, where δ depends on ε, so no single witness exists.
 - **4 untranslated**: `Set.range` (3) and `Nat.digits` (2), one statement having both.
+
+## More integer words, decimals, ℝ≥0, 2026-11-25 (measured)
+
+New readings:
+- ZTL's floor now reads gcd, lcm, fib, totient and isprime, and ⌊x⌋ and ⌈x⌉ of a real.
+- `Nat.floor` is max(⌊x⌋, 0) by its definition; `Even` and `Odd` are 2 ∣ n.
+- A decimal literal is its exact rational.
+- `NNReal` is a real with the box's lower end at 0, and its truncating − is marked like ℕ's.
+
+Rescanned: the 74 statements blocked by these words in the full v4 rescan.
+- **69 now translate.** 9 are EARNED by ZTL; most of the rest are OPEN.
+- **1 refuted, resting on the ℕ convention.** In `plus_9312`, `(0.5 · x² · y)^(1/3)` is refuted at x = 6, y = 8 in
+  the exact reading, but `1/3` in ℕ is 0, which makes the statement trivial in Lean.
+- **1 vacuous.** In `plus_4012`, `a 2 = a 1 + a 0 + 2` forces a 0 = −1 ∉ ℕ, in Lean as well.
+
+## The full v4 rescan (2026-11-25, reader at introspect 51ff7fc)
+
+All 3,451 statements (2,451 E/OPEN plus the 1,000 control) were re-read after the box began folding constant sides.
+- **No refutation was lost.** All 106 earlier refutations stand.
+- **New refutations:** only the 7 conditional sequence refutations listed above. One of them, `5663`, is in the
+  control set; Lean proves it vacuously.
+- **Translation:** 151 E/OPEN and 27 control statements now translate that did not before. One that translated
+  before, `plus_36928`, now does not: a hypothesis became an unreadable series.
