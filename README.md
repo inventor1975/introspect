@@ -8,16 +8,30 @@ when it can *prove* the flow. When it cannot verify, it says so, out loud, inste
 guessing. It is a reference implementation of **Zero-Trust Logic (ZTL)** applied to code —
 not a replacement for mature scanners like Snyk or CodeQL.
 
-## The idea: three verdicts, and an honest "I don't know"
+## The idea: the judge's verdicts, and an honest "I don't know"
 
-Most scanners answer a two-valued question ("vulnerable / not"). introspect answers a
-**three-valued, zero-trust** one:
+Most scanners answer a two-valued question ("vulnerable / not"). introspect hands each flow to the ZTL judge
+and reports the judge's own disposition — never a verdict of its own. Three are the everyday ones:
 
 | verdict | meaning |
 |---|---|
 | **REFUTED** | attacker-controlled data reaches a sink **unsubstituted** — a proven-unsafe flow (an accusation). |
 | **OPEN** | *"I don't know."* A dangerous sink is reached but the origin or the neutralisation **cannot be verified**. Not an accusation, not a clearance. |
 | **EARNED** | proven clean — a constant, a verified sanitiser, a whitelist. |
+
+Since 2026-11-24 the conditional ones are reported too, where a module can produce them (they used to be
+folded into OPEN):
+
+| verdict | meaning | produced today |
+|---|---|---|
+| **EARNED IF STABLE** | clean **if** a value is the same at the check and at the use (time-of-check/time-of-use) | Python: a check on one read of a source, a use on a re-read (`if request.args.get("f") in ALLOWED: os.system(... request.args.get("f"))`) — it was a false REFUTED |
+| **ON CREDIT** | clean as written, resting on a **named** unverified link | PHP under `--assume-tree-methods`: a call answered from the tree's definition of that name, the receiver's class unchecked |
+| **REFUTED IF STABLE** | the accusation holds **if** the value read back is the one written (second-order flows) | not yet: no faithful encoding found |
+| **E** | no subject: the claim rests on something absent from the code | reserved |
+
+Measured, so the table is not over-read: the Python re-read rule changed **0** of 77 findings on pygoat, flask and
+microblog and 0 of 3,014 on our own code — exact where it applies, rare in practice. ON CREDIT needs the
+non-default flag. `INTROSPECT-SEMANTICS.md` §1–2 is the contract.
 
 The guiding rule is **"absence is never an act"**: silence is never "safe". A search that
 finds nothing means *"I looked here and here"*, not *"there is nothing"*. So when a flow
@@ -33,7 +47,7 @@ and files — no API, no tokens, no network. A single deterministic ZTL core (ve
 `ztlcore/`) judges each flow:
 
 ```
-source ──► AST ──► taint (F / T / Z) ──► ZTL core judges ──► REFUTED / OPEN / EARNED
+source ──► AST ──► taint (F / T / Z) ──► ZTL core judges ──► REFUTED / OPEN / EARNED (+ IF STABLE, ON CREDIT)
                                          (AI-free, measured)
 ```
 
@@ -71,7 +85,7 @@ python3 <lang>2zfl/test_<lang>2zfl.py          # each module's regression gate
 (by extension), and merges the verdicts into one report — **skipping, with a reason,**
 any language whose parser isn't installed (never a silent clean bill), and listing
 files it doesn't cover as out-of-scope, never "safe". Exit status is nonzero when any
-REFUTED is found (handy in CI). Each language is still analysed on its own: flows that
+REFUTED is found (handy in CI); with `--strict`, on REFUTED IF STABLE too. Each language is still analysed on its own: flows that
 cross **between** languages (or through a database or queue) are not tracked and stay
 OPEN, never guessed.
 
