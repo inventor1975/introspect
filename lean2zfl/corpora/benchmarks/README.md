@@ -94,10 +94,16 @@ of the statement as formalized, closed by tactics, no `sorry`):
   as does the Kimina-Prover report, and a corrected version adds `n > 0`.
 - `exercise_1_2`: **apparently known.** ProofNet-Verified's statement (marcusm117/ProofNet-Verified on HF,
   `Axler_exercise_1_2`) already reads `= 1`.
-- `amc12a_2020_p13`: **not found.** It is not in openai/miniF2F issue #103, and not in arXiv 2511.03108 up to
-  Appendix F (the rest was not read). The corrected AI-MO/minif2f_test was unreachable.
-- `exercise_4_11`: **not found.** It is not among ProofNet-Verified's Axler rows; their audit viewer for the original
-  ProofNet was not read.
+- `amc12a_2020_p13`: **known.** The README of github.com/jonwashburn/anchor says it is "false as written: its equation
+  holds for every input" and that its negation is a theorem. That repository has commits from 2026-10-08, and Anchor
+  ("kernel-checked facts about Lean statements") is prior art of its own. We first missed it (checked: openai/miniF2F
+  #103, arXiv 2511.03108 up to Appendix F); Verax found it on 2026-11-25.
+- `exercise_4_11`: **known, with a different diagnosis.** huggingface.co/datasets/formalanon/semantic-lean-errors
+  (`proofnet_ireland_rosen_exercise_4_11`) flags an index mismatch (the sum over `Fin p` starts at 0) and a WRONG
+  CONSTANT: for p − 1 ∣ k the sum is −1 mod p, not 0. The default argument `(s := …)`, which leaves s arbitrary and
+  is what our certificate uses, is not mentioned there. The statement has at least three defects; we found one of
+  them. (Found via Verax, 2026-11-25.)
 
-"Not found" means that, not "new". The earlier miniF2F refutation
+"Not found" means that, not "new". So: of the four, three were already public, and the fourth is
+a new mechanism in a statement already flagged for other errors. Nothing here is a first discovery. The earlier miniF2F refutation
 (`algebra_ineq_nto1onlt2m1on`) stands. PutnamBench remains almost entirely out of reach: 39 of 672 translate.
