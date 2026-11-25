@@ -44,7 +44,7 @@ of their statements. These files are the evidence for the counts below. The data
 
 Untranslated: 366 (function variables about 150, `tsum` 58, `∃` under a connective 43, `ℂ` 21, and others).
 
-**Lean kernel certificates:** of 102 refutations that could be written as ℝ theorems, **22** are closed by tactics
+**Lean kernel certificates:** of 103 refutations that could be written as ℝ theorems (102 on 24.11; `plus_78600` added 25.11, not closed), **22** are closed by tactics
 (`Certificates.lean`, `[propext, Classical.choice, Quot.sound]`); most of the rest involve `rpow` with fractional
 exponents and stay ZTL's verdict only.
 
@@ -81,8 +81,8 @@ codomain, or a checked instance that is false, means **no sequence satisfies the
 | untranslated (∃, `Nat.Prime`, two-index rules, …) | 15 | 9 |
 
 **The 17 vacuous statements**, each read by hand, fall into two kinds.
-- **Contradictory in BOTH readings: 11.** Goedel-Prover's proof derives the conclusion from contradictory
-  hypotheses.
+- **Contradictory in BOTH readings: 11.** The statement is vacuously true, so Goedel-Prover's accepted proof needed
+  nothing about the conclusion. Its proof terms were NOT inspected, so how the proof did it is not claimed.
   - Example: `lean_workbook_11466` gives `u : ℕ → ℕ`, `u 1 = 2` and `u (n+1) = 3 u n + 4` for every n. At n = 0
     the exact reading gives u 0 = −2/3, not in ℕ; in Lean, `u 1 = 3 u 0 + 4 ≥ 4`.
   - The same: `28753`, `plus_32061`, `plus_64920`, `plus_55264` (u 0 = −1/5), `plus_28363` (−5/2), `plus_58839`
@@ -202,7 +202,8 @@ after the fix below.
 - **14 are refuted, all resting on the ℕ convention.** `x ^ (1 / 3)` with ℕ's 1/3 = 0 is a cube root in the
   exact reading. `1/6 + 1/10 + 1/8 ≥ 1/2` is 0 ≥ 0 in ℕ but false in ℚ (`lean_workbook_53456`). An auto-bound
   `abc` stands for a product. In every case the informal text decides what was meant.
-- **5 are vacuous, each checked by hand.** Every one was proved by Goedel-Prover from contradictory hypotheses.
+- **5 are vacuous, each checked by hand.** These proofs did not compile on our Mathlib, so nothing is said about an
+  accepted proof; the STATEMENTS are vacuous.
   - `plus_24332` and `plus_38408`: untyped variables were auto-bound to ℕ, so `x + y = 1` with x, y > 0 and
     `8abc ≤ 1` with a, b, c > 0 are impossible.
   - `plus_70503` assumes `logb 2 256 < logb 2 243`, which is false.
@@ -214,3 +215,61 @@ after the fix below.
 when the facts and rules are free of the point (`zflseq.pointfree`). One NC row (`plus_14020`) and four miniF2F rows
 lost the false label. The 17 Goedel sequence statements called vacuous above have no point variable in their rules,
 except `plus_47435`, the one already left unclassified.
+
+
+## Closing Verax's review (2026-11-25; Verax's answers of that night, both questions)
+
+Verax's verdict: GO for research on a differential semantic audit; NO-GO for priority, accuracy or public counts
+until the obligations below are met. This section records what each one became. No paper is planned (the
+curator, 2026-11-25).
+
+**One row per finding.** `../ledger.py` writes `../ledger.jsonl` and `../ledger_summary.md` from the files here and
+runs nothing. Each row carries:
+- the dataset and the id;
+- whether the AI's proof compiled;
+- the label in Verax's taxonomy, and the intent where the label is an exact-reading refutation;
+- the witness and the existence premise;
+- a statement hash, and a CLUSTER: identical translated mathematics shares one;
+- the certificate status, and the source file.
+
+**The numbers, reconciled.**
+- **98 against 99.** The ℕ-convention class has 99 rows in `findings.jsonl`. The certificate run had taken 98; the
+  missing one, `plus_78600`, was certified afterwards and was not closed by the tactics (rpow).
+- **102 against 105.** There are 106 refutations, 7 + 99. 3 cannot be written as ℝ theorems (integer words), which
+  leaves 103 attempts: 22 certified and 81 not closed. The 24.11 text's "22 of 102" lacked `plus_78600`.
+- **Duplicates** (from the ledger):
+  - the 100 exact-reading refutations are **82** distinct statements;
+  - the 7 that are false in Lean too are **3** (the `abc` cluster has 4 copies);
+  - the 23 vacuous are **16**.
+
+**Labels, in place of the blanket "rests on the ℕ convention".**
+- `FALSE_IN_LEAN`, `FALSE_IN_EXACT_READING` (plus `…_LEAN_UNREAD` when Lean's reading was not computed),
+  `FALSE_FORMAL` and `COUNTEREXAMPLE_IF_SAT` (formerly "conditional").
+- `VACUOUS`, `ADMISSIBILITY_UNKNOWN`, `UNDEFINED_ONLY_IN_ALTERNATE_READING` and `TRUE_EXACT_LEAN_VIA_CONVENTION`.
+- Intent: `INTENDED_DISCRETE` when the informal text names a floor (1 row, the `2017 − 2017/3` false alarm), otherwise
+  `INTENT_UNKNOWN` (113 rows). `SEMANTIC_MISMATCH_CONFIRMED` needs a human who did not write the translator, and it
+  is never set automatically.
+
+**Proofs.**
+- "Proved by an AI from a contradiction" is withdrawn wherever it appeared. The statement is vacuous, and the proof
+  terms were not inspected.
+- The first layer's E means that a convention lemma is PRESENT in the proof term, not that it is necessary.
+- The 14 refutations and 5 vacuous among the 7,168 non-compiling rows concern statements only.
+
+**Existence of a sequence** is now a machine-checked premise, printed with every sequence refutation
+(`existence_premise`): a forward recurrence (`zflseq.existence_by_recursion`) AND zero unchecked instances.
+Verax's counterexample, `u 0 = 1, u 1 = 3, u (n+1) = 2 u n`, is a fixture: VACUOUS, never "existence: recursion".
+
+**Re-read with the current code** (`rescan_v6_rows.jsonl.gz`: the sequence, function and integer-word sets, 273
+statements). Sequence, function and word vacuities: 20.
+- `plus_47435` is no longer vacuous: its rules depend on the point.
+- `plus_66265` is newly vacuous: `∀ m n, m ≥ n ∧ …` is a conjunction, false at m = 0, n = 1. A two-index rule,
+  readable since 2026-11-25; it is in the control set.
+
+**Semantics, stated.** `z ≠ w` in ℂ is read as apartness in a real part, VR's reading, which classically is the same
+as ¬(z = w). For an ∃ in an antecedent, `(∃x P) → C ⟺ ∀x (P → C)` holds classically and intuitionistically. ZTL
+rejects one direction, but the tool uses only the direction ZTL accepts, so this is a divergence of semantics, not a
+claim about Lean.
+
+**Priority.** The classes are known: Ammanamanchi et al., Ground False / ProofNet-Verified, Anchor. Of the four
+benchmark refutations, three were already public (see `../benchmarks/README.md`). We claim no first discovery.

@@ -159,6 +159,10 @@ theorem t_seq_vac (a : ℕ → ℕ) (h0 : a 0 = 3) (h1 : a 1 = 2) (h : ∀ n, a 
 -- SEQREFUTED: a concrete far index, computed: a 2023 = 2024
 theorem t_seq_far (a : ℕ → ℝ) (h0 : a 0 = 1) (h : ∀ n, a (n + 1) = a n + 1) : a 2023 = 2023 := by sorry
 
+-- SEQVACUOUS: Verax's example (2026-11-25): a forward polynomial recurrence that stays in ℕ, yet the initial values
+-- contradict it (u 1 = 2 · u 0 = 2, not 3) — no sequence exists; never "existence: recursion"
+theorem t_seq_verax (u : ℕ → ℕ) (h0 : u 0 = 1) (h1 : u 1 = 3) (h : ∀ n, u (n + 1) = 2 * u n) : u 5 = 0 := by sorry
+
 -- WITNESS none: ∃ over a sequence's value — a point at one k is no refutation of ∃ k (the first version said it was)
 theorem t_seq_exists (v : ℕ → ℤ) (h0 : v 0 = 1) (h : ∀ n, v (n + 1) = 3 * v n) : ∃ k, v 10 = k := by sorry
 

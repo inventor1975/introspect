@@ -484,8 +484,16 @@ def read_seq(raw, conv=False, only=None):
                 i = _idx(t.strip())
                 if i is not None and i in vals.get(q.strip(), {}):
                     used.setdefault(q.strip(), {})[str(i)] = zr._end(vals[q.strip()][i])
+            # THE EXISTENCE PREMISE, machine-checked (Verax 2026-11-25: "define 'nothing left unchecked'"):
+            #   forward_recurrence — existence_by_recursion(seqs, rules): one forward rule per sequence, guard r >= c,
+            #     lower indices >= 0, an RHS of + × integer powers (no − into ℕ), so the recursion is total in K;
+            #   unchecked_instances == 0 — every fact and every rule instance up to the prefix was CHECKED true
+            #     (facts sit at concrete indices inside the prefix, so a fact contradicting the recursion is caught);
+            #   then the recursion from the forced initial values IS a sequence satisfying every hypothesis.
+            premise = {"forward_recurrence": rec, "unchecked_instances": len(left)}
             found = {"refuted_at": {n: zr._end(x) for n, x in at.items()}, "values": used,
-                     "existence": "recursion" if rec and not left else "conditional"}
+                     "existence": "recursion" if rec and not left else "conditional", "existence_premise": premise,
+                     "label": "FALSE_FORMAL" if rec and not left else "COUNTEREXAMPLE_IF_SAT"}
             break
     seq = {"seqs": seqs, "points_checked": checked, "existence_by_recursion": rec}
     out = {"translated": True, "claim": c["zfl"], "ztl": "OPEN", "sequence": seq}
